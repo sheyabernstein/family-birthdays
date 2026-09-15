@@ -27,3 +27,24 @@ def test_strips_ordinary_tags_and_trims_surrounding_whitespace():
     html = "  <div><p>Hello <strong>world</strong></p></div>  "
 
     assert html_to_plain_text(html) == "Hello world"
+
+
+def test_decodes_html_entities_left_behind_by_strip_tags():
+    # strip_tags only removes tag markup, never decodes entities - a name
+    # or parents_label containing "&"/an apostrophe survives Django's own
+    # (correct, expected) autoescaping of the source HTML as "&amp;"/
+    # "&#x27;", which strip_tags alone leaves as literal text instead of
+    # the real character a plain-text fallback actually needs.
+    html = "<p>Shloime &amp; Ruchie&#x27;s Leah</p>"
+
+    assert html_to_plain_text(html) == "Shloime & Ruchie's Leah"
+
+
+def test_does_not_treat_an_intentionally_typed_escaped_tag_as_real_markup():
+    # unescape() must run after strip_tags(), not before - if it ran
+    # first, someone's literal, intentionally-typed "&lt;b&gt;" would
+    # become "<b>" text that strip_tags would then wrongly remove as if
+    # it were real markup.
+    html = "<p>Use &lt;b&gt; for bold</p>"
+
+    assert html_to_plain_text(html) == "Use <b> for bold"

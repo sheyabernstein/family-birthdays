@@ -155,7 +155,7 @@ DIASPORA = get_env_bool("DIASPORA", True)
 # not per-address, so an arbitrary per-family local-part just works once
 # this one domain is verified - no per-family provider setup needed.
 EMAIL_SENDING_DOMAIN = os.getenv("EMAIL_SENDING_DOMAIN", "localhost")
-DEFAULT_FROM_EMAIL = f"notifications@{EMAIL_SENDING_DOMAIN}"
+DEFAULT_FROM_EMAIL = f"noreply@{EMAIL_SENDING_DOMAIN}"
 
 _EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
 _EMAIL_USE_TLS = get_env_bool("EMAIL_USE_TLS", True)

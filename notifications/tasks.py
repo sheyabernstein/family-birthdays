@@ -1,6 +1,7 @@
 import datetime as dt
 from collections import defaultdict
 from collections.abc import Iterator
+from html import unescape as unescape_html
 
 from celery import Task, shared_task
 from django.template.loader import render_to_string
@@ -624,7 +625,12 @@ def _render_broadcast_message(
         body = html_to_plain_text(html)
         return _broadcast_subject(broadcast, people), body, html
 
-    plain = " ".join(strip_tags(broadcast.text).split())
+    # unescape() after strip_tags(), not before - see notifications.helpers
+    # .html_to_plain_text's own docstring for why the order matters. Same
+    # entity-leak this fixes there: a broadcast author's "&" survives
+    # nh3-sanitized storage as "&amp;", which strip_tags alone never
+    # decodes back for a plain-text SMS body.
+    plain = unescape_html(" ".join(strip_tags(broadcast.text).split()))
     text = render_to_string("notifications/sms/broadcast.txt", {"text": plain})
     text = _truncate_for_sms(" ".join(text.split()))
     return "", text, ""
