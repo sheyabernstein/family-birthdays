@@ -4,6 +4,7 @@ Pulled out once the same code showed up more than once (see AGENTS.md's
 helpers.py note).
 """
 
+import html
 import re
 
 from django.utils.html import strip_tags
@@ -15,7 +16,7 @@ from notifications.enums import ChannelEnum
 from notifications.models import EventType
 
 
-def html_to_plain_text(html: str) -> str:
+def html_to_plain_text(html_content: str) -> str:
     """Collapses rendered HTML down to a readable plain-text fallback.
 
     Shared by the email/SMS-adjacent body derivation in
@@ -32,9 +33,21 @@ def html_to_plain_text(html: str) -> str:
     real via the sign-in email, but it silently affected every other
     occurrence/broadcast email's plain-text body too, all the way back
     to the HTML template rewrite.
+
+    `html.unescape()` runs after `strip_tags`, never before - strip_tags
+    only recognizes real markup, so unescaping first would turn someone's
+    literal, intentionally-typed "&lt;b&gt;" into "<b>" text that
+    strip_tags would then wrongly treat as a real tag and remove. Running
+    it after is safe: only markup has already been stripped by then, so
+    whatever's left is exactly the entities (a name's "&amp;", a
+    Broadcast author's "&#x27;") that need decoding back to plain
+    characters for a fallback that's read as plain text, not HTML - found
+    via a family name with an "&" in it rendering as literal "&amp;" in
+    the SMS body once the HTML source's own (correct, expected)
+    autoescaping was baked in ahead of this step.
     """
-    html = re.sub(r"<(style|script)\b[^>]*>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE)
-    return re.sub(r"\n\s*\n+", "\n\n", strip_tags(html)).strip()
+    text = re.sub(r"<(style|script)\b[^>]*>.*?</\1>", "", html_content, flags=re.DOTALL | re.IGNORECASE)
+    return html.unescape(re.sub(r"\n\s*\n+", "\n\n", strip_tags(text)).strip())
 
 
 def channel_rows(

@@ -210,6 +210,71 @@ def test_occurrence_sms_renders_a_union_occurrence_with_both_spouses(family, cod
     assert len(body) <= SMS_CHAR_BUDGET
 
 
+def test_occurrence_sms_shows_the_subjects_hebrew_first_name(family):
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
+    person = Person.objects.create(
+        family=family, first_name_en="Blimi", last_name_en="Rokach", first_name_he="בלומא"
+    )
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+
+    assert "(בלומא)" in body
+
+
+def test_occurrence_sms_shows_the_parents_label_even_without_a_naming_collision(family):
+    # Same feature as the email templates (see the email-side test of the
+    # same name) - this was implemented for email only and missed for
+    # SMS entirely until caught here.
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
+    father = Person.objects.create(family=family, first_name_en="Shloime", last_name_en="Rokach")
+    person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach", father=father)
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+
+    assert "Shloime's Blimi" in body
+
+
+def test_occurrence_sms_does_not_html_escape_an_ampersand_in_the_parents_label(family):
+    # Regression: Django's normal template autoescaping was still active
+    # for these plain-text .txt templates, so parents_label's own " & "
+    # (used whenever both parents are shown) rendered as the literal
+    # text "&amp;" in the actual SMS - never actually decoded back for a
+    # channel that's read as plain text, not HTML.
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
+    father = Person.objects.create(family=family, first_name_en="Shloime", last_name_en="Rokach")
+    mother = Person.objects.create(family=family, first_name_en="Bruchele", last_name_en="Rokach")
+    person = Person.objects.create(
+        family=family, first_name_en="Blimi", last_name_en="Rokach", father=father, mother=mother
+    )
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+
+    assert "Shloime & Bruchele's Blimi" in body
+    assert "&amp;" not in body
+    assert "&#x27;" not in body
+
+
 def test_occurrence_sms_falls_back_to_the_default_template(family):
     custom = EventType.objects.create(family=family, code="graduation", name="Graduation")
     occurrence = Occurrence.objects.create(
@@ -421,6 +486,20 @@ def test_broadcast_sms_strips_html_and_stays_within_budget(family):
     assert "<" not in body
     assert len(body) <= SMS_CHAR_BUDGET
     assert body.endswith("…")
+
+
+def test_broadcast_sms_does_not_html_escape_the_authors_own_text(family):
+    # Regression: Broadcast.save() sanitizes text through nh3, which
+    # re-serializes it as valid HTML - an author's own literal "&"
+    # survives that round-trip as the entity "&amp;", which strip_tags()
+    # alone (used to derive the plain SMS body) never decodes back.
+    owner = Account.objects.create_user(email="owner@example.com")
+    broadcast = Broadcast.objects.create(family=family, text="Mazel Tov to John & Jane!", created_by=owner)
+
+    _subject, body, _html = _render_broadcast_message(broadcast, [], channel=Channel.SMS)
+
+    assert "John & Jane" in body
+    assert "&amp;" not in body
 
 
 # --- _truncate_for_sms ---

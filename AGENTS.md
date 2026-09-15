@@ -581,8 +581,27 @@ switching workspaces.
     Parent's FirstName" label, both show on every occurrence email/SMS
     except Broadcast** (`Person.parents_label`, `family.templatetags.
     family_extras.with_hebrew_first_name`, included via
-    `notifications/templates/notifications/email/_parents.html` for
-    both people on a Union-anchored event). Shown unconditionally, not
+    `notifications/templates/notifications/{email/_parents.html,
+    sms/_parents.txt}` for both people on a Union-anchored event). This
+    was actually only ever implemented for email at first - the SMS
+    templates went untouched for a while despite this doc already
+    claiming otherwise, caught later by inspection rather than a test
+    (the email/SMS tests lived in the same file but never cross-checked
+    each other's coverage). Fixing it also surfaced a real, separate,
+    pre-existing bug: these plain-text `.txt` templates still had
+    Django's normal HTML autoescaping active, so `parents_label`'s own
+    " & " rendered as the literal text "&amp;" in an actual SMS - fixed
+    with `{% autoescape off %}` around each template's content. The same
+    class of bug existed independently in `notifications.helpers.
+    html_to_plain_text` (email's plain-text fallback) and the Broadcast
+    SMS body's own inline `strip_tags()` call - `strip_tags()` only
+    removes tag *markup*, it never decodes entities, so a name or
+    Broadcast author's own "&"/apostrophe survived as `&amp;`/`&#x27;`
+    long after HTML tags were gone. Both now run `html.unescape()`
+    *after* `strip_tags()`, never before - unescaping first would turn
+    someone's literal, intentionally-typed "&lt;b&gt;" into "<b>" text
+    that `strip_tags()` would then wrongly treat as real markup and
+    remove. Shown unconditionally, not
     just when a name happens to collide with someone else's - it reads
     as a warm, personal touch either way ("Shloime & Bruchele's Blimi"
     is the way you'd actually refer to someone in a large family
@@ -1505,6 +1524,9 @@ deployable (`publish` in `.github/workflows/ci.yml` builds and pushes an
 image on every push to it), so it stays green by construction: nothing
 lands there that hasn't gone through `lint`/`test` on its own branch
 first.
+
+Never push to git without asking the user first. Never merge a PR on
+your own.
 
 **Commit messages are short and mechanical; the "why" goes in the PR
 description, not the commit.** A commit message says what changed, in
