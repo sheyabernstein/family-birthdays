@@ -72,7 +72,11 @@ def test_occurrence_email_renders_the_persons_own_template_with_an_icon(family, 
     assert "Sari Rokach" in body
     assert "<script" not in html
     assert "data:image/png;base64," in html
-    assert 'href="http://localhost:8000/notifications/"' in html
+    # Not a hardcoded "localhost:8000" - that only ever matched by
+    # coincidence with settings.SITE_BASE_URL's own default, and broke
+    # the moment a real .env set a different value (127.0.0.1 vs
+    # localhost) with no code change at all.
+    assert f'href="{settings.SITE_BASE_URL}/notifications/"' in html
 
 
 @pytest.mark.parametrize(

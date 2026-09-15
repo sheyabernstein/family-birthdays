@@ -4,7 +4,23 @@
     <div class="auth-shell">
         <div class="auth-card">
             <h1>Check your email or phone</h1>
-            <p>If that matches an account, a sign-in link is on its way. It's valid for 15 minutes.</p>
+            <p>If that matches an account, a sign-in link is on its way.</p>
+            {% if identifier %}
+                <dl class="confirm-details">
+                    <div class="confirm-row">
+                        <dt>Sent to</dt>
+                        <dd>
+                            {{ identifier }}
+                        </dd>
+                    </div>
+                    <div class="confirm-row">
+                        <dt>Expires in</dt>
+                        <dd>
+                            {{ ttl_minutes }} minutes
+                        </dd>
+                    </div>
+                </dl>
+            {% endif %}
             <p class="muted">Didn't get it? <a href="{% url 'accounts:request_link' %}">Try again</a>.</p>
         </div>
     </div>

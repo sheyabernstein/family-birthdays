@@ -1,5 +1,7 @@
 import os
 
+from django.core.exceptions import ImproperlyConfigured
+
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
@@ -46,3 +48,24 @@ def get_env_list(key: str, default: list[str] | None = None, delimiter: str = ",
         return default
 
     return [x.strip() for x in val.split(delimiter) if x.strip()]
+
+
+def check_email_security_settings(*, use_tls: bool, use_ssl: bool) -> None:
+    """Rejects EMAIL_USE_TLS and EMAIL_USE_SSL both being True.
+
+    Django's own SMTP backend raises this same contradiction (STARTTLS vs.
+    implicit-TLS-from-the-start are mutually exclusive), but only lazily,
+    the first time an email actually tries to send. Checked here too, at
+    settings-import time, so a bad .env fails loudly at startup instead of
+    silently at the first real send - and so this is actually testable
+    without needing to reload the whole settings module. Both False is a
+    real, working case (plain unencrypted SMTP), not something to guard
+    against here.
+
+    Raises:
+        ImproperlyConfigured: if both are True.
+    """
+    if use_tls and use_ssl:
+        raise ImproperlyConfigured(
+            "EMAIL_USE_TLS and EMAIL_USE_SSL are mutually exclusive - set at most one."
+        )

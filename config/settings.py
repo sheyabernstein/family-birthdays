@@ -6,7 +6,7 @@ from pathlib import Path
 from celery.schedules import crontab
 from dotenv import load_dotenv
 
-from config.helpers import get_env_bool, get_env_int, get_env_list
+from config.helpers import check_email_security_settings, get_env_bool, get_env_int, get_env_list
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 if (env_path := BASE_DIR / ".env").exists():
@@ -28,7 +28,6 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "django.contrib.sites",
     "django_celery_results",
     "reversion",
     "accounts",
@@ -37,17 +36,18 @@ INSTALLED_APPS = [
     "notifications",
 ]
 
-# --- Sites framework ---
-# Used for exactly one thing: building an absolute URL to a static asset
-# (the event-type icons - see notifications/services.py) for HTML emails,
-# where a relative /static/... URL means nothing to the recipient's mail
-# client. The Site row itself (domain/name) is seeded by a migration from
-# SITE_DOMAIN below, and from then on is ordinary admin-editable data
-# (Django admin's own "Sites" section) - not re-read from the environment
-# on every request.
-SITE_ID = 1
-SITE_DOMAIN = os.getenv("SITE_DOMAIN", "localhost:8000")
-SITE_USE_HTTPS = get_env_bool("SITE_USE_HTTPS", default=not DEBUG)
+# The scheme+host this app is served at, used to build absolute URLs with
+# no request in play (a Celery-rendered email's "Manage notification
+# settings" link - see notifications.services.absolute_url). A single
+# "proto://fqdn" setting rather than a separate domain + use-https flag -
+# one value to get right instead of two that have to agree, and no
+# separate django.contrib.sites/DB row needed for something that's really
+# just static per-deployment config, not admin-editable data - changing
+# the real domain already means updating ALLOWED_HOSTS/DNS/TLS too, all of
+# which need a redeploy regardless, so a DB row that could be edited
+# independently bought nothing. Stored with no trailing slash so building
+# a path onto it is always a plain concatenation.
+SITE_BASE_URL = os.getenv("SITE_BASE_URL", "http://localhost:8000").rstrip("/")
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -146,7 +146,7 @@ DIASPORA = get_env_bool("DIASPORA", True)
 # --- Email ---
 # One shared domain every family's own sender address is built from - see
 # tenants.models.Family.sender_email (noreply-{slug}@this). Deliberately
-# not SITE_DOMAIN (config/settings.py's own "the app is served at" value,
+# not SITE_BASE_URL (config/settings.py's own "the app is served at" value,
 # used for building links/static URLs) - the two are legitimately
 # different concerns (this app's own dev default, "localhost:8000", isn't
 # even a valid email domain, and in production the sending domain is often
@@ -158,6 +158,9 @@ EMAIL_SENDING_DOMAIN = os.getenv("EMAIL_SENDING_DOMAIN", "localhost")
 DEFAULT_FROM_EMAIL = f"notifications@{EMAIL_SENDING_DOMAIN}"
 
 _EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+_EMAIL_USE_TLS = get_env_bool("EMAIL_USE_TLS", True)
+_EMAIL_USE_SSL = get_env_bool("EMAIL_USE_SSL", False)
+check_email_security_settings(use_tls=_EMAIL_USE_TLS, use_ssl=_EMAIL_USE_SSL)
 MAILERS = {
     "default": {
         "BACKEND": _EMAIL_BACKEND,
@@ -167,7 +170,14 @@ MAILERS = {
                 "port": get_env_int("EMAIL_PORT", 587),
                 "username": os.getenv("EMAIL_HOST_USER", ""),
                 "password": os.getenv("EMAIL_HOST_PASSWORD", ""),
-                "use_tls": get_env_bool("EMAIL_USE_TLS", True),
+                # Both False is a real, working case (plain unencrypted
+                # SMTP - e.g. a local smtp-proxy sidecar that already
+                # terminates TLS to the real provider itself), not
+                # something to guess a "sensible" default away from -
+                # Django's own SMTP backend falls back to port 25 for
+                # exactly this combination.
+                "use_tls": _EMAIL_USE_TLS,
+                "use_ssl": _EMAIL_USE_SSL,
             }
             if _EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend"
             else {}

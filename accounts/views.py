@@ -4,7 +4,6 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
-from django.urls import reverse
 from django.views import View
 
 from accounts import magic_links
@@ -13,7 +12,7 @@ from accounts.helpers import validate_email_address
 from accounts.models import Account
 from config.logging_config import logger
 from notifications.helpers import html_to_plain_text
-from notifications.services import send_email, send_sms
+from notifications.services import absolute_url, send_email, send_sms
 from tenants.mixins import FamilyRequiredMixin
 from tenants.models import Family
 
@@ -40,6 +39,10 @@ class RequestMagicLinkView(View):
     def post(self, request: HttpRequest) -> HttpResponse:
         identifier = request.POST.get("identifier", "")
         account = Account.find_by_identifier(identifier)
+        # A fixed app-wide constant, not per-request state - safe to show
+        # on the confirmation page unconditionally, same as the identifier
+        # itself, regardless of whether a link was actually issued below.
+        ttl_minutes = magic_links.TOKEN_TTL_SECONDS // 60
 
         if account and account.is_active:
             if not magic_links.is_rate_limited(account.pk):
@@ -51,8 +54,17 @@ class RequestMagicLinkView(View):
                 token = magic_links.issue_token(
                     account_id=account.pk, channel=channel, destination=destination
                 )
-                url = request.build_absolute_uri(reverse("accounts:verify", args=[token]))
-                ttl_minutes = magic_links.TOKEN_TTL_SECONDS // 60
+                # Not request.build_absolute_uri() - that derives the scheme
+                # from request.is_secure(), which is only ever True if
+                # Django itself terminates TLS. This app never does (TLS is
+                # terminated upstream, by a reverse proxy - see AGENTS.md),
+                # so that always evaluated to plain http:// regardless of
+                # how the site's actually served - a real bug, not
+                # hypothetical. absolute_url() uses SITE_BASE_URL directly
+                # instead, the same source of truth every other
+                # request-less absolute URL in this app already uses (see
+                # notifications.services._site_base_url).
+                url = absolute_url("accounts:verify", token)
 
                 if channel == Account.Channel.EMAIL:
                     html = render_to_string(
@@ -85,7 +97,12 @@ class RequestMagicLinkView(View):
 
         # Same response whether or not the identifier matched a real
         # account - don't leak which emails/phones are registered.
-        return render(request, "accounts/link_sent.html")
+        # Echoing the identifier back is safe regardless - it's just what
+        # they themselves typed a moment ago, not anything about whether
+        # it matched a real account.
+        return render(
+            request, "accounts/link_sent.html", {"identifier": identifier, "ttl_minutes": ttl_minutes}
+        )
 
 
 class VerifyMagicLinkView(View):
