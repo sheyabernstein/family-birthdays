@@ -19,6 +19,7 @@ from config.logging_config import logger  # noqa: E402,F401
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me-in-.env")
 DEBUG = get_env_bool("DEBUG", False)
 ALLOWED_HOSTS = get_env_list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+CSRF_TRUSTED_ORIGINS = get_env_list("CSRF_TRUSTED_ORIGINS", default=[])
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -94,6 +95,7 @@ DATABASES = {
         "PASSWORD": os.getenv("POSTGRES_PASSWORD", "family_birthdays"),
         "HOST": os.getenv("POSTGRES_HOST", "localhost"),
         "PORT": get_env_int("POSTGRES_PORT", 5432),
+        "OPTIONS": {"sslmode": os.getenv("POSTGRES_SSLMODE", "prefer")},
     }
 }
 

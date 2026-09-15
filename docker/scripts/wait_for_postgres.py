@@ -12,6 +12,7 @@ PORT = get_env_int("POSTGRES_PORT", 5432)
 USER = os.getenv("POSTGRES_USER")
 PASS = os.getenv("POSTGRES_PASSWORD")
 DATABASE = os.getenv("POSTGRES_DB")
+SSLMODE = os.getenv("POSTGRES_SSLMODE", "prefer")
 
 MAX_TRIES = get_env_int("WAIT_FOR_POSTGRES_MAX_TRIES", default=10)
 SLEEP_BETWEEN = get_env_int("WAIT_FOR_POSTGRES_SLEEP_BETWEEN", default=2)
@@ -34,6 +35,7 @@ def _check_connection() -> Exception | None:
             password=PASS,
             database=DATABASE,
             connect_timeout=SLEEP_BETWEEN,
+            sslmode=SSLMODE,
         )
     except Exception as exc:  # noqa: BLE001 — intentionally broad catch
         return exc
