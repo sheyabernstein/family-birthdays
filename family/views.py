@@ -1,0 +1,600 @@
+import datetime as dt
+import itertools
+from typing import Any
+
+from django import forms
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import models
+from django.db.models import QuerySet
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404
+from django.urls import reverse, reverse_lazy
+from django.utils import timezone
+from django.views import View
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
+
+from family.access import can_see_birth_year, person_is_visible, visible_people_queryset
+from family.forms import PersonForm, UnionEditForm, UnionForm
+from family.hebrew import gregorian_to_hebrew
+from family.history import person_history
+from family.models import Person, Union
+from family.tree_chart import build_chart_data
+from notifications.audience import PreferenceResolver, available_channels
+from notifications.helpers import channel_rows
+from notifications.models import EventType, Occurrence
+from notifications.tasks import (
+    compute_occurrences_for_person,
+    compute_occurrences_for_union,
+    person_has_passed_coming_of_age,
+    union_is_eligible_for_notifications,
+)
+from tenants.mixins import (
+    FamilyEditorRequiredMixin,
+    FamilyOwnerRequiredMixin,
+    FamilyRequiredMixin,
+    FamilyScopedMixin,
+)
+from tenants.models import FamilyMembership
+
+
+class HelpView(LoginRequiredMixin, TemplateView):
+    """Reference documentation, not an onboarding flow.
+
+    Reachable any time from the nav, not shown automatically on first
+    login. Login-required only (not FamilyRequiredMixin), since it needs
+    to be usable before someone has created or joined their first family -
+    exactly when the "everyone" section matters most. The owner/editor
+    section is gated the same way every other role-specific block in this
+    app is (request.family_role is None, not an error, when there's no
+    current family - see CurrentFamilyMiddleware).
+    """
+
+    template_name = "family/help.html"
+
+
+class GregorianToHebrewView(LoginRequiredMixin, View):
+    """AJAX-only: converts a Gregorian date to its Hebrew equivalent.
+
+    Lets a create/edit form's Hebrew year/month/day fields be *prefilled*
+    as a convenience while someone's filling in the Gregorian date next to
+    them. Login-required only, like HelpView - this is pure calendar
+    math, not family data, so it doesn't need FamilyRequiredMixin.
+
+    This is deliberately just a prefill, never authoritative - see
+    AGENTS.md's "two calendars are recorded independently, never
+    derived" rule. The conversion is ambiguous whenever the actual event
+    happened after sunset (the Hebrew date has already advanced by then),
+    which only whoever's entering the data can judge - the frontend
+    (person_form.html/union_form.html via hebrew_autofill.js) only ever
+    calls this when the Hebrew fields are still empty, so it can never
+    clobber a value someone already typed in, and always leaves the
+    result editable rather than locking it in.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request: HttpRequest) -> JsonResponse:
+        raw_date = request.POST.get("date")
+        try:
+            gregorian_date = dt.date.fromisoformat(raw_date)
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "Invalid or missing date."}, status=400)
+
+        hebrew_date = gregorian_to_hebrew(gregorian_date)
+        return JsonResponse(
+            {
+                "year": hebrew_date.year,
+                "month": hebrew_date.month.value,
+                "day": hebrew_date.day,
+            }
+        )
+
+
+class DashboardView(FamilyRequiredMixin, TemplateView):
+    template_name = "family/dashboard.html"
+
+    def get_context_data(self, **kwargs) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        request = self.request
+
+        # Everyone in the family is notified about everything by default,
+        # so "upcoming" is just this family's occurrences, minus whatever
+        # this account has muted. Pull a generous batch before trimming to
+        # 20, since the mute check happens in Python per row.
+        # Ordered explicitly by (send_date, occurrence_date, event_type
+        # name) rather than relying on Occurrence.Meta's own default
+        # ordering - the third key keeps multiple event types sharing a
+        # timeline point (below) in a stable, predictable order instead
+        # of whatever incidental order the DB happens to return them in.
+        # send_date__gte=today OR is_sent=False, not send_date__gte alone -
+        # matches send_due_notifications' own self-healing philosophy
+        # (send_date can legitimately land in the past: a missed run, or a
+        # same-day Shabbat/Yom Tov shift). An occurrence stuck unsent with a
+        # past send_date is still real and about to send - it shouldn't
+        # silently vanish from "Upcoming".
+        candidates = list(
+            Occurrence.objects.filter(models.Q(send_date__gte=timezone.localdate()) | models.Q(is_sent=False))
+            .filter(
+                models.Q(person__family=request.family)
+                | models.Q(union__person_a__family=request.family)
+                | models.Q(union__person_b__family=request.family)
+            )
+            .select_related("person", "union", "union__person_a", "union__person_b", "event_type")
+            .order_by("send_date", "occurrence_date", "event_type__name")[:100]
+        )
+
+        # One preference/immediate-family batch load for this account across
+        # every candidate below, instead of channels_for_account's own 2-4
+        # queries repeated per candidate (up to 100 of them) - see
+        # notifications.audience.PreferenceResolver and AGENTS.md's note on
+        # this page's query cost. Scoped to whichever families actually show
+        # up among the candidates already fetched above (a union can pull in
+        # an in-law's other family), not just request.family.
+        family_ids = set()
+        for occurrence in candidates:
+            if occurrence.person is not None:
+                family_ids.add(occurrence.person.family_id)
+            else:
+                family_ids.add(occurrence.union.person_a.family_id)
+                family_ids.add(occurrence.union.person_b.family_id)
+        resolver = PreferenceResolver(account_ids=[request.user.id], family_ids=family_ids)
+
+        upcoming = []
+        for occurrence in candidates:
+            if resolver.channels_for_account(
+                request.user, occurrence.event_type, person=occurrence.person, union=occurrence.union
+            ):
+                upcoming.append(occurrence)
+            if len(upcoming) >= 20:
+                break
+
+        # Grouped by (send_date, occurrence_date) - not send_date alone -
+        # for the timeline's one-point-per-date display: two different
+        # people's occurrences can share a send_date by coincidence (e.g.
+        # independent Shabbat/Yom Tov shifts landing on the same day)
+        # without sharing an occurrence_date, and grouping on send_date
+        # alone would show one of them under the wrong Hebrew date. Safe
+        # to group adjacent-only (itertools.groupby, not a sort+group) -
+        # Occurrence.Meta.ordering is already ["send_date",
+        # "occurrence_date"], so equal keys are already contiguous.
+        context["upcoming_groups"] = [
+            {"send_date": send_date, "occurrence_date": occurrence_date, "occurrences": list(group)}
+            for (send_date, occurrence_date), group in itertools.groupby(
+                upcoming, key=lambda occurrence: (occurrence.send_date, occurrence.occurrence_date)
+            )
+        ]
+        return context
+
+
+class PersonListView(FamilyRequiredMixin, ListView):
+    """Lists this family's people, hiding lineage-only stubs by default.
+
+    Lineage-only stubs (notifications_enabled=False - see
+    Person.notifications_enabled) are hidden by default: they're
+    ancestors recorded for the tree, not people anyone's looking someone
+    up by name to find. An editor/owner can still reveal them here via
+    ?show_untracked=1 - everyone else can still reach one through the
+    tree or a tracked relation's profile, neither of which filters on
+    this.
+    """
+
+    model = Person
+    template_name = "family/person_list.html"
+    context_object_name = "people"
+
+    def _can_show_untracked(self) -> bool:
+        return self.request.family_role in FamilyMembership.EDITOR_ROLES
+
+    def get_queryset(self) -> QuerySet[Person]:
+        people = Person.objects.filter(family=self.request.family)
+        if not (self._can_show_untracked() and self.request.GET.get("show_untracked")):
+            people = people.filter(notifications_enabled=True)
+        query = self.request.GET.get("q", "").strip()
+        if query:
+            people = people.filter(
+                models.Q(first_name_en__icontains=query)
+                | models.Q(last_name_en__icontains=query)
+                | models.Q(nickname__icontains=query)
+                | models.Q(first_name_he__icontains=query)
+                | models.Q(last_name_he__icontains=query)
+            )
+        return people
+
+    def get_context_data(self, **kwargs) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["query"] = self.request.GET.get("q", "").strip()
+        context["can_show_untracked"] = self._can_show_untracked()
+        context["show_untracked"] = self._can_show_untracked() and bool(
+            self.request.GET.get("show_untracked")
+        )
+        return context
+
+
+class PersonDetailView(FamilyRequiredMixin, DetailView):
+    model = Person
+    template_name = "family/person_detail.html"
+    context_object_name = "person"
+    slug_field = "uuid"
+    slug_url_kwarg = "uuid"
+
+    def get_object(self, queryset: QuerySet[Person] | None = None) -> Person:
+        person = super().get_object(queryset)
+        if not person_is_visible(person, self.request.family):
+            raise Http404
+        return person
+
+    def get_context_data(self, **kwargs) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        request = self.request
+        person = self.object
+
+        context["can_see_birth_year"] = can_see_birth_year(
+            person,
+            can_edit=request.family_permissions.can_edit,
+            viewer_account_id=request.user.id,
+        )
+
+        children = (
+            Person.objects.filter(models.Q(father=person) | models.Q(mother=person))
+            .distinct()
+            .order_by("dob_gregorian")
+        )
+        unions = list(
+            Union.objects.filter(models.Q(person_a=person) | models.Q(person_b=person)).select_related(
+                "person_a", "person_b"
+            )
+        )
+        for union in unions:
+            union.other_person = union.other(person)
+
+        my_channels = available_channels(request.user)
+
+        available_event_types = EventType.objects.filter(
+            models.Q(family__isnull=True) | models.Q(family=request.family)
+        )
+
+        # Everyone starts notified about everything - a channel shows up
+        # here at all once it has a usable destination and isn't switched
+        # off globally; "subscribed" reflects whether it's muted, not
+        # whether anyone opted in.
+        # An untracked person (notifications_enabled=False - a lineage-
+        # only stub, see AGENTS.md) never gets events computed for them
+        # at all (notifications.tasks._subject_pairs), so offering
+        # toggles here would just be dead controls - see the "Notify me"
+        # card's own untracked-specific message in person_detail.html for
+        # what an owner/editor sees instead.
+        event_rows = []
+        if person.notifications_enabled:
+            for event_type in available_event_types.filter(applies_to_union=False):
+                # Broadcast has no per-person override - see
+                # NotificationPreference.clean() and AGENTS.md - so it
+                # never gets a toggle here, only the whole-type mute on
+                # My Notifications (notifications.views.SubscriptionsView).
+                if event_type.code == EventType.BuiltinCode.BROADCAST:
+                    continue
+                if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
+                    continue
+                # Symmetric to the DEATH-anchor check above: once someone has
+                # died there's no more birthday (or bar/bat mitzvah) to
+                # celebrate, only the yahrzeit - see notifications.tasks for
+                # the matching check in the actual scheduling logic.
+                if event_type.anchor == EventType.Anchor.BIRTH and not person.is_living:
+                    continue
+                # These only ever apply to one gender, and stop being relevant
+                # once that birthday has already passed - no point offering a
+                # bar mitzvah toggle on a woman's page, or a 40-year-old's.
+                if event_type.code == EventType.BuiltinCode.BAR_MITZVAH:
+                    if person.gender != Person.Gender.MALE:
+                        continue
+                    if person_has_passed_coming_of_age(person):
+                        continue
+                if event_type.code == EventType.BuiltinCode.BAT_MITZVAH:
+                    if person.gender != Person.Gender.FEMALE:
+                        continue
+                    if person_has_passed_coming_of_age(person):
+                        continue
+                channels = channel_rows(request.user, event_type, my_channels, person=person)
+                event_rows.append({"event_type": event_type, "channels": channels})
+
+        union_event_types = list(available_event_types.filter(applies_to_union=True))
+        union_rows = []
+        for union in unions:
+            # Covers "not married", "either spouse has died" (no stored
+            # "widowed" flip required - same reasoning as Union.is_upcoming
+            # for engagements), and "either spouse is untracked" - none of
+            # these ever get an Occurrence computed (notifications.tasks),
+            # so a toggle here would be a dead control either way.
+            if not union_is_eligible_for_notifications(union):
+                continue
+            for event_type in union_event_types:
+                # Wedding is only relevant before the wedding itself has
+                # happened; Anniversary is the reverse - there's nothing
+                # to celebrate the anniversary of yet. Same "stop/start
+                # being relevant" pattern as the bar/bat mitzvah gating
+                # above, just keyed on the wedding date instead of age.
+                if event_type.code == EventType.BuiltinCode.WEDDING and not union.is_upcoming:
+                    continue
+                if event_type.code == EventType.BuiltinCode.ANNIVERSARY and union.is_upcoming:
+                    continue
+                channels = channel_rows(request.user, event_type, my_channels, union=union)
+                union_rows.append({"union": union, "event_type": event_type, "channels": channels})
+
+        has_any_channel = bool(my_channels)
+
+        context.update(
+            {
+                "children": children,
+                "unions": unions,
+                "event_rows": event_rows,
+                "union_rows": union_rows,
+                "has_any_channel": has_any_channel,
+            }
+        )
+        if request.family_role in FamilyMembership.EDITOR_ROLES:
+            context["history_events"] = person_history(person, unions=unions)
+        return context
+
+
+class FamilyTreeView(FamilyRequiredMixin, DetailView):
+    """Renders the full family tree via the family-chart JS library.
+
+    Every ancestor and descendant generation is included, not just
+    grandparents/grandchildren, via the family-chart JS library instead
+    of a hand-rolled CSS org-chart - see family/tree_chart.py for how the
+    data gets built and templates/family/family_tree.html for the
+    library setup.
+    """
+
+    model = Person
+    template_name = "family/family_tree.html"
+    context_object_name = "person"
+    slug_field = "uuid"
+    slug_url_kwarg = "uuid"
+
+    def get_object(self, queryset: QuerySet[Person] | None = None) -> Person:
+        person = super().get_object(queryset)
+        if not person_is_visible(person, self.request.family):
+            raise Http404
+        return person
+
+    def get_context_data(self, **kwargs) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        people = visible_people_queryset(self.request.family).select_related("father", "mother")
+        context["chart_data"] = build_chart_data(
+            people, main_person=self.object, editable_family_id=self.request.family.id
+        )
+        context["can_edit_tree"] = self.request.family_role in FamilyMembership.EDITOR_ROLES
+        return context
+
+
+class PersonCreateView(FamilyEditorRequiredMixin, CreateView):
+    """Creates a person - also the landing point for the tree's "+ Add" placeholders.
+
+    The family tree's "+ Add father/mother/child" placeholders (see
+    family_tree.html) land here too: `father`/`mother` in the query
+    string prefill those fields directly since they're real fields on the
+    person being created (the "add a child" case), while
+    `link_as`+`link_of` handle the reverse direction (the "add a
+    father/mother" case, where the *new* person isn't the one that owns
+    the relationship) by linking the existing anchor person's
+    father/mother field to the newly created person after saving.
+    """
+
+    model = Person
+    form_class = PersonForm
+    template_name = "family/person_form.html"
+
+    def _link_as(self) -> str | None:
+        link_as = self.request.POST.get("link_as") or self.request.GET.get("link_as")
+        return link_as if link_as in ("father", "mother") else None
+
+    def _link_of(self) -> Person | None:
+        link_of = self.request.POST.get("link_of") or self.request.GET.get("link_of")
+        if not link_of:
+            return None
+        return get_object_or_404(Person, uuid=link_of, family=self.request.family)
+
+    def get_form_kwargs(self) -> dict[str, Any]:
+        kwargs = super().get_form_kwargs()
+        kwargs["family"] = self.request.family
+        return kwargs
+
+    def get_initial(self) -> dict[str, Any]:
+        initial = super().get_initial()
+        for field in ("father", "mother"):
+            person_uuid = self.request.GET.get(field)
+            if person_uuid:
+                initial[field] = get_object_or_404(Person, uuid=person_uuid, family=self.request.family).pk
+
+        link_as = self._link_as()
+        if link_as == "father":
+            initial["gender"] = Person.Gender.MALE
+        elif link_as == "mother":
+            initial["gender"] = Person.Gender.FEMALE
+        return initial
+
+    def get_context_data(self, **kwargs) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["link_as"] = self._link_as()
+        context["link_of"] = self._link_of()
+        context["next_url"] = self.request.GET.get("next", "")
+        return context
+
+    def form_valid(self, form: PersonForm) -> HttpResponse:
+        response = super().form_valid(form)
+        compute_occurrences_for_person(self.object)
+
+        link_as = self._link_as()
+        anchor = self._link_of()
+        if link_as and anchor is not None:
+            setattr(anchor, link_as, self.object)
+            anchor.save(update_fields=[link_as])
+            compute_occurrences_for_person(anchor)
+            messages.success(
+                self.request, f"Added {form.instance.display_name} as {anchor.display_name}'s {link_as}."
+            )
+        else:
+            messages.success(self.request, f"Added {form.instance.display_name}.")
+        return response
+
+    def get_success_url(self) -> str:
+        return self.request.POST.get("next") or reverse("family:person_detail", args=[self.object.uuid])
+
+
+class PersonUpdateView(FamilyScopedMixin, FamilyEditorRequiredMixin, UpdateView):
+    """Editing is narrower than viewing: only this family's own records.
+
+    Not an in-law visible only through a Union - see FamilyScopedMixin.
+    """
+
+    model = Person
+    form_class = PersonForm
+    template_name = "family/person_form.html"
+    slug_field = "uuid"
+    slug_url_kwarg = "uuid"
+    family_lookup = "family"
+
+    def get_form_kwargs(self) -> dict[str, Any]:
+        kwargs = super().get_form_kwargs()
+        kwargs["family"] = self.request.family
+        return kwargs
+
+    def form_valid(self, form: PersonForm) -> HttpResponse:
+        response = super().form_valid(form)
+        # Dates may have changed (or been added for the first time), so
+        # recompute rather than trust whatever was there before.
+        compute_occurrences_for_person(self.object)
+        # A death date just recorded here also changes whether this
+        # person's own marriage(s) still get an Anniversary - see the
+        # both-spouses-living check in notifications.tasks - so those
+        # need recomputing immediately too, not just on the nightly sweep.
+        unions = Union.objects.filter(
+            models.Q(person_a=self.object) | models.Q(person_b=self.object)
+        ).select_related("person_a", "person_b")
+        for union in unions:
+            compute_occurrences_for_union(union)
+        messages.success(self.request, f"Saved changes to {form.instance.display_name}.")
+        return response
+
+    def get_success_url(self) -> str:
+        return reverse("family:person_detail", args=[self.object.uuid])
+
+
+class PersonDeleteView(FamilyScopedMixin, FamilyOwnerRequiredMixin, DeleteView):
+    model = Person
+    template_name = "family/person_confirm_delete.html"
+    success_url = reverse_lazy("family:person_list")
+    slug_field = "uuid"
+    slug_url_kwarg = "uuid"
+    family_lookup = "family"
+
+    def form_valid(self, form: forms.Form) -> HttpResponse:
+        messages.success(self.request, f"Removed {self.object.display_name} from the family.")
+        return super().form_valid(form)
+
+
+class UnionCreateView(FamilyEditorRequiredMixin, CreateView):
+    model = Union
+    form_class = UnionForm
+    template_name = "family/union_form.html"
+
+    def dispatch(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        # The anchor person must be in your own family - you can't
+        # unilaterally add a marriage onto someone else's ledger entry.
+        self.person_a = get_object_or_404(Person, uuid=kwargs["person_uuid"], family=request.family)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self) -> dict[str, Any]:
+        kwargs = super().get_form_kwargs()
+        kwargs["person_a"] = self.person_a
+        kwargs["family"] = self.request.family
+        return kwargs
+
+    def get_context_data(self, **kwargs) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["person_a"] = self.person_a
+        existing_unions = list(
+            Union.objects.filter(
+                models.Q(person_a=self.person_a) | models.Q(person_b=self.person_a)
+            ).select_related("person_a", "person_b")
+        )
+        for union in existing_unions:
+            union.other_person = union.other(self.person_a)
+        context["existing_unions"] = existing_unions
+        context["union_status_choices"] = Union.Status.choices
+        context["next_url"] = self.request.GET.get("next", "")
+        return context
+
+    def form_valid(self, form: UnionForm) -> HttpResponse:
+        response = super().form_valid(form)
+        compute_occurrences_for_union(self.object)
+        self._apply_existing_union_status_updates()
+        messages.success(
+            self.request,
+            f"Added {form.instance.person_b.display_name} as {self.person_a.display_name}'s spouse.",
+        )
+        return response
+
+    def _apply_existing_union_status_updates(self) -> None:
+        # Adding a new spouse is exactly the moment a prior marriage's
+        # status needs updating (divorced, widowed) - offer it inline
+        # instead of making that a separate trip to the edit page.
+        valid_statuses = {choice for choice, _ in Union.Status.choices}
+        existing = Union.objects.filter(
+            models.Q(person_a=self.person_a) | models.Q(person_b=self.person_a)
+        ).exclude(pk=self.object.pk)
+        for union in existing:
+            new_status = self.request.POST.get(f"existing_union_status_{union.uuid}")
+            if new_status in valid_statuses and new_status != union.status:
+                union.status = new_status
+                union.save(update_fields=["status"])
+                # A status change (e.g. into or out of "married") changes
+                # whether this union should have anniversary occurrences.
+                compute_occurrences_for_union(union)
+
+    def get_success_url(self) -> str:
+        return self.request.POST.get("next") or reverse("family:person_detail", args=[self.person_a.uuid])
+
+
+class UnionUpdateView(FamilyScopedMixin, FamilyEditorRequiredMixin, UpdateView):
+    """Either side's family can keep a shared marriage record accurate.
+
+    See FamilyScopedMixin's family_lookup list.
+    """
+
+    model = Union
+    form_class = UnionEditForm
+    template_name = "family/union_form.html"
+    slug_field = "uuid"
+    slug_url_kwarg = "uuid"
+    family_lookup = ["person_a__family", "person_b__family"]
+
+    def get_context_data(self, **kwargs) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["person_a"] = self.object.person_a
+        return context
+
+    def form_valid(self, form: UnionEditForm) -> HttpResponse:
+        response = super().form_valid(form)
+        compute_occurrences_for_union(self.object)
+        messages.success(self.request, "Saved changes to the marriage.")
+        return response
+
+    def get_success_url(self) -> str:
+        return reverse("family:person_detail", args=[self.object.person_a.uuid])
+
+
+class UnionDeleteView(FamilyScopedMixin, FamilyOwnerRequiredMixin, DeleteView):
+    model = Union
+    template_name = "family/union_confirm_delete.html"
+    slug_field = "uuid"
+    slug_url_kwarg = "uuid"
+    family_lookup = ["person_a__family", "person_b__family"]
+
+    def get_success_url(self) -> str:
+        return reverse("family:person_detail", args=[self.object.person_a.uuid])
+
+    def form_valid(self, form: forms.Form) -> HttpResponse:
+        messages.success(self.request, "Removed the marriage record.")
+        return super().form_valid(form)

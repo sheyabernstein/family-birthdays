@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% load static form_extras %}
+{% block title %}{% if object %}Edit marriage{% else %}Add a spouse for {{ person_a.display_name }}{% endif %} - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>{% if object %}Edit {{ person_a.display_name }} &amp; {{ object.person_b.display_name }}'s marriage{% else %}Add a spouse for {{ person_a.display_name }}{% endif %}</h1>
+    </div>
+    {% if form.non_field_errors %}
+        <div class="form-errors">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <p class="required-legend">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
+    <form method="post">
+        {% csrf_token %}
+        {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+        {% if existing_unions %}
+            <div class="card form-section">
+                <h2>Existing marriage{{ existing_unions|length|pluralize }}</h2>
+                <p class="help-text">Adding a new spouse? Update {{ person_a.display_name }}'s existing marriage status here if it's changed.</p>
+                {% for union in existing_unions %}
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label>{{ union.other_person.display_name }}</label>
+                            <select name="existing_union_status_{{ union.uuid }}">
+                                {% for value, label in union_status_choices %}
+                                    <option value="{{ value }}"
+                                            {% if value == union.status %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        {% if form.existing_spouse %}
+            <div class="card form-section">
+                <h2>Who</h2>
+                <div class="form-field">
+                    {% field_label form.existing_spouse %}{{ form.existing_spouse }}{{ form.existing_spouse.errors }}
+                </div>
+                <p class="help-text">Already in this family? Pick them above. Otherwise, enter their name below and a new record will be created for them.</p>
+                <div class="form-row" style="margin-top: 0.75rem;">
+                    <div class="form-field">{% field_label form.new_spouse_first_name_en %}{{ form.new_spouse_first_name_en }}</div>
+                    <div class="form-field">{% field_label form.new_spouse_last_name_en %}{{ form.new_spouse_last_name_en }}</div>
+                </div>
+            </div>
+        {% endif %}
+        <div class="card form-section">
+            <h2>Marriage</h2>
+            <div class="form-row">
+                <div class="form-field">
+                    {% field_label form.status %}{{ form.status }}
+                    <p class="help-text">{{ form.status.help_text }}</p>
+                </div>
+                <div class="form-field">{% field_label form.marriage_date_gregorian %}{{ form.marriage_date_gregorian }}</div>
+            </div>
+            <div class="form-row">
+                <div class="form-field">
+                    {% field_label form.marriage_hebrew_year %}{{ form.marriage_hebrew_year }}
+                    <p class="help-text">{{ form.marriage_hebrew_year.help_text }}</p>
+                </div>
+                <div class="form-field">{% field_label form.marriage_hebrew_month %}{{ form.marriage_hebrew_month }}</div>
+                <div class="form-field">{% field_label form.marriage_hebrew_day %}{{ form.marriage_hebrew_day }}</div>
+            </div>
+            <p id="marriage-hebrew-autofill-note"
+               class="autofill-note warning-icon"
+               hidden>Prefilled from the Gregorian date above - double check it, especially if the wedding was after sunset (the Hebrew date may have already advanced to the next day).</p>
+            {% if form.divorce_date_gregorian %}
+                <div class="form-row">
+                    <div class="form-field">{% field_label form.divorce_date_gregorian %}{{ form.divorce_date_gregorian }}</div>
+                </div>
+            {% endif %}
+        </div>
+        <button type="submit"
+                class="btn"
+                title="{% if object %}Save changes to this marriage{% else %}Add this spouse for {{ person_a.display_name }}{% endif %}">{% if object %}Save changes{% else %}Add spouse{% endif %}</button>
+        <a class="btn btn-outline"
+           href="{% url 'family:person_detail' person_a.uuid %}">Cancel</a>
+    </form>
+    {% if form.existing_spouse %}
+        <link rel="stylesheet"
+              href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css">
+        <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+        <script src="{% static 'family/js/person_picker.js' %}"></script>
+        <script>initPersonPicker("#id_existing_spouse");</script>
+    {% endif %}
+    <script src="{% static 'family/js/hebrew_autofill.js' %}"></script>
+    <script>
+    initHebrewAutofill("{% url 'family:gregorian_to_hebrew' %}", [
+      {
+        gregorianId: "id_marriage_date_gregorian",
+        yearId: "id_marriage_hebrew_year",
+        monthId: "id_marriage_hebrew_month",
+        dayId: "id_marriage_hebrew_day",
+        noteId: "marriage-hebrew-autofill-note",
+      },
+    ]);
+    </script>
+{% endblock %}

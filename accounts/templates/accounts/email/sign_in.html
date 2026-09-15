@@ -1,0 +1,27 @@
+{% extends "email/_base.html" %}
+{% block title %}Sign in - Family Tree{% endblock %}
+{% block body %}
+    <p style="margin: 0 0 20px;">Click the button below to sign in.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+            <td class="btn-email-bg" style="border-radius: 4px;">
+                <a href="{{ sign_in_url }}"
+                   class="btn-email-text"
+                   style="display: inline-block;
+                          padding: 12px 28px;
+                          font-size: 16px;
+                          font-weight: 600;
+                          text-decoration: none">Sign in</a>
+            </td>
+        </tr>
+    </table>
+    <p class="muted" style="font-size: 13px; margin: 20px 0 0;">
+        Or paste this link into your browser:
+        <br>
+        <a href="{{ sign_in_url }}" style="word-break: break-all;">{{ sign_in_url }}</a>
+    </p>
+    <p class="muted" style="font-size: 13px; margin: 16px 0 0;">
+        This link expires in {{ ttl_minutes }} minutes and can only be used once. If you didn't request it, you can ignore this email.
+    </p>
+{% endblock %}
+{% block footer %}Sent by {{ family_name|default:"Family Tree" }}.{% endblock %}

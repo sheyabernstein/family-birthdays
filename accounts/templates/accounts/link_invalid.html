@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Link expired - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="auth-shell">
+        <div class="auth-card">
+            <h1>That link isn't valid anymore</h1>
+            <p>It may have already been used, or it's expired.</p>
+            <a class="btn" href="{% url 'accounts:request_link' %}">Request a new one</a>
+        </div>
+    </div>
+{% endblock %}

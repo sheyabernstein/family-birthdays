@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block title %}{{ person.display_name }}'s family tree - {{ block.super }}{% endblock %}
+{% block main_class %}full-bleed{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>{{ person.display_name }}'s family</h1>
+        <div style="display: flex; gap: 0.5rem;">
+            <button type="button" id="orientation-toggle" class="btn btn-outline btn-sm">Horizontal view</button>
+            <a class="btn btn-outline btn-sm"
+               href="{% url 'family:person_detail' person.uuid %}">Back to profile</a>
+        </div>
+    </div>
+    <p class="muted">
+        Drag to pan, scroll to zoom, click anyone to re-center the tree on them. A small icon on a card means there's more of the tree in that direction - click it to expand.
+    </p>
+    <div id="family-chart-mount" class="f3"></div>
+    {{ chart_data|json_script:"family-chart-data" }}
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/family-chart@0.9.0/dist/styles/family-chart.css">
+    <script src="https://cdn.jsdelivr.net/npm/family-chart@0.9.0/dist/family-chart.js"></script>
+    <script>
+    (function () {
+      const data = JSON.parse(document.getElementById("family-chart-data").textContent);
+      if (!data.length) return;
+
+      const CAN_EDIT_TREE = {{ can_edit_tree|yesno:"true,false" }};
+      const PLACEHOLDER_UUID = "00000000-0000-0000-0000-000000000000";
+      const PERSON_CREATE_URL = "{% url 'family:person_create' %}";
+      const TREE_URL_TEMPLATE = "{% url 'family:family_tree' '00000000-0000-0000-0000-000000000000' %}";
+      const UNION_CREATE_URL_TEMPLATE = "{% url 'family:union_create' '00000000-0000-0000-0000-000000000000' %}";
+      const REL_PREFIX = "placeholder-";
+
+      function sortByBirth(a, b) {
+        const av = a.data.birth_sort, bv = b.data.birth_sort;
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return av - bv;
+      }
+
+      function escapeHtml(value) {
+        return String(value || "").replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[c]);
+      }
+
+      // Always land on whoever's clicked at the same fixed zoom, centered -
+      // not fit-to-subtree, which would zoom a matriarch with dozens of
+      // descendants out to specks while a small family fills the screen.
+      function centerOnMain(props) {
+        chart.updateTree(Object.assign({ tree_position: "main_to_middle", scale: 1 }, props));
+      }
+
+      function findNode(id) {
+        return data.find((n) => n.id === id);
+      }
+
+      // Which spouse pairs have an upcoming (not-yet-happened) wedding -
+      // keyed by the two people's ids sorted and joined, so it matches
+      // regardless of which side f3 lists first on the link's own datum.
+      const upcomingWeddingPairs = new Set(
+        data
+          .filter((n) => n.data.upcoming_wedding_partner_id)
+          .map((n) => [n.id, n.data.upcoming_wedding_partner_id].sort().join("|"))
+      );
+
+      // f3 gives every link (parent/child and spouse alike) a plain
+      // "link" class with no relationship type in the markup - the only
+      // way to tell a spouse link apart, and which couple it belongs to,
+      // is the datum bound to the path (d.spouse, d.id as "idA, idB").
+      // Re-run after every re-render (recentering, expanding a branch)
+      // via the MutationObserver below, since f3 redraws the whole SVG
+      // rather than patching it.
+      function markUpcomingWeddingLinks() {
+        document.querySelectorAll("#family-chart-mount path.link").forEach((path) => {
+          const d = path.__data__;
+          if (!d || !d.spouse || !d.id) return;
+          const pairKey = d.id.split(",").map((s) => s.trim()).sort().join("|");
+          path.classList.toggle("link-upcoming-wedding", upcomingWeddingPairs.has(pairKey));
+        });
+      }
+
+      function treeUrlFor(personUuid) {
+        return TREE_URL_TEMPLATE.replace(PLACEHOLDER_UUID, personUuid);
+      }
+
+      // Injects/removes dashed "+ add relative" placeholder nodes around
+      // whoever's currently focused - see PersonCreateView/UnionCreateView
+      // for the link_as/link_of/father/mother/next query params these
+      // link out to. Only reused as *data* to feed f3's own layout engine
+      // (valid rels are all it needs to position a node); the click
+      // handler below redirects to our real forms instead of opening any
+      // of f3's own edit UI, since our Person model has far more fields
+      // than a generic inline form could sensibly cover.
+      function refreshPlaceholders() {
+        for (let i = data.length - 1; i >= 0; i--) {
+          if (data[i].id.startsWith(REL_PREFIX)) data.splice(i, 1);
+        }
+        data.forEach((n) => {
+          ["parents", "children", "spouses"].forEach((key) => {
+            if (n.rels[key]) n.rels[key] = n.rels[key].filter((id) => !id.startsWith(REL_PREFIX));
+          });
+        });
+
+        if (!CAN_EDIT_TREE) return;
+        const main = chart.getMainDatum();
+        if (!main || !main.data.own_family) return;
+        const mainNode = findNode(main.id);
+        mainNode.rels.parents = mainNode.rels.parents || [];
+        mainNode.rels.children = mainNode.rels.children || [];
+        mainNode.rels.spouses = mainNode.rels.spouses || [];
+
+        function addPlaceholder(id, gender, relType) {
+          data.push({
+            id,
+            to_add: true,
+            data: { gender, "first name": "", "last name": "", _placeholder: relType, _anchor: main.id },
+            rels: {},
+          });
+        }
+
+        const hasParentOfGender = (gender) =>
+          mainNode.rels.parents.some((id) => (findNode(id) || {}).data.gender === gender);
+        if (!hasParentOfGender("M")) {
+          const id = REL_PREFIX + "father-" + main.id;
+          addPlaceholder(id, "M", "father");
+          mainNode.rels.parents.push(id);
+        }
+        if (!hasParentOfGender("F")) {
+          const id = REL_PREFIX + "mother-" + main.id;
+          addPlaceholder(id, "F", "mother");
+          mainNode.rels.parents.push(id);
+        }
+
+        // Only offered with no spouse yet - with one already shown, the
+        // placeholder's connecting line has to cross behind that real
+        // card to reach it, which reads as a stray line through the
+        // spouse's name. Adding a second marriage is rare enough that
+        // the existing "+ Add spouse" button on the person's own page
+        // covers it.
+        const realSpouseId = mainNode.rels.spouses.find((id) => !id.startsWith(REL_PREFIX));
+        if (!realSpouseId) {
+          const spouseId = REL_PREFIX + "spouse-" + main.id;
+          addPlaceholder(spouseId, mainNode.data.gender === "M" ? "F" : "M", "spouse");
+          mainNode.rels.spouses.push(spouseId);
+        }
+
+        const childId = REL_PREFIX + "child-" + main.id;
+        addPlaceholder(childId, "M", "child");
+        findNode(childId).rels.parents = realSpouseId ? [main.id, realSpouseId] : [main.id];
+        mainNode.rels.children.push(childId);
+
+        chart.updateData(data);
+      }
+
+      function goAddRelative(relType, anchorId) {
+        const nextUrl = encodeURIComponent(treeUrlFor(anchorId));
+        if (relType === "father" || relType === "mother") {
+          window.location.href = `${PERSON_CREATE_URL}?link_as=${relType}&link_of=${anchorId}&next=${nextUrl}`;
+          return;
+        }
+        if (relType === "spouse") {
+          const unionUrl = UNION_CREATE_URL_TEMPLATE.replace(PLACEHOLDER_UUID, anchorId);
+          window.location.href = `${unionUrl}?next=${nextUrl}`;
+          return;
+        }
+        const anchorNode = findNode(anchorId);
+        const params = new URLSearchParams();
+        params.set(anchorNode.data.gender === "F" ? "mother" : "father", anchorId);
+        const spouseId = (anchorNode.rels.spouses || []).find((id) => !id.startsWith(REL_PREFIX));
+        if (spouseId) {
+          const spouseNode = findNode(spouseId);
+          params.set(spouseNode.data.gender === "F" ? "mother" : "father", spouseId);
+        }
+        params.set("next", treeUrlFor(anchorId));
+        window.location.href = `${PERSON_CREATE_URL}?${params.toString()}`;
+      }
+
+      const chart = f3.createChart("#family-chart-mount", data)
+        .setTransitionTime(600)
+        .setSingleParentEmptyCard(false)
+        // Wider spacing to match the bigger card size set below.
+        .setCardXSpacing(320)
+        .setCardYSpacing(180)
+        // Keep the initial view narrow - a couple of ancestor generations,
+        // but only one generation of descendants. Progeny fans out across
+        // every child's own children, so depth 2 here doesn't just show
+        // the focused person's grandchildren, it also shows their
+        // siblings' branches two levels deep - the mini-tree icon
+        // (setMiniTree below) is how people drill into one branch at a
+        // time instead of getting all of it at once.
+        .setAncestryDepth(2)
+        .setProgenyDepth(1)
+        .setShowSiblingsOfMain(true)
+        .setSortChildrenFunction(sortByBirth);
+
+      const card = chart.setCardHtml()
+        .setStyle("rect")
+        .setMiniTree(true)
+        .setOnCardClick((e, d) => {
+          if (d.data.data._placeholder) {
+            goAddRelative(d.data.data._placeholder, d.data.data._anchor);
+            return;
+          }
+          chart.updateMainId(d.data.id);
+          refreshPlaceholders();
+          centerOnMain({ transition_time: 600 });
+        })
+        // Full control over the markup so the name reads as a heading and
+        // the Hebrew name as a smaller subtitle underneath, instead of two
+        // equal-weight lines - and so a placeholder renders as a dashed
+        // "+" card instead of a blank one.
+        .setCardInnerHtmlCreator((d) => {
+          const person = d.data.data;
+          if (person._placeholder) {
+            const labels = { father: "+ Add father", mother: "+ Add mother", spouse: "+ Add spouse", child: "+ Add child" };
+            const titles = {
+              father: "Add this person's father",
+              mother: "Add this person's mother",
+              spouse: "Add a spouse for this person",
+              child: "Add a child for this person",
+            };
+            return `
+              <div class="card-inner card-rect card-add-relative" title="${titles[person._placeholder]}">
+                <div class="card-add-label">${labels[person._placeholder]}</div>
+              </div>
+            `;
+          }
+          const fullName = `${person["first name"] || ""} ${person["last name"] || ""}`.trim();
+          const hebrewName = person.hebrew_name;
+          const upcomingPartner = person.upcoming_wedding_partner;
+          return `
+            <div class="card-inner card-rect">
+              <div class="card-name">${escapeHtml(fullName)}</div>
+              ${hebrewName ? `<div class="card-hebrew-name">${escapeHtml(hebrewName)}</div>` : ""}
+              ${upcomingPartner ? `<div class="card-upcoming-wedding">Engaged to ${escapeHtml(upcomingPartner)}</div>` : ""}
+            </div>
+          `;
+        });
+
+      if (upcomingWeddingPairs.size) {
+        new MutationObserver(markUpcomingWeddingLinks).observe(
+          document.getElementById("family-chart-mount"),
+          { childList: true, subtree: true }
+        );
+      }
+
+      // Not persisted across visits - each tree opens vertical by
+      // default, matching the pre-toggle behavior. f3 recalculates the
+      // whole layout on orientation change, so just re-center afterwards
+      // like any other tree update.
+      const orientationToggle = document.getElementById("orientation-toggle");
+      let isHorizontal = false;
+      orientationToggle.addEventListener("click", () => {
+        isHorizontal = !isHorizontal;
+        if (isHorizontal) {
+          chart.setOrientationHorizontal();
+        } else {
+          chart.setOrientationVertical();
+        }
+        orientationToggle.textContent = isHorizontal ? "Vertical view" : "Horizontal view";
+        centerOnMain({ transition_time: 0 });
+      });
+
+      chart.updateTree({ initial: true });
+      refreshPlaceholders();
+      // The initial render always fits the whole visible subtree - follow
+      // up immediately with the same fixed centering used on click, so
+      // landing on someone's tree looks the same as clicking into them.
+      centerOnMain({ transition_time: 0 });
+    })();
+    </script>
+{% endblock %}

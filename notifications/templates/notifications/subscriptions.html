@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}My Notifications - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>My Notifications</h1>
+    </div>
+    <div class="card">
+        <h2>Channels</h2>
+        <p class="muted">Your contact info and the top-level switch for each - off here means off for everything below, no matter what else is set.</p>
+        <form method="post"
+              action="{% url 'notifications:update_notification_settings' %}">
+            {% csrf_token %}
+            <div class="form-row">
+                <div class="form-field">
+                    <label for="id_account_email">Email</label>
+                    <input type="email"
+                           name="email"
+                           id="id_account_email"
+                           value="{{ account.email|default:'' }}">
+                </div>
+                <div class="form-field">
+                    <label for="id_account_phone">Phone</label>
+                    <input type="tel"
+                           name="phone"
+                           id="id_account_phone"
+                           value="{{ account.phone|default:'' }}">
+                </div>
+            </div>
+            <div class="checkbox-field" style="margin-top: 0.75rem;">
+                <input type="checkbox"
+                       name="email_notifications_enabled"
+                       id="id_email_enabled"
+                       {% if account.email_notifications_enabled %}checked{% endif %}>
+                <label for="id_email_enabled">Notify me by email</label>
+            </div>
+            <div class="checkbox-field" style="margin-top: 0.5rem;">
+                <input type="checkbox"
+                       name="sms_notifications_enabled"
+                       id="id_sms_enabled"
+                       {% if account.sms_notifications_enabled %}checked{% endif %}>
+                <label for="id_sms_enabled">Notify me by SMS</label>
+            </div>
+            <button type="submit"
+                    class="btn btn-sm"
+                    style="margin-top: 0.9rem"
+                    title="Save your contact info and channel settings">Save</button>
+        </form>
+    </div>
+    <div class="card">
+        <h2>Event types</h2>
+        {% if not has_any_channel %}
+            <p class="muted">Add an email or phone number to your account to set these.</p>
+        {% else %}
+            <div class="muted">
+                <p>For each event type, choose who you hear about:</p>
+                <ul>
+                    <li><strong>Everyone</strong> in the family</li>
+                    <li>Only your <strong>immediate family</strong> (spouse, parents, children, and siblings - nobody further out)</li>
+                    <li><strong>Muted</strong> entirely</li>
+                </ul>
+                <p>
+                    For exceptions to whatever you pick here - one specific person
+                    included or excluded - use the toggle on that person's own page instead; it always wins over this.
+                </p>
+            </div>
+            <table class="subscribe-table">
+                <thead>
+                    <tr>
+                        <th>Event</th>
+                        {% for channel in event_type_rows.0.channels %}<th>{{ channel.label }}</th>{% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in event_type_rows %}
+                        <tr>
+                            <td><span class="badge badge-{{ row.event_type.badge_class }}">{{ row.event_type.name }}</span></td>
+                            {% for channel in row.channels %}
+                                <td>
+                                    <div style="display: flex;
+                                                align-items: center;
+                                                flex-wrap: wrap;
+                                                gap: 0.5rem">
+                                        <form method="post"
+                                              action="{% url 'notifications:update_event_type_preference' %}"
+                                              style="display: flex;
+                                                     align-items: center;
+                                                     gap: 0.4rem">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="event_type_id" value="{{ row.event_type.uuid }}">
+                                            <input type="hidden" name="channel" value="{{ channel.code }}">
+                                            <input type="hidden"
+                                                   name="next"
+                                                   value="{% url 'notifications:subscriptions' %}">
+                                            <select name="state">
+                                                <option value="subscribed"
+                                                        {% if channel.state == "subscribed" %}selected{% endif %}>Everyone</option>
+                                                <option value="immediate_family_only"
+                                                        {% if channel.state == "immediate_family_only" %}selected{% endif %}>Immediate family only</option>
+                                                <option value="muted"
+                                                        {% if channel.state == "muted" %}selected{% endif %}>Muted</option>
+                                            </select>
+                                            <button type="submit"
+                                                    class="btn btn-sm"
+                                                    title="Save this setting for {{ row.event_type.name }} ({{ channel.label }})">Save</button>
+                                        </form>
+                                        {% if channel.is_override %}
+                                            <form method="post"
+                                                  action="{% url 'notifications:update_event_type_preference' %}">
+                                                {% csrf_token %}
+                                                <input type="hidden"
+                                                       name="event_type_id"
+                                                       value="{{ row.event_type.uuid }}">
+                                                <input type="hidden" name="channel" value="{{ channel.code }}">
+                                                <input type="hidden" name="action" value="reset">
+                                                <input type="hidden"
+                                                       name="next"
+                                                       value="{% url 'notifications:subscriptions' %}">
+                                                <button type="submit"
+                                                        class="btn btn-sm"
+                                                        style="font-size: 0.8rem"
+                                                        title="Remove your override and go back to the family default for {{ row.event_type.name }} ({{ channel.label }})">Reset to family default</button>
+                                            </form>
+                                        {% else %}
+                                            <span class="muted" style="font-size: 0.8rem;">(family default)</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </div>
+    <div class="card">
+        <h2>Exceptions for specific people</h2>
+        {% if overrides %}
+            <p class="muted">These always override the event-type setting above, for that one person or couple only.</p>
+            <ul class="ledger">
+                {% for override in overrides %}
+                    <li class="ledger-row">
+                        <div class="who">
+                            <span class="badge badge-{{ override.event_type.badge_class }}">{{ override.event_type.name }}</span>
+                            <br>
+                            {% if override.person %}
+                                <a class="who-name"
+                                   href="{% url 'family:person_detail' override.person.uuid %}">{{ override.person.display_name }}</a>
+                            {% elif override.union %}
+                                {{ override.union }}
+                            {% endif %}
+                            <span class="muted">· {{ override.get_channel_display }} · {{ override.get_state_display }}</span>
+                        </div>
+                        <form method="post" action="{% url 'notifications:toggle_preference' %}">
+                            {% csrf_token %}
+                            {% if override.person %}<input type="hidden" name="person_id" value="{{ override.person.uuid }}">{% endif %}
+                            {% if override.union %}<input type="hidden" name="union_id" value="{{ override.union.uuid }}">{% endif %}
+                            <input type="hidden"
+                                   name="event_type_id"
+                                   value="{{ override.event_type.uuid }}">
+                            <input type="hidden" name="channel" value="{{ override.channel }}">
+                            <input type="hidden"
+                                   name="next"
+                                   value="{% url 'notifications:subscriptions' %}">
+                            <button type="submit"
+                                    class="btn btn-outline btn-sm"
+                                    title="Remove this exception for {% if override.person %}{{ override.person.display_name }}{% else %}{{ override.union }}{% endif %}">Reset</button>
+                        </form>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <div class="empty-state">
+                <p>No exceptions set.</p>
+                <p class="muted">Everyone follows the event-type settings above unless you add an exception on someone's own page.</p>
+            </div>
+        {% endif %}
+    </div>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/intl-tel-input@29.2.3/dist/css/intlTelInput.css">
+    <script src="https://cdn.jsdelivr.net/npm/intl-tel-input@29.2.3/dist/js/intlTelInputWithUtils.min.js"></script>
+    <script src="{% static 'accounts/js/phone_input.js' %}"></script>
+    <script src="{% static 'accounts/js/email_input.js' %}"></script>
+    <script>
+    initPhoneInput("#id_account_phone");
+    initEmailValidation("#id_account_email", "{% url 'accounts:validate_email' %}");
+    </script>
+{% endblock %}

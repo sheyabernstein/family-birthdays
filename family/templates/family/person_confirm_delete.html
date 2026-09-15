@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Remove {{ object.display_name }} - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>Remove {{ object.display_name }}?</h1>
+    </div>
+    <div class="card">
+        <p>This removes {{ object.display_name }} from the family entirely - their marriages, subscriptions, and any scheduled notifications for them go with it. Anyone who lists them as a father or mother keeps that record, just pointing at a now-empty parent.</p>
+        <p class="muted">This can't be undone.</p>
+        <form method="post">
+            {% csrf_token %}
+            <button type="submit"
+                    class="btn"
+                    style="background: var(--wine);
+                           border-color: var(--wine)"
+                    title="Permanently remove {{ object.display_name }} from the family">Remove {{ object.display_name }}</button>
+            <a class="btn btn-outline"
+               href="{% url 'family:person_detail' object.uuid %}">Cancel</a>
+        </form>
+    </div>
+{% endblock %}

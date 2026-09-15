@@ -1,0 +1,51 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{% block title %}{{ request.family.name|default:"Family Tree" }}{% endblock %}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,500;0,600;1,500&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+Hebrew:wght@400;500;600&display=swap"
+              rel="stylesheet">
+        <link rel="stylesheet" href="{% static 'css/app.css' %}">
+    </head>
+    <body>
+        <div class="shell">
+            {% if user.is_authenticated %}
+                <header class="topbar">
+                    <a class="wordmark"
+                       href="{% url 'family:dashboard' %}">{{ request.family.name|default:"Family Tree" }}</a>
+                    <nav class="nav">
+                        <a href="{% url 'family:dashboard' %}">Upcoming</a>
+                        <a href="{% url 'family:person_list' %}">Family</a>
+                        <a href="{% url 'notifications:subscriptions' %}">My Notifications</a>
+                        {% if request.family_permissions.can_edit %}
+                            <a href="{% url 'notifications:broadcast_list' %}">Broadcasts</a>
+                        {% endif %}
+                        {% if request.family and request.family_permissions.can_edit %}
+                            <a href="{% url 'tenants:family_settings' %}">Workspace Settings</a>
+                        {% endif %}
+                        {% if perms.tenants.add_family or request.has_multiple_families %}
+                            <a href="{% url 'tenants:switch_family' %}">Switch Workspace</a>
+                        {% endif %}
+                        <a href="{% url 'family:help' %}">?</a>
+                        <form method="post" action="{% url 'accounts:logout' %}">
+                            {% csrf_token %}
+                            <button type="submit" class="link-button">Sign out</button>
+                        </form>
+                    </nav>
+                </header>
+            {% endif %}
+            {% if messages %}
+                <ul class="messages">
+                    {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+                </ul>
+            {% endif %}
+            <main class="{% block main_class %}{% endblock %}">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </body>
+</html>

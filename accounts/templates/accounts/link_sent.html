@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Check your messages - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="auth-shell">
+        <div class="auth-card">
+            <h1>Check your email or phone</h1>
+            <p>If that matches an account, a sign-in link is on its way. It's valid for 15 minutes.</p>
+            <p class="muted">Didn't get it? <a href="{% url 'accounts:request_link' %}">Try again</a>.</p>
+        </div>
+    </div>
+{% endblock %}

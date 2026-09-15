@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% load family_extras %}
+{% block title %}{{ person.display_name }} - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="person-header">
+        <span class="avatar {% if not person.is_living %}avatar-deceased{% endif %}">{{ person|initials }}</span>
+        <div>
+            <h1>{{ person.display_name }}{% if not person.is_living %} <span class="muted"
+       style="font-size: 1rem">of blessed memory</span>{% endif %}</h1>
+            {% if person.hebrew_name and person.hebrew_name != person.display_name %}<div class="hebrew-name">{{ person.hebrew_name }}</div>{% endif %}
+            <div class="dates-row">
+                {% if person.dob_gregorian or person.dob_hebrew_display %}
+                    <div>
+                        <span class="dates-label">Born</span>
+                        <div class="stamp">
+                            {% if can_see_birth_year %}
+                                {% if person.dob_hebrew_display %}<span class="hebrew-date">{{ person.dob_hebrew_display }}</span>{% endif %}
+                                {% if person.dob_gregorian %}<span class="gregorian-date">{{ person.dob_gregorian|date:"l, F j, Y" }}</span>{% endif %}
+                            {% else %}
+                                {% if person.dob_hebrew_month_day_display %}<span class="hebrew-date">{{ person.dob_hebrew_month_day_display }}</span>{% endif %}
+                                {% if person.dob_gregorian %}<span class="gregorian-date">{{ person.dob_gregorian|date:"F j" }}</span>{% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+                {% if not person.is_living and person.dod_gregorian or person.dod_hebrew_display %}
+                    <div>
+                        <span class="dates-label">Yahrzeit</span>
+                        <div class="stamp">
+                            {% if person.dod_hebrew_display %}<span class="hebrew-date">{{ person.dod_hebrew_display }}</span>{% endif %}
+                            {% if person.dod_gregorian %}<span class="gregorian-date">{{ person.dod_gregorian|date:"l, F j, Y" }}</span>{% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+            <p style="margin-top: 1rem;">
+                <a class="btn btn-outline btn-sm"
+                   href="{% url 'family:family_tree' person.uuid %}">View in family tree</a>
+                {% if person.family_id == request.family.id %}
+                    {% if request.family_permissions.can_edit %}
+                        <a class="btn btn-outline btn-sm"
+                           href="{% url 'family:person_update' person.uuid %}"
+                           title="Edit {{ person.display_name }}'s details">Edit</a>
+                    {% endif %}
+                    {% if request.family_permissions.can_delete %}
+                        <a class="btn btn-outline btn-sm"
+                           href="{% url 'family:person_delete' person.uuid %}"
+                           title="Remove {{ person.display_name }} from the family">Remove</a>
+                    {% endif %}
+                {% endif %}
+            </p>
+        </div>
+    </div>
+    <div class="card">
+        <h2>Family</h2>
+        <div class="tree">
+            {% if person.father or person.mother %}
+                <div>
+                    <span class="tree-generation-label">Parents</span>
+                    <div class="tree-generation">
+                        {% if person.father %}
+                            <a class="tree-node"
+                               href="{% url 'family:person_detail' person.father.uuid %}">
+                                <span class="role">Father</span>{{ person.father.display_name }}
+                            </a>
+                        {% endif %}
+                        {% if person.mother %}
+                            <a class="tree-node"
+                               href="{% url 'family:person_detail' person.mother.uuid %}">
+                                <span class="role">Mother</span>{{ person.mother.display_name }}
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            <div>
+                <span class="tree-generation-label">{{ person.display_name }}</span>
+                <div class="tree-generation">
+                    <span class="tree-node is-focus">{{ person.display_name }}</span>
+                    {% for union in unions %}
+                        <div class="tree-node"
+                             style="display: flex;
+                                    flex-direction: column;
+                                    gap: 0.5rem">
+                            <a href="{% url 'family:person_detail' union.other_person.uuid %}"
+                               style="color: inherit">
+                                <span class="role">Spouse{% if union.status != "married" %} · {{ union.get_status_display }}{% endif %}</span>
+                                {{ union.other_person.display_name }}
+                            </a>
+                            {% if request.family_permissions.can_edit %}
+                                <div>
+                                    <a class="btn btn-outline btn-sm"
+                                       href="{% url 'family:union_update' union.uuid %}"
+                                       title="Edit the marriage details with {{ union.other_person.display_name }}">Edit</a>
+                                    {% if request.family_permissions.can_delete %}
+                                        <a class="btn btn-outline btn-sm"
+                                           href="{% url 'family:union_delete' union.uuid %}"
+                                           title="Remove the marriage record with {{ union.other_person.display_name }}">Remove</a>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+                {% if person.family_id == request.family.id %}
+                    {% if request.family_permissions.can_edit %}
+                        <a class="btn btn-outline btn-sm"
+                           href="{% url 'family:union_create' person.uuid %}"
+                           style="margin-top: 0.5rem;
+                                  display: inline-block"
+                           title="Add a spouse for {{ person.display_name }}">+ Add spouse</a>
+                    {% endif %}
+                {% endif %}
+            </div>
+            {% if children %}
+                <div>
+                    <span class="tree-generation-label">Children</span>
+                    <div class="tree-generation">
+                        {% for child in children %}
+                            <a class="tree-node"
+                               href="{% url 'family:person_detail' child.uuid %}">{{ child.display_name }}</a>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+            {% if not person.father and not person.mother and not unions and not children %}
+                <p class="muted">No relations recorded yet.</p>
+            {% endif %}
+        </div>
+        <p style="margin-top: 1rem;">
+            <a class="btn btn-outline btn-sm"
+               href="{% url 'family:family_tree' person.uuid %}">View full family tree</a>
+        </p>
+    </div>
+    {% if person.notes %}
+        <div class="card">
+            <h2>Notes</h2>
+            <p>{{ person.notes|linebreaksbr }}</p>
+        </div>
+    {% endif %}
+    {% if person.notifications_enabled or request.family_permissions.can_edit %}
+        <div class="card">
+            <h2>Notify me</h2>
+            {% if not person.notifications_enabled %}
+                <p class="muted">{{ person.display_name }} isn't tracked for notifications, so this is turned off - <a href="{% url 'family:person_update' person.uuid %}">turn it on from their edit page</a> to enable this.</p>
+            {% elif not has_any_channel %}
+                <p class="muted">Add an email or phone number to your account before subscribing to notifications.</p>
+            {% elif event_rows %}
+                <p class="muted">Each button shows what's actually in effect and why - click it to add an exception just for {{ person.display_name }}, overriding your usual setting for that event type. Change the usual setting itself on <a href="{% url 'notifications:subscriptions' %}">My Notifications</a>.</p>
+                <table class="subscribe-table">
+                    <thead>
+                        <tr>
+                            <th>Event</th>
+                            {% for channel in event_rows.0.channels %}<th>{{ channel.label }}</th>{% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in event_rows %}
+                            <tr>
+                                <td><span class="badge badge-{{ row.event_type.badge_class }}">{{ row.event_type.name }}</span></td>
+                                {% for channel in row.channels %}
+                                    <td>
+                                        {% include "notifications/_preference_toggle.html" with event_type=row.event_type channel=channel person_id=person.uuid union_id=None subject=person.display_name %}
+                                    </td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="muted">No applicable life-cycle events yet - add a date of birth to enable birthday notifications.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+    {% if union_rows and has_any_channel %}
+        <div class="card">
+            <h2>Anniversaries</h2>
+            <table class="subscribe-table">
+                <thead>
+                    <tr>
+                        <th>With</th>
+                        <th>Event</th>
+                        {% for channel in union_rows.0.channels %}<th>{{ channel.label }}</th>{% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in union_rows %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'family:person_detail' row.union.other_person.uuid %}"
+                                   style="color: inherit">{{ row.union.other_person.display_name }}</a>
+                            </td>
+                            <td><span class="badge badge-{{ row.event_type.badge_class }}">{{ row.event_type.name }}</span></td>
+                            {% for channel in row.channels %}
+                                <td>
+                                    {% include "notifications/_preference_toggle.html" with event_type=row.event_type channel=channel person_id=None union_id=row.union.uuid subject=row.union.other_person.display_name %}
+                                </td>
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+    {% if history_events is not None %}
+        <div class="card">
+            <h2>History</h2>
+            {% if history_events %}
+                <table class="subscribe-table history-table">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Who</th>
+                            <th>On</th>
+                            <th>Field</th>
+                            <th>Change</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for event in history_events %}
+                            {% for change in event.changes %}
+                                <tr>
+                                    {% if forloop.first %}
+                                        <td rowspan="{{ event.changes|length }}">{{ event.when|date:"M j, Y, g:i A" }}</td>
+                                        <td rowspan="{{ event.changes|length }}">
+                                            {% if event.who.display_name %}
+                                                <span title="{{ event.who.email }}">{{ event.who.display_name }}</span>
+                                            {% else %}
+                                                {{ event.who.email }}
+                                            {% endif %}
+                                        </td>
+                                        <td rowspan="{{ event.changes|length }}">{{ event.subject_label }}</td>
+                                    {% endif %}
+                                    {% if change.old_display is None %}
+                                        <td colspan="2" class="diff-label-only">{{ change.label }}</td>
+                                    {% else %}
+                                        <td class="diff-field-name">{{ change.label }}</td>
+                                        <td class="diff-cell">
+                                            {% if change.old_display %}<div class="diff-row diff-row-removed">{{ change.old_display }}</div>{% endif %}
+                                            {% if change.new_display %}<div class="diff-row diff-row-added">{{ change.new_display }}</div>{% endif %}
+                                        </td>
+                                    {% endif %}
+                                </tr>
+                            {% endfor %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <small class="help-text muted">Showing the most recent {{ history_events|length }} change{{ history_events|length|pluralize }} to this person and their marriages.</small>
+            {% else %}
+                <p class="muted">No recorded changes yet.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endblock %}

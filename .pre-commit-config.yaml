@@ -1,0 +1,63 @@
+exclude: ^staticfiles/
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  - repo: https://github.com/psf/black
+    rev: 26.5.1
+    hooks:
+      - id: black
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+
+  # djlint (Python, poetry `lint` group - see pyproject.toml) and
+  # prettier/eslint/stylelint (Node, package.json/yarn.lock) all run
+  # against this repo's own installed copies rather than an isolated
+  # per-hook env - that way pre-commit (which always auto-fixes, like
+  # every hook above) and CI (which only ever checks - see ci.yml) are
+  # provably running the exact same tool versions, just with different
+  # flags, instead of each side pinning its own copy that could drift.
+  # djlint has no upstream pre-commit "reformat" hook at all (only
+  # lint-only profile hooks, e.g. djlint-django) - `poetry run` is used
+  # directly instead of relying on one that doesn't exist.
+  - repo: local
+    hooks:
+      - id: djlint-reformat
+        name: djlint --reformat
+        entry: poetry run djlint --reformat
+        language: system
+        types_or: [html]
+
+      - id: djlint
+        name: djlint
+        entry: poetry run djlint
+        language: system
+        types_or: [html]
+
+      - id: prettier
+        name: prettier
+        entry: yarn run prettier --write
+        language: system
+        types_or: [javascript, css]
+
+      - id: eslint
+        name: eslint
+        entry: yarn run eslint --fix
+        language: system
+        files: \.js$
+
+      - id: stylelint
+        name: stylelint
+        entry: yarn run stylelint --fix
+        language: system
+        files: \.css$

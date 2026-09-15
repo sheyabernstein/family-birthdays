@@ -1,0 +1,32 @@
+services:
+  web:
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    depends_on:
+      mailpit:
+        condition: service_started
+
+  worker:
+    volumes:
+      - .:/app
+    depends_on:
+      mailpit:
+        condition: service_started
+
+  # SMTP server for local dev - Django sends real (fake) emails to it over
+  # SMTP (see EMAIL_* in .env) instead of just logging to the console, and
+  # Mailpit's own web UI (http://localhost:8025) lets you actually read them,
+  # click links, etc. Never used outside dev - production points EMAIL_HOST
+  # at a real provider.
+  mailpit:
+    image: axllent/mailpit
+    container_name: family-birthdays-mailpit
+    restart: unless-stopped
+    volumes:
+      - mailpit_data:/data
+    ports:
+      - "8025:8025"
+
+volumes:
+  mailpit_data:

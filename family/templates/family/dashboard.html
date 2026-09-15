@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% load family_extras %}
+{% block title %}Upcoming - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>Upcoming</h1>
+        <p class="muted">What you're subscribed to.</p>
+    </div>
+    {% if upcoming_groups %}
+        <ul class="timeline">
+            {% for group in upcoming_groups %}
+                {% with first=group.occurrences.0 %}
+                    <li class="timeline-entry event-{{ first.event_type.anchor }}">
+                        <div class="timeline-when">
+                            <span class="hebrew-date">{{ group.occurrence_date|hebrew_str }}</span>
+                            <span>{{ group.send_date|date:"l, F j, Y" }}</span>
+                            {% if first.shifted_for_shabbat_or_yomtov %}
+                                <span class="stamp-note">moved up for Shabbat/Yom Tov</span>
+                            {% endif %}
+                        </div>
+                        <div class="timeline-card">
+                            {% for occurrence in group.occurrences %}
+                                <div class="timeline-who">
+                                    <span class="badge badge-{{ occurrence.event_type.badge_class }}">{{ occurrence.event_type.name }}</span>
+                                    {% if occurrence.person %}
+                                        <a class="who-name"
+                                           href="{% url 'family:person_detail' occurrence.person.uuid %}">{{ occurrence.person.display_name }}
+                                        </a>
+                                        {% if occurrence.person.first_name_he != occurrence.person.display_name %}
+                                            <br>
+                                            <small class="muted">{{ occurrence.person.first_name_he }}</small>
+                                        {% endif %}
+                                    {% elif occurrence.union %}
+                                        <span>
+                                            <a class="who-name"
+                                               href="{% url 'family:person_detail' occurrence.union.person_a.uuid %}">{{ occurrence.union.person_a.display_name }}</a>
+                                            &amp;
+                                            <a class="who-name"
+                                               href="{% url 'family:person_detail' occurrence.union.person_b.uuid %}">{{ occurrence.union.person_b.display_name }}</a>
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </li>
+                {% endwith %}
+            {% endfor %}
+        </ul>
+    {% else %}
+        <div class="empty-state">
+            <p>Nothing coming up yet.</p>
+            <p class="muted">Visit someone's page under <a href="{% url 'family:person_list' %}">People</a> and subscribe to their birthday or yahrzeit to see it here.</p>
+        </div>
+    {% endif %}
+{% endblock %}

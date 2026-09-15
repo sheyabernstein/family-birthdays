@@ -1,0 +1,18 @@
+{% extends "email/_base.html" %}
+{% load notifications_extras %}
+{% block title %}{{ family_name }} update{% endblock %}
+{% block icon %}
+    {% static_data_uri "notifications/img/event-icons/broadcast.png" %}
+{% endblock %}
+{% block icon_alt %}Broadcast{% endblock %}
+{% block body %}
+    {% if people %}
+        <p class="muted" style="font-size: 14px;">
+            About
+            {% for person in people %}
+                <strong>{{ person.display_name }}</strong>{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+        </p>
+    {% endif %}
+    <div>{{ broadcast.text|safe }}</div>
+{% endblock %}

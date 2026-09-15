@@ -1,0 +1,36 @@
+{% extends "email/_base.html" %}
+{% load family_extras notifications_extras %}
+{% block title %}{{ occurrence.event_type.name }}{% endblock %}
+{% block icon %}
+    {% static_data_uri "notifications/img/event-icons/default.png" %}
+{% endblock %}
+{% block icon_alt %}{{ occurrence.event_type.name }}{% endblock %}
+{% block body %}
+    <p>
+        {% if occurrence.person %}
+            {% if is_late %}
+                <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} was on {{ occurrence.occurrence_date|date:"l, F j" }}.
+            {% else %}
+                Today is <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }}.
+            {% endif %}
+        {% elif is_late %}
+            <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
+            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} was on
+            {{ occurrence.occurrence_date|date:"l, F j" }}.
+        {% else %}
+            Today is
+            <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
+            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s {{ occurrence.event_type.name }}.
+        {% endif %}
+    </p>
+    {% if occurrence.person %}
+        {% include "notifications/email/_parents.html" with person=occurrence.person %}
+    {% else %}
+        {% include "notifications/email/_parents.html" with person=occurrence.union.person_a %}
+        {% include "notifications/email/_parents.html" with person=occurrence.union.person_b %}
+    {% endif %}
+    <p class="muted" style="font-size: 14px;">
+        {{ occurrence.occurrence_date|hebrew_str }} · {{ occurrence.send_date|date:"l, F j, Y" }}
+        {% if occurrence.shifted_for_shabbat_or_yomtov %}(moved up for Shabbat/Yom Tov){% endif %}
+    </p>
+{% endblock %}

@@ -1,0 +1,1 @@
+{% if is_late %}{{ occurrence.union.person_a.display_name }} & {{ occurrence.union.person_b.display_name }}'s anniversary was on {{ occurrence.occurrence_date|date:"D, M j" }}.{% else %}{{ occurrence.union.person_a.display_name }} & {{ occurrence.union.person_b.display_name }}'s anniversary is today!{% endif %}

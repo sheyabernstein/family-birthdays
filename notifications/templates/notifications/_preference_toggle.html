@@ -1,0 +1,26 @@
+{% comment %}
+Renders one Subscribed/Muted button for a (event_type, channel) x (person or union)
+cell. The label always shows what's actually in effect right now, and why:
+- "default"/no suffix - the plain family default for this event type
+- "(family-wide)" - your own Everyone/Muted setting for the whole event type
+- "(immediate family)" / "(outside immediate family)" - your Immediate-family-only
+  circle setting for this event type, and whether this person is in it
+- "(your override)" - you've already set an exception for this exact person/union
+
+Clicking always does the same thing: if there's already an exception for this
+exact person/union, remove it (falls back to the event type setting above);
+otherwise add one that flips whatever's currently in effect.
+{% endcomment %}
+<form method="post" action="{% url 'notifications:toggle_preference' %}">
+    {% csrf_token %}
+    {% if person_id %}<input type="hidden" name="person_id" value="{{ person_id }}">{% endif %}
+    {% if union_id %}<input type="hidden" name="union_id" value="{{ union_id }}">{% endif %}
+    <input type="hidden" name="event_type_id" value="{{ event_type.uuid }}">
+    <input type="hidden" name="channel" value="{{ channel.code }}">
+    <input type="hidden" name="next" value="{{ request.path }}">
+    <button type="submit"
+            class="btn btn-sm {% if channel.subscribed %}btn-subscribed{% else %}btn-outline{% endif %}"
+            title="{% if channel.reason == 'specific_subscribed' or channel.reason == 'specific_muted' %}You've already set an exception here - click to reset to your usual {{ event_type.name|lower }} setting.{% else %}Click to add an exception just for {{ subject }}.{% endif %}">
+        {% if channel.subscribed %}Subscribed{% else %}Muted{% endif %}{% if channel.reason == "type_subscribed" or channel.reason == "type_muted" %} (family-wide){% elif channel.reason == "type_immediate_only" %}{% if channel.subscribed %} (immediate family){% else %} (outside immediate family){% endif %}{% elif channel.reason == "specific_subscribed" or channel.reason == "specific_muted" %} (your override){% endif %}
+    </button>
+</form>

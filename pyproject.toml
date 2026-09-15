@@ -1,0 +1,113 @@
+[project]
+name = "family-birthdays"
+version = "0.1.0"
+description = "Family life-events calendar: Hebrew-date-aware birthday/yahrzeit/anniversary notifications"
+authors = [
+    {name = "Sheya Bernstein", email = "sheyaberns@gmail.com"}
+]
+
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "celery (>=5.6.3,<6.0.0)",
+    "celery-redbeat (>=2.3.4,<3.0.0)",
+    "css-inline (>=0.21.3,<0.22.0)",
+    "django (>=6.1,<7.0)",
+    "django-celery-results (>=2.6.0,<3.0.0)",
+    "django-reversion (>=6.3.0,<7.0.0)",
+    "dnspython (>=2.8.0,<3.0.0)",
+    "gunicorn (>=26.2.0,<27.0.0)",
+    "hdate (>=1.2.1,<2.0.0)",
+    "icalendar (>=7.3.0,<8.0.0)",
+    "nh3 (>=0.3.7,<0.4.0)",
+    "phonenumbers (>=9.0.38,<10.0.0)",
+    "psycopg2-binary (>=2.9.12,<3.0.0)",
+    "python-dotenv (>=1.2.3,<2.0.0)",
+    "redis (>=8.1.0,<9.0.0)",
+    "structlog (>=26.1.0,<27.0.0)",
+    "whitenoise (>=6.12.0,<7.0.0)",
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "openpyxl (>=3.1.5)",
+]
+lint = [
+    "black (>=26.5.1)",
+    "ruff (>=0.16.5)",
+    "djlint (>=1.46.1)",
+    "pre-commit (>=4.6.2)",
+]
+test = [
+    "fakeredis (>=2.31.3)",
+    "freezegun (>=1.5.5)",
+    "pytest (>=8.0.0)",
+    "pytest-cov (>=7.1.0)",
+    "pytest-django (>=4.9.0)",
+    "pytest-env (>=1.7.1)",
+]
+
+[tool.poetry]
+package-mode = false
+
+[tool.black]
+line-length = 110
+target-version = ["py313"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "DJ", "TID", "ANN", "D"]
+# ANN401: Any is allowed - just not encouraged, see AGENTS.md's "Type hints"
+# section for when it's actually the right call.
+# ANN002/ANN003: don't force a type on a passthrough *args/**kwargs whose
+# only job is forwarding to an untyped super() call (Django/Celery ship no
+# type stubs) - annotating those as `Any` would satisfy the linter without
+# adding any real information.
+# D100-D107: a docstring isn't mandatory everywhere - see AGENTS.md's
+# "Docstrings" section. The D rules below only govern the *shape* of a
+# docstring once one exists, never require adding one.
+ignore = ["E501", "ANN401", "ANN002", "ANN003", "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["accounts", "family", "notifications", "tenants", "config"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.per-file-ignores]
+# Test functions and Django migrations don't need type hints - pytest
+# never reads a test's signature/return type, and migrations are
+# generated, not hand-written.
+"conftest.py" = ["ANN", "D"]
+"*/tests/*" = ["ANN", "D"]
+"*/migrations/*" = ["ANN", "D"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings_test"
+addopts = "-ra --cov --cov-report=term-missing"
+env = ["DEBUG=True"]
+# pytest-django defaults to forcing DEBUG=False regardless of what the
+# settings module/pytest-env set it to (mirrors `manage.py test`) - "keep"
+# stops it from overriding, so the env line above actually takes effect.
+django_debug_mode = "keep"
+
+[tool.coverage.run]
+source = ["."]
+omit = ["*/migrations/*", "*/tests/*", "manage.py", "config/settings*.py"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover"]
+
+[tool.djlint]
+profile = "django"
+ignore = "H021"
+extend_exclude = "staticfiles"

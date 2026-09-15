@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: family-birthdays-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-family_birthdays}
+      POSTGRES_USER: ${POSTGRES_USER:-family_birthdays}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-family_birthdays}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-family_birthdays}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: family-birthdays-redis
+    restart: unless-stopped
+    # --appendonly yes: AOF persistence, so the Celery broker queue and
+    # RedBeat's own schedule/lock state survive a container restart
+    # instead of starting from empty every time.
+    command: redis-server --requirepass ${REDIS_PASSWORD:-family_birthdays} --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD:-family_birthdays} --no-auth-warning ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8000/readyz" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: /app/docker/entrypoints/worker.sh
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+    healthcheck:
+      test: [ "CMD-SHELL", "celery -A config inspect ping || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db_data:
+  redis_data:

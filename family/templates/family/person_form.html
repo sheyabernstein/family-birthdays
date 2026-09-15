@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% load static form_extras %}
+{% block title %}{% if object %}Edit {{ object.display_name }}{% else %}Add someone{% endif %} - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>
+            {% if object %}Edit {{ object.display_name }}
+            {% elif link_as %}Add {{ link_of.display_name }}'s {{ link_as }}
+{% else %}Add someone{% endif %}
+    </h1>
+    </div>
+    {% if form.non_field_errors %}
+        <div class="form-errors">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <p class="required-legend">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
+    <form method="post">
+        {% csrf_token %}
+        {% if link_as %}<input type="hidden" name="link_as" value="{{ link_as }}">{% endif %}
+        {% if link_of %}<input type="hidden" name="link_of" value="{{ link_of.uuid }}">{% endif %}
+        {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+        <div class="card form-section">
+            <h2>Name</h2>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.first_name_en %}{{ form.first_name_en }}{{ form.first_name_en.errors }}</div>
+                <div class="form-field">{% field_label form.last_name_en %}{{ form.last_name_en }}{{ form.last_name_en.errors }}</div>
+            </div>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.first_name_he %}{{ form.first_name_he }}</div>
+                <div class="form-field">{% field_label form.last_name_he %}{{ form.last_name_he }}</div>
+            </div>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.nickname %}{{ form.nickname }}</div>
+                <div class="form-field">{% field_label form.gender %}{{ form.gender }}</div>
+            </div>
+        </div>
+        <div class="card form-section">
+            <h2>Family links</h2>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.father %}{{ form.father }}{{ form.father.errors }}</div>
+                <div class="form-field">{% field_label form.mother %}{{ form.mother }}{{ form.mother.errors }}</div>
+            </div>
+        </div>
+        <div class="card form-section">
+            <h2>Born</h2>
+            <p class="muted">Enter both if you know them - the Hebrew date is what notifications are actually scheduled on.</p>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.dob_gregorian %}{{ form.dob_gregorian }}</div>
+                <div class="form-field checkbox-field"
+                     style="align-self: end;
+                            padding-bottom: 0.6rem">{{ form.dob_year_only }}{% field_label form.dob_year_only %}</div>
+            </div>
+            <div class="form-row">
+                <div class="form-field">
+                    {% field_label form.dob_hebrew_year %}{{ form.dob_hebrew_year }}
+                    <p class="help-text">{{ form.dob_hebrew_year.help_text }}</p>
+                </div>
+                <div class="form-field">{% field_label form.dob_hebrew_month %}{{ form.dob_hebrew_month }}</div>
+                <div class="form-field">{% field_label form.dob_hebrew_day %}{{ form.dob_hebrew_day }}</div>
+            </div>
+            <p id="dob-hebrew-autofill-note"
+               class="autofill-note warning-icon"
+               hidden>Prefilled from the Gregorian date above - double check it, especially if the birth was after sunset (the Hebrew date may have already advanced to the next day).</p>
+        </div>
+        <div class="card form-section">
+            <h2>Death</h2>
+            <p class="muted">Enter both if known - this is what the yahrzeit is scheduled from. Leave everything here blank while this person is living; entering a date here is what marks them as no longer living.</p>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.dod_gregorian %}{{ form.dod_gregorian }}</div>
+            </div>
+            <div class="form-row">
+                <div class="form-field">
+                    {% field_label form.dod_hebrew_year %}{{ form.dod_hebrew_year }}
+                    <p class="help-text">{{ form.dod_hebrew_year.help_text }}</p>
+                </div>
+                <div class="form-field">{% field_label form.dod_hebrew_month %}{{ form.dod_hebrew_month }}</div>
+                <div class="form-field">{% field_label form.dod_hebrew_day %}{{ form.dod_hebrew_day }}</div>
+            </div>
+            <p id="dod-hebrew-autofill-note"
+               class="autofill-note warning-icon"
+               hidden>Prefilled from the Gregorian date above - double check it, especially if the death was after sunset (the Hebrew date may have already advanced to the next day).</p>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.yahrzeit_adar_observance %}{{ form.yahrzeit_adar_observance }}</div>
+                <div class="form-field">{% field_label form.yahrzeit_day30_observance %}{{ form.yahrzeit_day30_observance }}</div>
+            </div>
+        </div>
+        <div class="card form-section">
+            <h2>Contact &amp; sign-in</h2>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.email %}{{ form.email }}{{ form.email.errors }}</div>
+                <div class="form-field">{% field_label form.phone %}{{ form.phone }}{{ form.phone.errors }}</div>
+            </div>
+            <p class="help-text">{{ form.email.help_text }}</p>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.family_role %}{{ form.family_role }}{{ form.family_role.errors }}</div>
+            </div>
+            <p class="help-text">{{ form.family_role.help_text }}</p>
+            <div class="form-field checkbox-field">{{ form.notifications_enabled }}{% field_label form.notifications_enabled %}</div>
+            <p class="help-text">Turn off for someone recorded for lineage only - e.g. an in-law's own parent - so they never get birthday/yahrzeit notifications.</p>
+        </div>
+        <div class="card form-section">
+            <h2>More</h2>
+            <div class="form-field">{% field_label form.notes %}{{ form.notes }}</div>
+        </div>
+        <button type="submit"
+                class="btn"
+                title="{% if object %}Save changes to {{ object.display_name }}{% else %}Add this person to the family{% endif %}">{% if object %}Save changes{% else %}Add to the family{% endif %}</button>
+        {% if object %}<a class="btn btn-outline"
+   href="{% url 'family:person_detail' object.uuid %}">Cancel</a>{% endif %}
+    </form>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css">
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/intl-tel-input@29.2.3/dist/css/intlTelInput.css">
+    <script src="https://cdn.jsdelivr.net/npm/intl-tel-input@29.2.3/dist/js/intlTelInputWithUtils.min.js"></script>
+    <script src="{% static 'family/js/person_picker.js' %}"></script>
+    <script src="{% static 'family/js/hebrew_autofill.js' %}"></script>
+    <script src="{% static 'accounts/js/phone_input.js' %}"></script>
+    <script src="{% static 'accounts/js/email_input.js' %}"></script>
+    <script>
+    // Father/mother is a type-to-filter combobox, not a plain <select> -
+    // a family with a couple hundred people (and plenty of repeated
+    // names) is unusable to scroll through, see AGENTS.md.
+    initPersonPicker("#id_father, #id_mother");
+
+    initPhoneInput("#id_phone");
+    initEmailValidation("#id_email", "{% url 'accounts:validate_email' %}");
+
+    // Prefill (never overwrite - see hebrew_autofill.js) the Hebrew date
+    // fields from their Gregorian counterpart, for both Born and Death.
+    initHebrewAutofill("{% url 'family:gregorian_to_hebrew' %}", [
+      {
+        gregorianId: "id_dob_gregorian",
+        yearId: "id_dob_hebrew_year",
+        monthId: "id_dob_hebrew_month",
+        dayId: "id_dob_hebrew_day",
+        noteId: "dob-hebrew-autofill-note",
+      },
+      {
+        gregorianId: "id_dod_gregorian",
+        yearId: "id_dod_hebrew_year",
+        monthId: "id_dod_hebrew_month",
+        dayId: "id_dod_hebrew_day",
+        noteId: "dod-hebrew-autofill-note",
+      },
+    ]);
+    </script>
+{% endblock %}

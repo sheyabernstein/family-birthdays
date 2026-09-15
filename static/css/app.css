@@ -1,0 +1,1262 @@
+/* ---------------------------------------------------------------------
+   Family Birthdays - the "family ledger" design system.
+
+   Concept: this reads like a hand-kept family record book, not a SaaS
+   dashboard. Every date in the app is shown as a "ledger stamp" - the
+   Hebrew date, which is what actually drives notifications, shown large
+   and first; the Gregorian date shown small underneath as a gloss. Event
+   types (birth / yahrzeit / union) get a consistent color code used as a
+   left-edge stripe throughout, so the meaning of an entry is legible at
+   a glance without reading it.
+   --------------------------------------------------------------------- */
+
+:root {
+  --paper: #eeebe1;
+  --paper-raised: #f6f4ec;
+  --ink: #221f1a;
+  --ink-soft: #5b5748;
+  --rule: #cfc6ae;
+  --rule-soft: #ded6bd;
+  --brass: #a9823c;
+  --brass-ink: #6e5726;
+  --sage: #4b6650;
+  --sage-ink: #2c4530;
+  --wine: #7a2e3a;
+  --wine-ink: #5c2129;
+  --slate: #3b4a5a;
+  --slate-ink: #2a3542;
+  --danger: #a3352b;
+  --font-display: "Spectral", georgia, "Times New Roman", serif;
+  --font-body: "Work Sans", -apple-system, blinkmacsystemfont, "Segoe UI",
+    sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", consolas, monospace;
+
+  /* Neither Spectral nor IBM Plex Mono ship Hebrew glyphs, so Hebrew text
+     was silently falling back to whatever serif the OS happened to have -
+     inconsistent across browsers, and unreliable for niqqud (vowel
+     points). Noto Sans Hebrew has full, well-tested Hebrew + niqqud
+     coverage and is used explicitly wherever Hebrew text renders. */
+  --font-hebrew: "Noto Sans Hebrew", "Arial Hebrew", sans-serif;
+  --radius: 3px;
+  --shadow: 0 1px 2px rgb(34 31 26 / 8%), 0 1px 1px rgb(34 31 26 / 5%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--slate-ink);
+  text-decoration-color: var(--rule);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration-color: currentcolor;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brass-ink);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.15;
+  margin: 0 0 0.4em;
+  color: var(--ink);
+}
+
+h1 {
+  font-size: 2rem;
+}
+
+h2 {
+  font-size: 1.4rem;
+}
+
+h3 {
+  font-size: 1.1rem;
+}
+
+p {
+  margin: 0 0 1em;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+/* --- Layout shell --- */
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 0.9rem 1.5rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-raised);
+  flex-wrap: wrap;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.15rem;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  text-decoration: none;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.nav {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.nav a {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  text-decoration: none;
+  padding: 0.25rem 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.nav a:hover,
+.nav a.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--brass);
+}
+
+.nav form {
+  margin: 0;
+}
+
+.nav .link-button {
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 0.25rem 0;
+}
+
+.nav .link-button:hover {
+  color: var(--danger);
+}
+
+main {
+  flex: 1;
+  width: 100%;
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.page-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+/* --- Messages --- */
+
+.messages {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  max-width: 68rem;
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+.messages li {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--sage);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* --- Ledger stamp: the signature date component --- */
+
+.stamp {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  font-family: var(--font-mono);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+  padding: 0.35rem 0.6rem;
+  min-width: 8.5rem;
+}
+
+.stamp .hebrew-date {
+  font-family: var(--font-hebrew);
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--ink);
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
+.stamp .gregorian-date {
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.stamp.stamp-shifted {
+  border-color: var(--brass);
+}
+
+.stamp-note {
+  font-size: 0.68rem;
+  color: var(--brass-ink);
+  margin-top: 0.15rem;
+}
+
+/* --- Event type color coding --- */
+
+.event-birth {
+  border-left-color: var(--sage) !important;
+}
+
+.event-death {
+  border-left-color: var(--wine) !important;
+}
+
+.event-marriage {
+  border-left-color: var(--slate) !important;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-weight: 600;
+}
+
+.badge-birth {
+  background: #e4ebe3;
+  color: var(--sage-ink);
+}
+
+.badge-death {
+  background: #ecdde0;
+  color: var(--wine-ink);
+}
+
+.badge-marriage {
+  background: #dfe4ea;
+  color: var(--slate-ink);
+}
+
+.badge-broadcast {
+  background: #f0e6d2;
+  color: var(--brass-ink);
+}
+
+/* --- Ledger list (dashboard) --- */
+
+.ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.ledger-row {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.9rem 0.25rem;
+  border-bottom: 1px solid var(--rule);
+  border-left: 4px solid transparent;
+  flex-wrap: wrap;
+}
+
+.ledger-row .stamp {
+  min-width: 220px;
+}
+
+.ledger-row .who {
+  flex: 1;
+  min-width: 12rem;
+}
+
+/* The row's own subject link (a person's/couple's name) - deliberately its
+   own class, not a bare ".who a", since .who can also hold other, plainly-
+   styled links (e.g. broadcast_list.html's "About <person>" mentions and
+   its Edit/Cancel actions) that shouldn't inherit this heading treatment
+   just for sharing the same container. */
+.timeline-who .who-name,
+.ledger-row .who .who-name {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.timeline-who .who-name:hover,
+.ledger-row .who .who-name:hover {
+  text-decoration: underline;
+}
+
+.empty-state {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--ink-soft);
+  border: 1px dashed var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+}
+
+/* --- Timeline list (Upcoming, Broadcasts) - each point in time gets its
+   own card, connected by a vertical rule. Not a swap-in for .ledger
+   above: that stays the right fit for subscriptions.html's compact,
+   genuinely one-line-per-override rows. This is for content that
+   doesn't fit one line - Upcoming groups every event landing on the
+   same date under a single point (see family.views.DashboardView's own
+   grouping, done in Python rather than send_date alone, since two
+   different people's occurrences can share a send_date by coincidence
+   without sharing the same Hebrew date), and a broadcast's own text can
+   run to several paragraphs. --- */
+
+.timeline {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 1.6rem;
+}
+
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 0.32rem;
+  top: 0.4rem;
+  bottom: 0.4rem;
+  width: 1px;
+  background: var(--rule);
+}
+
+.timeline-entry {
+  position: relative;
+  margin-bottom: 1.4rem;
+}
+
+.timeline-entry::before {
+  content: "";
+  position: absolute;
+  left: -1.6rem;
+  top: 0.35rem;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--rule);
+}
+
+.timeline-entry.event-birth::before {
+  border-color: var(--sage);
+}
+
+.timeline-entry.event-death::before {
+  border-color: var(--wine);
+}
+
+.timeline-entry.event-marriage::before {
+  border-color: var(--slate);
+}
+
+.timeline-entry.timeline-scheduled::before {
+  border-color: var(--brass);
+}
+
+.timeline-when {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  margin-bottom: 0.4rem;
+}
+
+.timeline-when .hebrew-date {
+  font-family: var(--font-hebrew);
+  font-size: 1rem;
+  color: var(--ink);
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
+.timeline-when .stamp-note {
+  color: var(--brass-ink);
+}
+
+.timeline-card {
+  background: var(--paper-raised);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 0.9rem 1.1rem;
+}
+
+.timeline-card.timeline-scheduled {
+  border-left: 3px solid var(--brass);
+}
+
+/* Upcoming: a fixed-width badge column so the name always starts at the
+   same offset regardless of the event type's own label length ("Bar
+   Mitzvah" vs "Birthday") - text-length-dependent alignment was the
+   actual problem with an earlier version of this. */
+.timeline-who {
+  display: grid;
+  grid-template-columns: 6.75rem 1fr;
+  align-items: center;
+  column-gap: 1rem;
+}
+
+.timeline-who .badge {
+  justify-self: start;
+}
+
+.timeline-who + .timeline-who {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--rule-soft);
+}
+
+/* Broadcasts: sender/timestamp header, rich-text body, optional footer
+   for tied people and (a still-scheduled broadcast only) Edit/Cancel. */
+.timeline-broadcast-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.timeline-broadcast-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--rule-soft);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+.timeline-broadcast-foot .spacer {
+  flex: 1;
+}
+
+/* --- Cards / sections --- */
+
+.card {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.card h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--rule-soft);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+
+.field-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem 1.25rem;
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.field-list dt {
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+.field-list dd {
+  margin: 0;
+}
+
+/* --- Buttons / forms --- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 1.2;
+}
+
+.btn:hover {
+  background: #3a3527;
+  border-color: #3a3527;
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--rule);
+}
+
+.btn-outline:hover {
+  border-color: var(--ink);
+  background: var(--paper);
+}
+
+.btn-subscribed {
+  background: var(--sage);
+  border-color: var(--sage);
+  color: #fff;
+}
+
+.btn-subscribed:hover {
+  background: #3d5641;
+  border-color: #3d5641;
+}
+
+.btn-sm {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.6rem;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="search"],
+input[type="date"],
+input[type="number"],
+input[type="url"],
+select,
+textarea {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
+  width: 100%;
+}
+
+textarea {
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--brass);
+}
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  margin-bottom: 0.35rem;
+}
+
+/* --- Icons --- */
+.info-icon::before {
+  content: "ℹ ";
+}
+
+.warning-icon::before {
+  content: "⚠ ";
+}
+
+/* --- Person create/edit form --- */
+
+.form-section {
+  margin-bottom: 1.5rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.form-row:last-child {
+  margin-bottom: 0;
+}
+
+.form-field .help-text {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  margin-top: 0.3rem;
+}
+
+/* The "prefilled from the Gregorian date" note (person_form.html/
+   union_form.html + hebrew_autofill.js) - brass rather than --danger,
+   since this is a heads-up to double-check, not an error. */
+.autofill-note {
+  font-size: 0.75rem;
+  color: var(--brass-ink);
+  margin-top: 0.5rem;
+}
+
+.form-field .errorlist {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  color: var(--danger);
+  font-size: 0.8rem;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.checkbox-field input {
+  width: auto;
+}
+
+.checkbox-field label {
+  margin: 0;
+}
+
+.form-errors {
+  background: #fbeceb;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.form-errors ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+/* --- People index --- */
+
+.people-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+
+.person-card {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.person-card:hover {
+  border-color: var(--ink);
+}
+
+.avatar {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background: var(--slate);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.avatar.avatar-deceased {
+  background: var(--wine);
+}
+
+.person-card .name {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.person-card .meta {
+  font-family: var(--font-hebrew), var(--font-body);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+/* --- Person detail header --- */
+
+.person-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+  margin-bottom: 1.75rem;
+  flex-wrap: wrap;
+}
+
+.person-header .avatar {
+  width: 4rem;
+  height: 4rem;
+  font-size: 1.4rem;
+}
+
+.person-header .hebrew-name {
+  font-family: var(--font-hebrew);
+  font-size: 1.1rem;
+  color: var(--ink-soft);
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
+.dates-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.dates-row .dates-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+/* --- Generic data table (e.g. Workspace Settings' member list) --- */
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.data-table td {
+  padding: 0.55rem 0.5rem;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: middle;
+}
+
+/* --- Subscription toggles --- */
+
+.subscribe-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.subscribe-table th {
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.subscribe-table td {
+  padding: 0.55rem 0.5rem;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: middle;
+}
+
+.subscribe-table form {
+  margin: 0;
+}
+
+/* --- History (person detail page) - GitHub-PR-style diff rows --- */
+
+.history-table td {
+  vertical-align: top;
+  font-size: 0.8rem;
+}
+
+.history-table .diff-field-name {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.history-table .diff-label-only {
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+/* The two diff lines should butt up against each other and the cell
+   edge, not sit inside the table's usual cell padding - each .diff-row
+   supplies its own so the red/green background reaches the full cell. */
+.history-table .diff-cell {
+  padding: 0 !important;
+}
+
+.diff-row {
+  padding: 0.3rem 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-row-removed {
+  background: #fbeaea;
+  color: var(--wine-ink);
+  text-decoration: line-through;
+}
+
+.diff-row-added {
+  background: #e6f0e6;
+  color: var(--sage-ink);
+}
+
+/* --- Family tree --- */
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.tree-generation {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+
+.tree-generation-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  margin-bottom: 0.5rem;
+  display: block;
+  border-top: 1px solid var(--rule);
+  padding-top: 0.75rem;
+}
+
+.tree-node {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+  text-decoration: none;
+  color: var(--ink);
+  font-size: 0.88rem;
+  display: block;
+}
+
+.tree-node:hover {
+  border-color: var(--ink);
+}
+
+.tree-node.is-focus {
+  border: 2px solid var(--brass);
+  background: #fff;
+  font-weight: 600;
+}
+
+.tree-node .role {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  letter-spacing: 0.05em;
+  margin-bottom: 0.15rem;
+}
+
+/* --- Full family tree (family-chart library) ---
+   The library itself handles layout/pan/zoom; this just gives its
+   container a concrete size, which it requires. */
+
+main.full-bleed {
+  max-width: none;
+}
+
+#family-chart-mount {
+  width: 100%;
+  height: 80vh;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+}
+
+/* family-chart's own nodes are also `div.card` - undo this site's generic
+   .card component (background/border/padding/shadow) so it doesn't stack
+   on top of the library's own card styling. */
+#family-chart-mount div.card {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin-bottom: 0;
+  box-shadow: none;
+}
+
+/* The library draws links in solid white, meant for its own dark theme -
+   invisible against this app's light paper background. */
+#family-chart-mount .link {
+  stroke: var(--ink-soft);
+}
+
+/* The connector between an upcoming (not-yet-married) couple - see
+   markUpcomingWeddingLinks() in family_tree.html, which is what tells
+   this link apart from an ordinary spouse link since f3 doesn't expose
+   relationship type as a class. */
+#family-chart-mount .link.link-upcoming-wedding {
+  stroke-dasharray: 5 4;
+}
+
+/* Card size lives here instead of JS (setCardDim) since setCardInnerHtmlCreator
+   bypasses the library's own inline sizing - see family_tree.html. */
+#family-chart-mount div.card-rect {
+  width: 220px;
+  min-height: 90px;
+  height: 90px;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.15rem;
+}
+
+#family-chart-mount .card-name {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+#family-chart-mount .card-hebrew-name {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+/* Shown while a Union is upcoming (marriage_date in the future - see
+   Union.is_upcoming) rather than any stored "engaged" state, since
+   there's deliberately no such status to flip to "married" later. */
+#family-chart-mount .card-upcoming-wedding {
+  font-size: 0.7rem;
+  padding-top: 1em;
+}
+
+/* "+ add relative" placeholders around the focused person, edit mode
+   only - see refreshPlaceholders() in family_tree.html. Higher-specificity
+   selector to override the gender-based background family-chart's own
+   CSS would otherwise apply. */
+#family-chart-mount .card-add-relative {
+  /* Opaque, matching the chart's own background - otherwise the
+     connecting line drawn underneath the card shows straight through it. */
+  background: var(--paper-raised);
+  border: 2px dashed var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+#family-chart-mount .card-add-label {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+/* --- Auth pages --- */
+
+.auth-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 24rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 2rem;
+}
+
+.auth-card .btn {
+  width: 100%;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
+
+/* --- Tom Select (father/mother/spouse pickers) - retint the library's
+   default look to match the app's palette instead of its stock blue. --- */
+
+.ts-wrapper .ts-control,
+.ts-wrapper.single .ts-control {
+  font-family: var(--font-body);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.ts-wrapper.focus .ts-control {
+  border-color: var(--brass);
+  box-shadow: none;
+}
+
+.ts-dropdown {
+  font-family: var(--font-body);
+  border-color: var(--rule);
+}
+
+.ts-dropdown .active {
+  background: var(--paper-raised);
+  color: var(--ink);
+}
+
+/* Two-line option row (family.forms.PersonPickerSelect + person_picker.js)
+   - name/year on top, Hebrew first name as a subtitle underneath, since
+   name + birth year alone can't always disambiguate a large family's
+   repeated names. */
+.ts-option-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.2rem 0;
+}
+
+.ts-option-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.ts-option-name {
+  font-weight: 600;
+}
+
+.ts-option-year {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.ts-option-hebrew {
+  font-family: var(--font-hebrew);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
+.ts-option-warning {
+  font-size: 0.7rem;
+  color: var(--danger);
+}
+
+/* --- Responsive --- */
+
+@media (width <= 40rem) {
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  main {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .person-header {
+    flex-direction: column;
+  }
+
+  .field-list {
+    grid-template-columns: 1fr;
+  }
+
+  .field-list dt {
+    margin-top: 0.5rem;
+  }
+}
+
+/* --- Trix (broadcast text editor) - retint to match the rest of the
+   form controls; the attach-file button is hidden outright, not just
+   styled, since there's no upload endpoint behind it - see
+   static/js/broadcast_editor.js. */
+trix-toolbar {
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: #fff;
+}
+
+/* !important: trix.css's own trix-toolbar .trix-button-group rule
+   (display: flex) has identical specificity to a plain attribute
+   selector here and loads after app.css, so it wins any specificity
+   tie on load order alone - confirmed directly against the library,
+   not assumed. */
+trix-toolbar [data-trix-button-group="file-tools"] {
+  display: none !important;
+}
+
+trix-editor {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  min-height: 8rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: #fff;
+  color: var(--ink);
+}
+
+trix-editor:focus {
+  border-color: var(--brass);
+  outline: none;
+}
+
+/* --- intl-tel-input (phone fields) - the library's own container defaults
+   to inline-block sized to content, not our inputs' own width: 100%. --- */
+
+.iti {
+  display: block;
+  width: 100%;
+}
+
+/* Retint to match the rest of the app's inputs, same reasoning as Tom
+   Select/Trix - but deliberately scoped to .iti input[type="tel"] rather
+   than added to the shared input[type="..."] selector list above, and
+   deliberately not setting padding-left: the library sets that itself,
+   sized to fit its own flag/dial-code button, which sits absolutely
+   positioned over the input's left edge. Overriding it (found the hard
+   way - the flag button rendered on top of the number instead of beside
+   it, visually "doubling" the dial code) would leave that button with
+   nowhere to go, colliding with the field's own text at every dial code
+   length. */
+.iti input[type="tel"] {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  padding-right: 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
+  width: 100%;
+}
+
+.iti input[type="tel"]:focus {
+  border-color: var(--brass);
+}
+
+.phone-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+  margin-top: 0.3rem;
+}
+
+.email-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+  margin-top: 0.3rem;
+}
+
+.email-error.email-error-suggestion {
+  color: var(--ink-soft);
+}
+
+.required-marker {
+  color: var(--danger);
+}
+
+.required-legend {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

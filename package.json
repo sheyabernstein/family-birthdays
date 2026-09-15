@@ -1,0 +1,12 @@
+{
+  "name": "family_birthdays",
+  "private": true,
+  "description": "Lint/format tooling for static/js and static/css - see AGENTS.md's 'Linting templates, JS, and CSS' section. Not a build pipeline; static/js/*.js are still loaded as plain <script src> files.",
+  "devDependencies": {
+    "@eslint/js": "9.9.1",
+    "eslint": "9.9.1",
+    "prettier": "3.1.0",
+    "stylelint": "16",
+    "stylelint-config-standard": "36"
+  }
+}

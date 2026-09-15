@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}Help - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>Help</h1>
+    </div>
+    <p class="muted">A reference for how Family Tree works - come back any time, nothing here is a one-time tour.</p>
+    {% if perms.tenants.add_family or request.has_multiple_families %}
+        <p class="muted">
+            Two words that mean different things throughout this page: your <strong>family</strong> is
+            your actual relatives - the people in your tree. A <strong>workspace</strong> is the separate
+            space that family's tree, dates, and notifications live in. Most people only ever use one
+            workspace; someone who's genuinely part of two families (say, the one they were born into and
+            the one they married into) has two.
+        </p>
+    {% endif %}
+    <div class="card">
+        <h2>Contents</h2>
+        <p class="muted" style="margin-bottom: 0.5rem;">Getting started</p>
+        <ul>
+            {% if perms.tenants.add_family or request.has_multiple_families %}
+                <li><a href="#workspaces">Workspaces, and switching between them</a></li>
+            {% endif %}
+            <li><a href="#signing-in">Signing in</a></li>
+            <li><a href="#tree">The family tree</a></li>
+            <li><a href="#notifications">Your own notifications</a></li>
+            <li><a href="#tracked">Why some people don't show up in the list</a></li>
+            <li><a href="#roles">Roles</a></li>
+        </ul>
+        {% if request.family_permissions.can_edit %}
+            <p class="muted" style="margin-bottom: 0.5rem; margin-top: 1rem;">For owners &amp; editors</p>
+            <ul>
+                <li><a href="#contact-info">Contact info and sign-in access</a></li>
+                <li><a href="#dates">Hebrew and Gregorian dates</a></li>
+                <li><a href="#marriages">Marriages, engagements, and divorce</a></li>
+                <li><a href="#death">Recording a death</a></li>
+                <li><a href="#coming-of-age">Bar and Bat Mitzvah</a></li>
+                <li><a href="#cross-family">In-laws and cross-family visibility</a></li>
+                <li><a href="#resolution">How notification settings are decided</a></li>
+                <li><a href="#site-admins">Site admins</a></li>
+                <li><a href="#broadcasts">Broadcasts</a></li>
+                <li><a href="#history">The History section</a></li>
+            </ul>
+        {% endif %}
+    </div>
+    {% if perms.tenants.add_family or request.has_multiple_families %}
+        <div class="card">
+            <h2 id="workspaces">Workspaces, and switching between them</h2>
+            <p>
+                Each workspace has its own family tree, its own list of upcoming birthdays and yahrzeits,
+                and its own notification settings, kept completely separate from any other workspace's. If
+                you're part of more than one - most commonly, the family you were born into and the one you
+                married into - a <a href="{% url 'tenants:switch_family' %}">Switch Workspace</a> link appears in the top navigation so you can move
+                between them. Whichever one you're currently in is shown in the page title and the top left
+                of every page. Nothing you do in one workspace affects another.
+            </p>
+        </div>
+    {% endif %}
+    <div class="card">
+        <h2 id="signing-in">Signing in</h2>
+        <p>
+            There are no passwords. Signing in sends a one-time link to your email or phone - open it
+            and you're in. If you're ever signed out, just request a new link the same way.
+        </p>
+    </div>
+    <div class="card">
+        <h2 id="tree">The family tree</h2>
+        <p>
+            Open "View family tree" from anyone's page to see the interactive chart: drag to pan,
+            scroll to zoom, click a card to re-center the tree on that person. A small icon on a card
+            means there's more of the tree in that direction - click it to expand. A "Horizontal view"
+            button switches the layout between generations stacked top-to-bottom (the default) and
+            generations arranged left-to-right, useful for tracing one narrow branch. A dashed connector
+            between two people means they're engaged but not yet married.
+        </p>
+    </div>
+    <div class="card">
+        <h2 id="notifications">Your own notifications</h2>
+        <p>
+            <a href="{% url 'notifications:subscriptions' %}">My Notifications</a> is where you manage what you personally hear about, and on which
+            channel (email or SMS). For each event type you can choose to hear about everyone, just
+            your immediate family (spouse, parents, children, siblings), or mute it entirely. On any
+            specific person's own page, a button next to each event type lets you add a one-off
+            exception for just that person - included even though you'd normally miss it, or excluded
+            even though you'd normally hear about it. That exception always wins over your general
+            setting.
+        </p>
+    </div>
+    <div class="card">
+        <h2 id="tracked">Why some people don't show up in the list</h2>
+        <p>
+            The <a href="{% url 'family:person_list' %}">People</a> list only shows people who are actually part of this family's day-to-day
+            notifications. Some records exist purely so the family tree renders correctly - for
+            example, an in-law's own parent, who isn't part of this family and doesn't need birthday or
+            yahrzeit reminders. Those records are hidden from the list by default; you can still reach
+            one by following the tree or a relation link from someone who is tracked.
+        </p>
+    </div>
+    <div class="card">
+        <h2 id="roles">Roles</h2>
+        <p>
+            <strong>Members</strong> can view the tree and manage their own notification
+            subscriptions. <strong>Editors</strong> can additionally add and edit people and
+            relationships. Only the <strong>owner</strong> can remove someone from the family or delete a
+            marriage record - editors can't undo that.
+        </p>
+        {% if request.family_role %}
+            <p class="muted"><span class="info-icon"></span> You currently have the <strong>{{ request.family_role|title }}</strong> role in {{ request.family.name }}.</p>
+        {% endif %}
+    </div>
+    {% if request.family_permissions.can_edit %}
+        <div class="card">
+            <h2 id="contact-info">Contact info and sign-in access</h2>
+            <p>
+                A person record and a login are two different things. Entering someone's email or phone
+                on their profile is what actually gives them their own sign-in - before that, they're
+                just a record in the tree with no way to log in themselves. The same login can represent
+                someone in more than one family (their birth family and the one they married into), so
+                setting contact info never creates a duplicate account for someone who already has one.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="dates">Hebrew and Gregorian dates</h2>
+            <p>
+                Every date in this app - birth, death, and marriage alike - is recorded in both calendars
+                independently. Neither is computed from the other, because a birth, death, or wedding
+                that happened after sunset has already advanced to the next Hebrew day - only whoever's
+                entering the record actually knows the answer. Enter both if you know them; the Hebrew
+                date is what actually drives scheduling (a birthday, yahrzeit, or anniversary is worked
+                out fresh against the Hebrew calendar every year).
+            </p>
+            <p>
+                Two per-person settings handle calendar quirks that would otherwise make a date ambiguous
+                in some years: which Adar a birth/death/marriage in Adar is observed in in a Hebrew leap
+                year, and whether a date on the 30th of Cheshvan or Kislev moves to the 1st of the next
+                month or the last day of the (now 29-day) month, in a year where that month is short.
+                Defaults follow common custom; override them if a family's practice differs.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="marriages">Marriages, engagements, and divorce</h2>
+            <p>
+                Add a spouse from either person's page. There's no separate "engaged" status to remember
+                to change later - a marriage is recorded as married from the moment it's added, even if
+                the wedding date is still in the future. While the date is still ahead, the tree shows a
+                dashed connector and the couple gets a one-time "Wedding" reminder instead of a yearly
+                "Anniversary" one; once the date passes, that switches over automatically.
+            </p>
+            <p>
+                Divorce and widowhood aren't automatic in the same way - nothing else in the record
+                implies them, so update the marriage's status directly when one happens. That's also
+                what stops the yearly anniversary reminder for a marriage that's ended.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="death">Recording a death</h2>
+            <p>
+                Entering a death date is what marks someone as no longer living - there's no separate
+                toggle for it. Once that's recorded, birthday (and Bar/Bat Mitzvah) notifications for
+                that person stop, and yahrzeit notifications take over automatically. If they were
+                married, their marriage's anniversary reminder stops too, the same way.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="coming-of-age">Bar and Bat Mitzvah</h2>
+            <p>
+                A boy's 13th Hebrew birthday, or a girl's 12th, automatically becomes a Bar or Bat
+                Mitzvah notification instead of an ordinary birthday one - but only once the Hebrew birth
+                <em>year</em> is entered, not just the month and day. Without it, there's no way to work
+                out which birthday is the 13th (or 12th) without guessing, so it stays an ordinary
+                birthday every year until the year is filled in.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="cross-family">In-laws and cross-family visibility</h2>
+            <p>
+                An in-law reached through a marriage is visible on both sides - you can see and follow a
+                link to your child's spouse, even though they belong to a different family's workspace. You
+                still can't edit anyone outside your own family, though; that visibility is read-only.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="resolution">How notification settings are decided</h2>
+            <p>
+                For any given event, the most specific setting wins: a one-off exception on that
+                particular person or marriage beats your own general setting for that event type, which
+                beats the family's default for it if you've never touched it. "Immediate family" always
+                means spouse, parent, child, or sibling - that definition doesn't change per family.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="site-admins">Site admins</h2>
+            <p>
+                A site admin isn't a role within your family - it's someone who helps run Family Tree
+                itself, across every family using it, similar to how a phone carrier's staff aren't part
+                of your household but can still help set up your line. There's no self-service way to
+                create a new workspace yet (see above), so a site admin is who sets one up, and who adds
+                the first person to it. They can also see every family's still-pending broadcasts, not
+                just their own, as a safety net. Most families never need to think about this day to day
+                - it only comes up if you're told to contact one, or someone tells you they're setting
+                one up for you.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="broadcasts">Broadcasts</h2>
+            <p>
+                A broadcast is a one-off, free-text update - a <a href="{% url 'notifications:broadcast_list' %}">Broadcasts</a> link appears in the
+                navigation for owners and editors. It goes out to everyone in the family who hasn't
+                muted broadcasts (from <a href="{% url 'notifications:subscriptions' %}">My Notifications</a>, the same as any other event type), at the
+                time you choose - queued to go out right away by default (it can take a few minutes to
+                actually send), or scheduled for later. You can optionally tie it to one or more people
+                (an engagement, a new baby, a couple's wedding details) so it's clear what it's about;
+                anyone subscribed to "immediate family only" hears about it if they're immediate family
+                of any of those people.
+            </p>
+            <p>
+                Unlike other event types, a broadcast has no per-person exception - muting or
+                subscribing applies to all of them at once. It also isn't computed the way a birthday
+                or yahrzeit is, so it never appears on the <a href="{% url 'family:dashboard' %}">Upcoming</a> page - the <a href="{% url 'notifications:broadcast_list' %}">Broadcasts</a> page is where
+                you track it. A broadcast you scheduled can still be edited or cancelled right up until
+                it sends; once it's gone out, it's kept as history but can't be changed. A still-pending
+                (not yet sent) broadcast only shows up there for whoever created it - other owners'/editors'
+                pending broadcasts stay invisible to you until they've actually gone out, at
+                which point they become visible to everyone with access, as a shared record. A site admin
+                (see above) is the one exception - they can see every pending broadcast, not just their
+                own.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="history">The History section</h2>
+            <p>
+                Near the bottom of a person's page, owners and editors can see a running history of
+                changes to that person and their relationships - who changed what, and when. It's there for
+                catching mistakes (like a birth date entered wrong) and understanding how a record got to
+                its current state.
+            </p>
+        </div>
+    {% endif %}
+{% endblock %}

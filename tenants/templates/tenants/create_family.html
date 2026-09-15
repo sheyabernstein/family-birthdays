@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% load form_extras %}
+{% block title %}Create your workspace - Family Tree{% endblock %}
+{% block content %}
+    <div class="auth-shell">
+        <div class="auth-card">
+            <h1>Name your workspace</h1>
+            <p class="muted">This is the workspace everyone you invite will share - people, dates, and notifications all live inside it.</p>
+            <p class="required-legend">Fields marked <span class="required-marker"
+       aria-hidden="true">*</span> are required.</p>
+            <form method="post">
+                {% csrf_token %}
+                <label for="name"><span class="required-marker" aria-hidden="true">*</span> Family name</label>
+                <input type="text"
+                       id="name"
+                       name="name"
+                       required
+                       autofocus
+                       value="{{ name|default:'' }}"
+                       placeholder="The Rokach Family">
+                <div class="form-field">
+                    {% field_label form.sms_sender_id %}{{ form.sms_sender_id }}{{ form.sms_sender_id.errors }}
+                    <p class="help-text">{{ form.sms_sender_id.help_text }}</p>
+                </div>
+                <div class="form-field">
+                    {% field_label form.reply_to_email %}{{ form.reply_to_email }}{{ form.reply_to_email.errors }}
+                    <p class="help-text">{{ form.reply_to_email.help_text }}</p>
+                </div>
+                <button type="submit" class="btn" title="Create this new workspace">Create workspace</button>
+            </form>
+        </div>
+    </div>
+{% endblock %}

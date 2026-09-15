@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Switch workspace{% endblock %}
+{% block content %}
+    <div class="auth-shell">
+        <div class="auth-card">
+            <h1>Which workspace?</h1>
+            <p class="muted">You're part of more than one workspace.</p>
+            <form method="post">
+                {% csrf_token %}
+                {% for membership in memberships %}
+                    <button type="submit"
+                            name="family_id"
+                            value="{{ membership.family.uuid }}"
+                            class="btn btn-outline"
+                            style="width: 100%;
+                                   justify-content: flex-start;
+                                   margin-top: 0.6rem">
+                        {{ membership.family.name }}
+                        <span class="muted" style="margin-left: auto;">{{ membership.get_role_display }}</span>
+                    </button>
+                {% endfor %}
+            </form>
+            {% if perms.tenants.add_family %}
+                <p style="margin-top: 1.25rem"><a href="{% url 'tenants:create_family' %}">Start a new workspace instead</a></p>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

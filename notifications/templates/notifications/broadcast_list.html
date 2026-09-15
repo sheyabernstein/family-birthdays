@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Broadcasts - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>Broadcasts</h1>
+        <p class="muted">
+            A one-off update sent to everyone in the family who hasn't muted it.
+            Sent broadcasts are shown to any owner/editor; a still-scheduled one is shown here to whoever created it.
+            <br>
+            <small class="info-icon muted">All broadcasts are visible to site admins.</small>
+        </p>
+    </div>
+    <div class="card form-section">
+        <h2>New broadcast</h2>
+        {% if form.non_field_errors %}
+            <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+        <form method="post" action="{% url 'notifications:broadcast_create' %}">
+            {% csrf_token %}
+            <div class="form-field">{{ form.text.label_tag }}{{ form.text }}{{ form.text.errors }}</div>
+            <div class="form-field">
+                {{ form.people.label_tag }}{{ form.people }}{{ form.people.errors }}
+                <p class="help-text">{{ form.people.help_text }}</p>
+            </div>
+            <div class="form-field">{{ form.send_at.label_tag }}{{ form.send_at }}{{ form.send_at.errors }}</div>
+            <button type="submit" class="btn" title="Schedule this broadcast">Schedule</button>
+        </form>
+    </div>
+    {% if scheduled_broadcasts %}
+        <h2>Scheduled</h2>
+        <ul class="timeline">
+            {% for broadcast in scheduled_broadcasts %}
+                <li class="timeline-entry timeline-scheduled">
+                    <div class="timeline-when">
+                        <span>{{ broadcast.send_at|date:"l, F j, Y, g:i A" }}</span>
+                        <span class="stamp-note">scheduled</span>
+                    </div>
+                    <div class="timeline-card timeline-scheduled">
+                        <div class="timeline-broadcast-head">
+                            <span class="badge badge-broadcast">Broadcast</span>
+                            <span>by {{ broadcast.created_by }}</span>
+                        </div>
+                        {{ broadcast.text|safe }}
+                        <div class="timeline-broadcast-foot">
+                            {% if broadcast.people.all %}
+                                <span>
+                                    About
+                                    {% for person in broadcast.people.all %}
+                                        <a href="{% url 'family:person_detail' person.uuid %}">{{ person.display_name }}</a>{% if not forloop.last %}, {% endif %}
+                                    {% endfor %}
+                                </span>
+                            {% endif %}
+                            <span class="spacer"></span>
+                            <a class="btn btn-outline btn-sm"
+                               href="{% url 'notifications:broadcast_update' broadcast.uuid %}"
+                               title="Edit this broadcast before it sends">Edit</a>
+                            <a class="btn btn-outline btn-sm"
+                               href="{% url 'notifications:broadcast_delete' broadcast.uuid %}"
+                               title="Cancel this broadcast before it sends">Cancel</a>
+                        </div>
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+    {% if sent_broadcasts %}
+        <h2>Sent</h2>
+        <ul class="timeline">
+            {% for broadcast in sent_broadcasts %}
+                <li class="timeline-entry">
+                    <div class="timeline-when">
+                        <span>{{ broadcast.send_at|date:"l, F j, Y, g:i A" }}</span>
+                    </div>
+                    <div class="timeline-card">
+                        <div class="timeline-broadcast-head">
+                            <span class="badge badge-broadcast">Broadcast</span>
+                            <span>by {{ broadcast.created_by }}</span>
+                        </div>
+                        {{ broadcast.text|safe }}
+                        {% if broadcast.people.all %}
+                            <div class="timeline-broadcast-foot">
+                                <span>
+                                    About
+                                    {% for person in broadcast.people.all %}
+                                        <a href="{% url 'family:person_detail' person.uuid %}">{{ person.display_name }}</a>{% if not forloop.last %}, {% endif %}
+                                    {% endfor %}
+                                </span>
+                            </div>
+                        {% endif %}
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+    {% if not scheduled_broadcasts and not sent_broadcasts %}
+        <div class="empty-state">
+            <p>No broadcasts yet.</p>
+        </div>
+    {% endif %}
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css">
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/trix@2/dist/trix.css">
+    <script src="https://cdn.jsdelivr.net/npm/trix@2/dist/trix.umd.min.js"></script>
+    <script src="{% static 'family/js/person_picker.js' %}"></script>
+    <script src="{% static 'notifications/js/broadcast_editor.js' %}"></script>
+    <script>
+    initPersonPicker("#id_people");
+    initBroadcastEditor();
+    </script>
+{% endblock %}

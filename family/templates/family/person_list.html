@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% load family_extras %}
+{% block title %}People - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>Family</h1>
+        {% if request.family_permissions.can_edit %}
+            <a class="btn"
+               href="{% url 'family:person_create' %}"
+               title="Add a new person to the family">+ Add someone</a>
+        {% endif %}
+    </div>
+    <form method="get" style="margin-bottom: 1.5rem; max-width: 20rem;">
+        <label for="q">Search</label>
+        <input type="search"
+               id="q"
+               name="q"
+               value="{{ query }}"
+               placeholder="Name, nickname, שם...">
+        {% if can_show_untracked %}
+            <div class="checkbox-field" style="margin-top: 0.5rem;">
+                <input type="checkbox"
+                       id="show_untracked"
+                       name="show_untracked"
+                       value="1"
+                       {% if show_untracked %}checked{% endif %}
+                       onchange="this.form.submit()">
+                <label for="show_untracked" style="display: inline;">Show untracked people</label>
+            </div>
+        {% endif %}
+    </form>
+    {% if people %}
+        <div class="people-grid">
+            {% for person in people %}
+                <a class="person-card"
+                   href="{% url 'family:person_detail' person.uuid %}">
+                    <span class="avatar {% if not person.is_living %}avatar-deceased{% endif %}">{{ person|initials }}</span>
+                    <span>
+                        <span class="name">{{ person.display_name }}</span>
+                        <br>
+                        <span class="meta">
+                            {% if person.hebrew_name %}{{ person.hebrew_name }}{% endif %}
+                            {% if not person.is_living %}· of blessed memory{% endif %}
+                        </span>
+                    </span>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <p>{% if query %}No one matches "{{ query }}".{% else %}No one's been added yet.{% endif %}</p>
+            {% if request.family_permissions.can_edit %}
+                <a class="btn"
+                   href="{% url 'family:person_create' %}"
+                   title="Add a new person to the family">+ Add someone</a>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endblock %}

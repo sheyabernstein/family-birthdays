@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Sign in - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="auth-shell">
+        <div class="auth-card">
+            <h1>Sign in</h1>
+            <p class="muted">No password needed - we'll send you a one-time link.</p>
+            <form method="post">
+                {% csrf_token %}
+                <label for="identifier">Email or phone number</label>
+                <input type="text"
+                       name="identifier"
+                       id="identifier"
+                       required
+                       autofocus
+                       placeholder="you@example.com">
+                <button type="submit" class="btn">Send me a sign-in link</button>
+            </form>
+        </div>
+    </div>
+{% endblock %}

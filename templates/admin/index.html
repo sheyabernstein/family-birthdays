@@ -1,0 +1,13 @@
+{% extends "admin/index.html" %}
+{% block sidebar %}
+    <div class="module" id="ops-module">
+        <table>
+            <caption>Ops</caption>
+            <tbody>
+                <tr><th scope="row"><a href="{% url 'notifications:scheduled_tasks' %}">Scheduled tasks</a></th></tr>
+                <tr><th scope="row"><a href="{% url 'admin:django_celery_results_taskresult_changelist' %}">Task results</a></th></tr>
+            </tbody>
+        </table>
+    </div>
+    {{ block.super }}
+{% endblock %}

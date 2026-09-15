@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% load static form_extras %}
+{% block title %}Edit broadcast - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>Edit broadcast</h1>
+    </div>
+    {% if form.non_field_errors %}
+        <div class="form-errors">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <p class="required-legend">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
+    <div class="card form-section">
+        <form method="post">
+            {% csrf_token %}
+            <div class="form-field">{% field_label form.text %}{{ form.text }}{{ form.text.errors }}</div>
+            <div class="form-field">
+                {% field_label form.people %}{{ form.people }}{{ form.people.errors }}
+                <p class="help-text">{{ form.people.help_text }}</p>
+            </div>
+            <div class="form-field">{% field_label form.send_at %}{{ form.send_at }}{{ form.send_at.errors }}</div>
+            <button type="submit" class="btn" title="Save changes to this broadcast">Save changes</button>
+            <a class="btn btn-outline"
+               href="{% url 'notifications:broadcast_list' %}">Cancel</a>
+        </form>
+    </div>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css">
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/trix@2/dist/trix.css">
+    <script src="https://cdn.jsdelivr.net/npm/trix@2/dist/trix.umd.min.js"></script>
+    <script src="{% static 'family/js/person_picker.js' %}"></script>
+    <script src="{% static 'notifications/js/broadcast_editor.js' %}"></script>
+    <script>
+    initPersonPicker("#id_people");
+    initBroadcastEditor();
+    </script>
+{% endblock %}

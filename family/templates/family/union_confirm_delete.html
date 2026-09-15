@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Remove marriage - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>Remove {{ object.person_a.display_name }} &amp; {{ object.person_b.display_name }}'s marriage?</h1>
+    </div>
+    <div class="card">
+        <p>This removes the marriage record and any anniversary subscriptions for it. Neither {{ object.person_a.display_name }} nor {{ object.person_b.display_name }} is removed from the family.</p>
+        <p class="muted">This can't be undone.</p>
+        <form method="post">
+            {% csrf_token %}
+            <button type="submit"
+                    class="btn"
+                    style="background: var(--wine);
+                           border-color: var(--wine)"
+                    title="Permanently remove this marriage record">Remove marriage</button>
+            <a class="btn btn-outline"
+               href="{% url 'family:person_detail' object.person_a.uuid %}">Cancel</a>
+        </form>
+    </div>
+{% endblock %}

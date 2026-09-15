@@ -1,0 +1,732 @@
+import datetime as dt
+from collections import defaultdict
+from collections.abc import Iterator
+
+from celery import Task, shared_task
+from django.template.loader import render_to_string
+from django.utils import dateformat, timezone
+from django.utils.html import strip_tags
+from hdate.hebrew_date import Months
+
+from config.logging_config import logger
+from family.hebrew import (
+    gregorian_to_hebrew,
+    hebrew_to_gregorian,
+    resolve_hebrew_anniversary,
+    resolve_send_date,
+)
+from family.models import Person, Union
+from notifications.audience import resolve_audience, resolve_broadcast_audience
+from notifications.helpers import html_to_plain_text
+from notifications.models import Broadcast, Channel, EventType, Message, Occurrence
+from notifications.services import send_email, send_sms
+
+# A single GSM-7 SMS segment - see AGENTS.md. Deliberately conservative
+# rather than budgeting for 2-segment messages: forces genuinely terse
+# copy and never risks a family member being charged for (or a flaky
+# carrier splitting) a multi-part text over what should be one line.
+SMS_CHAR_BUDGET = 160
+
+# How far ahead to keep Occurrence rows computed. Re-running the nightly
+# job is idempotent (update_or_create on the unique constraint), so this
+# self-heals if a person's dates are corrected later or a new EventType
+# is added.
+OCCURRENCE_HORIZON_DAYS = 400
+
+# A girl's 12th Hebrew birthday and a boy's 13th are a bat/bar mitzvah,
+# not just another birthday - these codes are never computed as their own
+# independent yearly event (see the exclusion in _event_types_by_family);
+# they only ever replace that one specific year's "birthday" occurrence,
+# via _coming_of_age_code below.
+BAT_MITZVAH_AGE = 12
+BAR_MITZVAH_AGE = 13
+COMING_OF_AGE_CODES = {EventType.BuiltinCode.BAR_MITZVAH, EventType.BuiltinCode.BAT_MITZVAH}
+
+# Broadcast isn't anchor/Occurrence-driven at all - it's sent directly by
+# send_due_broadcasts below, on its own send_at timestamp rather than a
+# computed yearly recurrence. Excluded here for the same reason
+# COMING_OF_AGE_CODES is: so it's never treated as an independent
+# per-subject event to schedule (it'd no-op anyway, since _anchor_for has
+# no case for it and returns no anchor - this just makes that explicit).
+NON_SCHEDULED_CODES = COMING_OF_AGE_CODES | {EventType.BuiltinCode.BROADCAST}
+
+
+def _anchor_for(
+    subject: Person | Union, event_type: EventType
+) -> tuple[tuple[Months, int] | None, str, str, int | None]:
+    """Resolves the anchor date info an EventType needs to schedule for a subject.
+
+    Returns:
+        A tuple of:
+
+        - The month/day anchor, or None if this event type isn't
+          anchor-driven.
+        - The Adar observance to use.
+        - The day-30 observance to use.
+        - The Hebrew year the anchor event itself happened in, if known
+          - the floor _compute_for_subject uses so nothing fires before
+            the event it's celebrating has actually happened, e.g. a
+            Union whose wedding is still in the future shouldn't get an
+            "anniversary" this year just because the month/day happens
+            to match (see Union.is_upcoming and AGENTS.md).
+    """
+    if event_type.anchor == EventType.Anchor.BIRTH:
+        return (
+            subject.dob_hebrew_anchor,
+            subject.yahrzeit_adar_observance,
+            subject.yahrzeit_day30_observance,
+            subject.dob_hebrew_year,
+        )
+    if event_type.anchor == EventType.Anchor.DEATH:
+        return (
+            subject.dod_hebrew_anchor,
+            subject.yahrzeit_adar_observance,
+            subject.yahrzeit_day30_observance,
+            subject.dod_hebrew_year,
+        )
+    if event_type.anchor == EventType.Anchor.MARRIAGE:
+        return subject.marriage_hebrew_anchor, "adar_ii", "start_of_next_month", subject.marriage_hebrew_year
+    return None, "adar_ii", "start_of_next_month", None
+
+
+def _event_types_by_family() -> (
+    tuple[defaultdict[int | None, list[EventType]], defaultdict[int | None, list[EventType]]]
+):
+    """Builds scheduled EventTypes grouped by family and by subject kind.
+
+    Returns:
+        A (person_types_by_family_id, union_types_by_family_id) tuple,
+        each also keyed under None for the global defaults every family
+        gets.
+    """
+    person_types: defaultdict[int | None, list[EventType]] = defaultdict(list)
+    union_types: defaultdict[int | None, list[EventType]] = defaultdict(list)
+    for event_type in EventType.objects.exclude(code__in=NON_SCHEDULED_CODES):
+        bucket = union_types if event_type.applies_to_union else person_types
+        bucket[event_type.family_id].append(event_type)
+    return person_types, union_types
+
+
+def union_is_eligible_for_notifications(union: Union) -> bool:
+    """Whether a union's events should fire at all.
+
+    A union's events only ever fire while it's actually a live marriage
+    between two people who are both still being tracked - an untracked
+    spouse (notifications_enabled=False - a lineage-only stub, e.g. an
+    in-law's own parent entered just so the tree renders) means nobody
+    should ever be notified about this marriage either, same as a
+    Person's own birthday/yahrzeit already stop for an untracked Person
+    (see Person.notifications_enabled in AGENTS.md).
+    """
+    return (
+        union.status == Union.Status.MARRIED
+        and union.person_a.is_living
+        and union.person_b.is_living
+        and union.person_a.notifications_enabled
+        and union.person_b.notifications_enabled
+    )
+
+
+def _subject_pairs() -> Iterator[tuple[Person | Union, EventType]]:
+    """Yields every subject/event-type pair that could ever need scheduling.
+
+    Every Person with a birth/death anchor, and every currently-married
+    Union with a marriage anchor. This is deliberately not
+    subscription-driven: who gets *notified* is a separate question (see
+    notifications.audience) from whether the event happens at all.
+    """
+    person_types, union_types = _event_types_by_family()
+
+    for person in Person.objects.filter(notifications_enabled=True):
+        for event_type in person_types[None] + person_types.get(person.family_id, []):
+            if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
+                continue
+            # Symmetric to the DEATH-anchor check above: once someone has
+            # died there's no more birthday (or bar/bat mitzvah, which
+            # only ever supersedes a birthday - see _coming_of_age_code)
+            # to celebrate, only the yahrzeit going forward.
+            if event_type.anchor == EventType.Anchor.BIRTH and not person.is_living:
+                continue
+            yield person, event_type
+
+    for union in Union.objects.filter(status=Union.Status.MARRIED).select_related("person_a", "person_b"):
+        if not union_is_eligible_for_notifications(union):
+            continue
+        applicable = (
+            union_types[None]
+            + union_types.get(union.person_a.family_id, [])
+            + union_types.get(union.person_b.family_id, [])
+        )
+        for event_type in applicable:
+            yield union, event_type
+
+
+def _event_types_for_person(person: Person) -> Iterator[EventType]:
+    person_types, _union_types = _event_types_by_family()
+    for event_type in person_types[None] + person_types.get(person.family_id, []):
+        if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
+            continue
+        if event_type.anchor == EventType.Anchor.BIRTH and not person.is_living:
+            continue
+        yield event_type
+
+
+def _event_types_for_union(union: Union) -> Iterator[EventType]:
+    if not union_is_eligible_for_notifications(union):
+        return
+    _person_types, union_types = _event_types_by_family()
+    yield from (
+        union_types[None]
+        + union_types.get(union.person_a.family_id, [])
+        + union_types.get(union.person_b.family_id, [])
+    )
+
+
+def _coming_of_age_code(person: Person, hebrew_year: int) -> str | None:
+    """Resolves the bat/bar mitzvah code for a person's Hebrew birthday, if applicable.
+
+    A girl's 12th Hebrew birthday, or a boy's 13th, is a bat/bar mitzvah
+    instead of an ordinary birthday. Only decided when the Hebrew
+    birth *year* was actually entered - deriving it from the Gregorian
+    date isn't something this app does for anchor dates (see
+    family.hebrew and AGENTS.md), and guessing wrong here would put the
+    wrong event type on a real simcha.
+    """
+    if not person.dob_hebrew_year:
+        return None
+    age = hebrew_year - person.dob_hebrew_year
+    if person.gender == Person.Gender.FEMALE and age == BAT_MITZVAH_AGE:
+        return EventType.BuiltinCode.BAT_MITZVAH
+    if person.gender == Person.Gender.MALE and age == BAR_MITZVAH_AGE:
+        return EventType.BuiltinCode.BAR_MITZVAH
+    return None
+
+
+def person_has_passed_coming_of_age(person: Person) -> bool:
+    """Whether a Bar/Bat Mitzvah toggle for this person is already stale.
+
+    True once they've passed the relevant age. Prefers the Hebrew birth year (the
+    same math as _coming_of_age_code above) over Person.age, since age is
+    Gregorian-only and is None for anyone with just a Hebrew birth year -
+    a real, common case here, not an edge case to shrug off. Returns
+    False (i.e. "still show it") when neither is known - there's no
+    actual age to compare against, so hiding it would just as easily be
+    wrong the other way.
+    """
+    threshold = BAT_MITZVAH_AGE if person.gender == Person.Gender.FEMALE else BAR_MITZVAH_AGE
+    if person.dob_hebrew_year:
+        today_hebrew_year = gregorian_to_hebrew(timezone.localdate()).year
+        return today_hebrew_year - person.dob_hebrew_year >= threshold
+    if person.age is not None:
+        return person.age >= threshold
+    return False
+
+
+def _sibling_event_type(event_type: EventType, code: str) -> EventType | None:
+    """Resolves the family's own override of `code`, falling back to the global default.
+
+    The same two-tier lookup every other EventType use in this app
+    follows.
+    """
+    return (
+        EventType.objects.filter(family_id=event_type.family_id, code=code).first()
+        or EventType.objects.filter(family__isnull=True, code=code).first()
+    )
+
+
+def _clear_superseded_occurrence_types(
+    person: Person, hebrew_year: int, *, keep_event_type: EventType
+) -> None:
+    """Deletes stale Birthday/Bar/Bat Mitzvah occurrences superseded by `keep_event_type`.
+
+    Birthday/bar-mitzvah/bat-mitzvah are mutually exclusive for one
+    person in one Hebrew year - only one of the three should ever have a
+    row. Cleans up whichever of the other two might be left over from
+    before a gender or birth-year correction. Never touches an
+    already-sent row; that's history, not a schedule.
+    """
+    Occurrence.objects.filter(
+        person=person,
+        hebrew_year=hebrew_year,
+        event_type__code__in={EventType.BuiltinCode.BIRTHDAY} | COMING_OF_AGE_CODES,
+        is_sent=False,
+    ).exclude(event_type=keep_event_type).delete()
+
+
+def _compute_for_subject(
+    subject: Person | Union, event_type: EventType, *, horizon: dt.date, today_hebrew_year: int
+) -> tuple[int, set[int]]:
+    """Upserts this subject's Occurrence rows for one event type out to the horizon.
+
+    Returns:
+        A (rows written, ids of EventTypes actually used) tuple - the
+        latter is usually just {event_type.id}, except a birthday year
+        that resolves to a bar/bat mitzvah instead.
+    """
+    anchor, adar_obs, day30_obs, anchor_year = _anchor_for(subject, event_type)
+    if not anchor:
+        logger.debug("occurrence skip - no anchor date", subject=str(subject), event_type=event_type.code)
+        return 0, set()
+    if not event_type.recurs and anchor_year is None:
+        # A one-time event type (e.g. Wedding) needs the actual anchor
+        # year to know which single year it belongs to - without it there's
+        # no way to tell this from any other year's month/day match.
+        logger.debug(
+            "occurrence skip - no anchor year for non-recurring type",
+            subject=str(subject),
+            event_type=event_type.code,
+        )
+        return 0, set()
+    anchor_month, anchor_day = anchor
+
+    is_person = isinstance(subject, Person)
+    written = 0
+    used_event_type_ids = set()
+    for hebrew_year in range(today_hebrew_year, today_hebrew_year + 3):
+        # Never fire before the anchor event itself happened - a birthday/
+        # yahrzeit/anniversary doesn't recur before it first occurred, and
+        # a non-recurring type (Wedding) only ever fires in that one exact
+        # year, not every year its month/day comes around.
+        if anchor_year is not None:
+            if event_type.recurs and hebrew_year < anchor_year:
+                continue
+            if not event_type.recurs and hebrew_year != anchor_year:
+                continue
+
+        hd = resolve_hebrew_anniversary(
+            anchor_month=anchor_month,
+            anchor_day=anchor_day,
+            target_year=hebrew_year,
+            adar_observance=adar_obs,
+            day30_observance=day30_obs,
+        )
+        occurrence_date = hebrew_to_gregorian(hd)
+        if occurrence_date > horizon:
+            continue
+        # today_hebrew_year covers the whole current Hebrew year, but an
+        # anchor early in it (Tishrei-Kislev) can resolve to a Gregorian
+        # date months in the past - never write a new occurrence for
+        # something that's already happened.
+        if occurrence_date < timezone.localdate():
+            continue
+
+        notify_from = occurrence_date - dt.timedelta(days=event_type.notify_days_before)
+        send_date, shifted = resolve_send_date(notify_from)
+
+        effective_event_type = event_type
+        if is_person and event_type.code == EventType.BuiltinCode.BIRTHDAY:
+            coming_of_age_code = _coming_of_age_code(subject, hd.year)
+            if coming_of_age_code:
+                effective_event_type = _sibling_event_type(event_type, coming_of_age_code) or event_type
+
+        Occurrence.objects.update_or_create(
+            person=subject if is_person else None,
+            union=None if is_person else subject,
+            event_type=effective_event_type,
+            hebrew_year=hd.year,
+            defaults={
+                "occurrence_date": occurrence_date,
+                "send_date": send_date,
+                "shifted_for_shabbat_or_yomtov": shifted,
+            },
+        )
+        written += 1
+        used_event_type_ids.add(effective_event_type.id)
+
+        if is_person and event_type.code == EventType.BuiltinCode.BIRTHDAY:
+            _clear_superseded_occurrence_types(subject, hd.year, keep_event_type=effective_event_type)
+
+    return written, used_event_type_ids
+
+
+@shared_task
+def compute_occurrences() -> None:
+    """Ensures every (person/union, event_type) pair has Occurrence rows out to the horizon.
+
+    Runs nightly as a self-healing full sweep - see
+    compute_occurrences_for_person/_union for the immediate,
+    single-subject version called right after an edit.
+    """
+    horizon = timezone.localdate() + dt.timedelta(days=OCCURRENCE_HORIZON_DAYS)
+    today_hebrew_year = gregorian_to_hebrew(timezone.localdate()).year
+
+    created_or_updated = 0
+    for subject, event_type in _subject_pairs():
+        written, _event_type_ids = _compute_for_subject(
+            subject, event_type, horizon=horizon, today_hebrew_year=today_hebrew_year
+        )
+        created_or_updated += written
+
+    logger.info("occurrences computed", count=created_or_updated)
+
+
+def _delete_stale_unsent_occurrences(
+    *, person: Person | None = None, union: Union | None = None, keep_event_type_ids: set[int]
+) -> None:
+    """Drops not-yet-sent occurrences for event types that no longer apply.
+
+    E.g. a union that just became divorced shouldn't keep an
+    already-computed anniversary reminder around. Never touches an
+    already-sent row; that's history, not a schedule - is_sent=False is
+    the only condition that matters here, deliberately not also
+    send_date__gte=today (a previous version of this filter used that,
+    and it was a real bug, not a refinement): resolve_send_date walks a
+    notification backward across Shabbat/Yom Tov, so an occurrence
+    computed on the anchor date itself, when that date is Yom Tov, gets a
+    send_date already in the past the moment it's created - excluding
+    "the past" here made exactly that row permanently un-cleanable, the
+    same way it made it permanently un-sendable in send_due_notifications
+    (see that function's own docstring). _clear_superseded_occurrence_
+    types, doing the same kind of cleanup for birthday/bar/bat-mitzvah,
+    never had this bug - it only ever filtered on is_sent=False.
+    """
+    qs = Occurrence.objects.filter(is_sent=False)
+    qs = qs.filter(person=person) if person is not None else qs.filter(union=union)
+    deleted, _ = qs.exclude(event_type_id__in=keep_event_type_ids).delete()
+    if deleted:
+        logger.info("stale occurrences removed", subject=str(person or union), count=deleted)
+
+
+def compute_occurrences_for_person(person: Person) -> None:
+    """Recomputes just this person's occurrences.
+
+    Called right after they're created/edited so their birthday/yahrzeit
+    shows up immediately instead of waiting for the nightly sweep.
+    """
+    horizon = timezone.localdate() + dt.timedelta(days=OCCURRENCE_HORIZON_DAYS)
+    today_hebrew_year = gregorian_to_hebrew(timezone.localdate()).year
+    applicable_event_type_ids = set()
+    if person.notifications_enabled:
+        for event_type in _event_types_for_person(person):
+            if _anchor_for(person, event_type)[0]:
+                applicable_event_type_ids.add(event_type.id)
+                _written, used_ids = _compute_for_subject(
+                    person, event_type, horizon=horizon, today_hebrew_year=today_hebrew_year
+                )
+                applicable_event_type_ids.update(used_ids)
+    _delete_stale_unsent_occurrences(person=person, keep_event_type_ids=applicable_event_type_ids)
+
+
+def compute_occurrences_for_union(union: Union) -> None:
+    """Same as compute_occurrences_for_person, for a marriage."""
+    horizon = timezone.localdate() + dt.timedelta(days=OCCURRENCE_HORIZON_DAYS)
+    today_hebrew_year = gregorian_to_hebrew(timezone.localdate()).year
+    applicable_event_type_ids = set()
+    for event_type in _event_types_for_union(union):
+        if _anchor_for(union, event_type)[0]:
+            applicable_event_type_ids.add(event_type.id)
+            _written, used_ids = _compute_for_subject(
+                union, event_type, horizon=horizon, today_hebrew_year=today_hebrew_year
+            )
+            applicable_event_type_ids.update(used_ids)
+    _delete_stale_unsent_occurrences(union=union, keep_event_type_ids=applicable_event_type_ids)
+
+
+@shared_task
+def send_due_notifications() -> None:
+    """Sends every due, unsent Occurrence's notifications.
+
+    Filters send_date__lte, not send_date=, so a day this didn't run (an
+    outage, a worker crash) or a row whose send_date landed in the past the
+    moment it was computed - resolve_send_date walks notify_days_before
+    backward across Shabbat/Yom Tov, and an immediate single-subject
+    recompute (compute_occurrences_for_person/_union, triggered by an
+    edit made that same day) can land exactly on the anchor date while
+    that date is itself Yom Tov, shifting send_date to before "today" on
+    arrival - both still go out on the next run instead of being silently
+    skipped forever. Matches send_due_broadcasts' own send_at__lte for
+    the same self-healing reason.
+
+    Each occurrence is claimed via an update() affecting is_sent 0->1 before
+    it's processed, not after - the same reasoning as send_due_broadcasts'
+    own claim: without it, a worker crash/retry between sending and saving
+    is_sent, or an overlapping run, would re-send the same occurrence's
+    notifications to the whole family.
+    """
+    today = timezone.localdate()
+    due_ids = list(
+        Occurrence.objects.filter(send_date__lte=today, is_sent=False).values_list("pk", flat=True)
+    )
+
+    queued = 0
+    claimed_count = 0
+    for occurrence_id in due_ids:
+        claimed = Occurrence.objects.filter(pk=occurrence_id, is_sent=False).update(is_sent=True)
+        if not claimed:
+            continue
+        claimed_count += 1
+
+        # person/union_a/union_b's own father/mother are chained in too -
+        # Person.parents_label (rendered into every occurrence email via
+        # notifications/templates/notifications/email/_parents.html) reads
+        # both, and without this each occurrence's email render cost 4
+        # extra un-batched Person queries (2 parents x up to 2 people for a
+        # union-anchored event) - see AGENTS.md's note on this.
+        occurrence = Occurrence.objects.select_related(
+            "person__father",
+            "person__mother",
+            "union",
+            "union__person_a__father",
+            "union__person_a__mother",
+            "union__person_b__father",
+            "union__person_b__mother",
+            "event_type",
+        ).get(pk=occurrence_id)
+
+        audience = resolve_audience(
+            event_type=occurrence.event_type, person=occurrence.person, union=occurrence.union
+        )
+        # Rendered once per channel actually needed for this occurrence,
+        # not once per recipient - most occurrences have several
+        # recipients on the same channel, and re-rendering the same
+        # template for each would just be wasted work.
+        rendered: dict[str, tuple[str, str, str]] = {}
+        for account, channel, destination in audience:
+            if channel not in rendered:
+                rendered[channel] = _render_occurrence_message(occurrence, channel=channel)
+            subject, body, html_body = rendered[channel]
+
+            message = Message.objects.create(
+                occurrence=occurrence,
+                account=account,
+                channel=channel,
+                destination=destination,
+                subject=subject,
+                body=body,
+                html_body=html_body,
+            )
+            send_message.delay(message.pk)
+            queued += 1
+
+    logger.info("notifications queued", occurrences_due=claimed_count, messages_queued=queued)
+
+
+def _truncate_for_sms(text: str, budget: int = SMS_CHAR_BUDGET) -> str:
+    if len(text) <= budget:
+        return text
+    return text[: budget - 1].rstrip() + "…"
+
+
+def _occurrence_template_context(occurrence: Occurrence) -> dict:
+    family = occurrence.person.family if occurrence.person else occurrence.union.person_a.family
+    # occurrence_date < today only when this send is genuinely late (a
+    # missed run, an outage - see send_due_notifications' own docstring),
+    # not when it's early for Shabbat/Yom Tov (occurrence_date > today,
+    # already called out separately via shifted_for_shabbat_or_yomtov) -
+    # templates use this to say "was on <date>" instead of "Today is"
+    # once send_date__lte's catch-up has let a real gap open up between
+    # when this was sent and when the event itself actually happened.
+    return {
+        "occurrence": occurrence,
+        "family_name": family.name,
+        "is_late": occurrence.occurrence_date < timezone.localdate(),
+    }
+
+
+def _occurrence_subject(occurrence: Occurrence, *, is_late: bool) -> str:
+    """Builds the email subject line for one occurrence.
+
+    Mirrors the body templates' own on-time/late/coming-up wording (see
+    _occurrence_template_context's is_late) rather than unconditionally
+    saying "today" - a subject line claiming "today" over
+    a body that says "was on <date>" (a late catch-up send) or "coming
+    up" (Wedding, sent notify_days_before ahead of the day itself, so
+    "today" was never accurate for it even on time) would be a confusing
+    mismatch for whoever's just glancing at their inbox.
+    """
+    subject_obj = occurrence.person or occurrence.union
+    name = getattr(subject_obj, "display_name", str(subject_obj))
+    event_name = occurrence.event_type.name
+    if is_late:
+        return f"{name} - {event_name} was on {dateformat.format(occurrence.occurrence_date, 'F j')}"
+    if occurrence.event_type.code == EventType.BuiltinCode.WEDDING:
+        return f"{name} - {event_name} coming up"
+    return f"{name} - {event_name} today"
+
+
+def _render_occurrence_message(occurrence: Occurrence, *, channel: str) -> tuple[str, str, str]:
+    """Renders (subject, body, html_body) for one occurrence on one channel.
+
+    Each event type gets its own template per channel (falling back to
+    _default for a family's own custom event type - see
+    notifications/templates/notifications/{email,sms}/) - the actual
+    subject/copy is computed here from the occurrence's own relationships
+    (person/union, event_type, dates) rather than duplicated per type in
+    Python, so a birthday and a yahrzeit can read (and, for email, look)
+    genuinely differently without more branching here.
+
+    Email gets subject + a real HTML body + a plain-text fallback derived
+    from that HTML (not hand-authored twice - see
+    notifications.services.send_email for why that's enough). SMS has no
+    subject and is rendered from its own short, plain-text template,
+    truncated defensively to SMS_CHAR_BUDGET in case an unusually long
+    name pushes it over.
+    """
+    context = _occurrence_template_context(occurrence)
+    if channel == Channel.EMAIL:
+        html = render_to_string(
+            [f"notifications/email/{occurrence.event_type.code}.html", "notifications/email/_default.html"],
+            context,
+        )
+        body = html_to_plain_text(html)
+        return _occurrence_subject(occurrence, is_late=context["is_late"]), body, html
+
+    text = render_to_string(
+        [f"notifications/sms/{occurrence.event_type.code}.txt", "notifications/sms/_default.txt"], context
+    )
+    text = _truncate_for_sms(" ".join(text.split()))
+    return "", text, ""
+
+
+def _broadcast_event_type(family_id: int) -> EventType:
+    """Resolves this family's own override of the broadcast event type, or the global default.
+
+    Same two-tier lookup as _sibling_event_type above. Falls back to
+    creating the global default
+    on the fly (rather than raising) in case a test/dev database was set
+    up without running the seed migration.
+    """
+    return (
+        EventType.objects.filter(family_id=family_id, code=EventType.BuiltinCode.BROADCAST).first()
+        or EventType.objects.filter(family__isnull=True, code=EventType.BuiltinCode.BROADCAST).first()
+        or EventType.objects.create(
+            family=None, code=EventType.BuiltinCode.BROADCAST, name="Broadcast", anchor="", recurs=False
+        )
+    )
+
+
+def _broadcast_subject(broadcast: Broadcast, people: list[Person]) -> str:
+    family_name = broadcast.family.name
+    if people:
+        names = ", ".join(person.display_name for person in people)
+        return f"{family_name} update - {names}"
+    return f"{family_name} update"
+
+
+def _render_broadcast_message(
+    broadcast: Broadcast, people: list[Person], *, channel: str
+) -> tuple[str, str, str]:
+    """Renders (subject, body, html_body) for one broadcast on one channel.
+
+    created_by is tracked on the Broadcast row itself (who to ask about
+    it, visible on the Broadcasts page) but deliberately left out of the
+    message a recipient actually receives - it's the family speaking, not
+    an individual sender. broadcast.text is already-sanitized HTML (see
+    notifications.forms.BroadcastForm) - safe to render directly into the email
+    template, but SMS needs its own plain, budget-truncated derivation
+    rather than raw markup.
+    """
+    if channel == Channel.EMAIL:
+        html = render_to_string(
+            "notifications/email/broadcast.html",
+            {"broadcast": broadcast, "people": people, "family_name": broadcast.family.name},
+        )
+        body = html_to_plain_text(html)
+        return _broadcast_subject(broadcast, people), body, html
+
+    plain = " ".join(strip_tags(broadcast.text).split())
+    text = render_to_string("notifications/sms/broadcast.txt", {"text": plain})
+    text = _truncate_for_sms(" ".join(text.split()))
+    return "", text, ""
+
+
+@shared_task
+def send_due_broadcasts() -> None:
+    """Sends every due, unsent Broadcast.
+
+    Runs every 5 minutes (see CELERY_BEAT_SCHEDULE) - a Broadcast is
+    sent on its own send_at timestamp, not a daily batch like
+    send_due_notifications, since "send immediately" (the default) or a
+    specific scheduled time both need finer than day granularity.
+
+    The update()-based claim below is what makes this safe to run
+    concurrently (more than one worker, or an overlapping run because the
+    previous one took over 5 minutes) and safe against a scheduled
+    broadcast being edited or deleted right up until the moment it's due:
+    only the run that actually flips is_sent 0->1 for a given row goes on
+    to send it, and an update() affecting zero rows (already claimed, or
+    the row's gone) is a normal, silent no-op rather than a race.
+    """
+    due_ids = list(
+        Broadcast.objects.filter(is_sent=False, send_at__lte=timezone.now()).values_list("pk", flat=True)
+    )
+
+    sent = 0
+    for broadcast_id in due_ids:
+        claimed = Broadcast.objects.filter(pk=broadcast_id, is_sent=False).update(
+            is_sent=True, sent_at=timezone.now()
+        )
+        if not claimed:
+            continue
+
+        broadcast = Broadcast.objects.select_related("family", "created_by").get(pk=broadcast_id)
+        people = list(broadcast.people.all())
+        event_type = _broadcast_event_type(broadcast.family_id)
+        audience = resolve_broadcast_audience(event_type=event_type, family=broadcast.family, people=people)
+
+        rendered: dict[str, tuple[str, str, str]] = {}
+        for account, channel, destination in audience:
+            if channel not in rendered:
+                rendered[channel] = _render_broadcast_message(broadcast, people, channel=channel)
+            subject, body, html_body = rendered[channel]
+
+            message = Message.objects.create(
+                broadcast=broadcast,
+                account=account,
+                channel=channel,
+                destination=destination,
+                subject=subject,
+                body=body,
+                html_body=html_body,
+            )
+            send_message.delay(message.pk)
+
+        sent += 1
+
+    logger.info("broadcasts sent", count=sent)
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=300)
+def send_message(self: Task, message_id: int) -> None:
+    message = Message.objects.get(pk=message_id)
+    try:
+        if message.channel == Channel.EMAIL:
+            provider_response = send_email(
+                to=message.destination,
+                subject=message.subject,
+                body=message.body,
+                html=message.html_body or None,
+                from_name=message.family.name,
+                from_email=message.family.sender_email,
+                reply_to=message.family.reply_to_email,
+            )
+        else:
+            provider_response = send_sms(
+                to=message.destination, body=message.body, sender_id=message.family.sms_sender_id
+            )
+    except Exception as exc:
+        message.status = Message.Status.FAILED
+        message.error = str(exc)
+        message.tries += 1
+        message.save(update_fields=["status", "error", "tries"])
+        logger.warning(
+            "message send failed",
+            message_id=message.pk,
+            subject=message.subject,
+            tries=message.tries,
+            exc_info=exc,
+        )
+        raise self.retry(exc=exc) from exc
+
+    message.status = Message.Status.SENT
+    message.sent_at = timezone.now()
+    message.tries += 1
+    message.provider_response = provider_response
+    message.save(update_fields=["status", "sent_at", "tries", "provider_response"])
+    logger.info(
+        "message sent",
+        message_id=message.pk,
+        subject=message.subject,
+        channel=message.channel,
+        status=message.status,
+    )
