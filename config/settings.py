@@ -47,7 +47,7 @@ INSTALLED_APPS = [
 # on every request.
 SITE_ID = 1
 SITE_DOMAIN = os.getenv("SITE_DOMAIN", "localhost:8000")
-SITE_USE_HTTPS = get_env_bool("SITE_USE_HTTPS", False)
+SITE_USE_HTTPS = get_env_bool("SITE_USE_HTTPS", default=not DEBUG)
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
