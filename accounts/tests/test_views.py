@@ -97,6 +97,26 @@ def test_request_magic_link_emails_a_sign_in_link_for_a_known_email(client):
     assert "/accounts/login/" in sent.body
 
 
+def test_request_magic_link_uses_site_base_url_not_the_request(client, settings):
+    # request.build_absolute_uri() derives its scheme/host from the
+    # request itself, which is only ever accurate if Django itself
+    # terminates TLS - this app never does (TLS is terminated upstream by
+    # a reverse proxy, see AGENTS.md), so that always produced a plain
+    # http://testserver-shaped link regardless of how the site's actually
+    # served. The link now comes from notifications.services.absolute_url,
+    # which reads settings.SITE_BASE_URL directly - proven here by
+    # asserting the link matches that setting even though the test
+    # client's own request comes in as plain http://testserver.
+    settings.SITE_BASE_URL = "https://family.example.com"
+    Account.objects.create_user(email="known@example.com")
+
+    client.post(reverse("accounts:request_link"), {"identifier": "known@example.com"})
+
+    sent = mail.outbox[-1]
+    assert "https://family.example.com" in sent.body
+    assert "testserver" not in sent.body
+
+
 def test_request_magic_link_email_includes_an_html_alternative_with_the_link(client):
     Account.objects.create_user(email="known@example.com")
 
@@ -174,6 +194,38 @@ def test_request_magic_link_is_silent_for_an_unknown_identifier(client):
 
     assert resp.status_code == 200
     assert len(mail.outbox) == 0
+
+
+def test_link_sent_page_shows_the_identifier_that_was_entered(client):
+    Account.objects.create_user(email="known@example.com")
+
+    resp = client.post(reverse("accounts:request_link"), {"identifier": "known@example.com"})
+
+    assert b"known@example.com" in resp.content
+
+
+def test_link_sent_page_shows_an_unknown_identifier_too(client):
+    # Echoing it back is safe either way - it's just what they themselves
+    # typed, not confirmation that it matched a real account. Showing it
+    # only for a known identifier would itself leak which ones are
+    # registered, defeating the point of the silent-either-way response
+    # above.
+    resp = client.post(reverse("accounts:request_link"), {"identifier": "nobody@example.com"})
+
+    assert b"nobody@example.com" in resp.content
+
+
+def test_link_sent_page_shows_the_real_ttl_not_a_hardcoded_one(client, monkeypatch):
+    # This page used to say "valid for 15 minutes" as a plain string
+    # literal, disconnected from magic_links.TOKEN_TTL_SECONDS - the same
+    # bug already fixed for the sign-in email/SMS themselves (see
+    # AGENTS.md). Proven here by changing the real constant and checking
+    # the page actually reflects it, not just that some number appears.
+    monkeypatch.setattr(magic_links, "TOKEN_TTL_SECONDS", 42 * 60)
+
+    resp = client.post(reverse("accounts:request_link"), {"identifier": "nobody@example.com"})
+
+    assert b"42 minutes" in resp.content
 
 
 def test_request_magic_link_is_silent_for_an_inactive_account(client):

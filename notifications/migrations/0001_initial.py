@@ -56,20 +56,6 @@ def unseed_global_event_types(apps, schema_editor):
     EventType.objects.filter(family=None, code__in=[d["code"] for d in GLOBAL_EVENT_TYPES]).delete()
 
 
-def configure_site(apps, schema_editor):
-    Site = apps.get_model("sites", "Site")
-    Site.objects.update_or_create(
-        pk=settings.SITE_ID,
-        defaults={"domain": settings.SITE_DOMAIN, "name": "Family Tree"},
-    )
-
-
-def revert_site(apps, schema_editor):
-    # Not worth trying to restore "example.com" - a reverse migration here
-    # only exists so this migration is reversible at all.
-    pass
-
-
 class Migration(migrations.Migration):
 
     initial = True
@@ -77,7 +63,6 @@ class Migration(migrations.Migration):
     dependencies = [
         ("family", "0001_initial"),
         ("tenants", "0001_initial"),
-        ("sites", "0002_alter_domain_unique"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -462,5 +447,4 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunPython(seed_global_event_types, unseed_global_event_types),
-        migrations.RunPython(configure_site, revert_site),
     ]

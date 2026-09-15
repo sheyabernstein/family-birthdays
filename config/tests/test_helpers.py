@@ -1,6 +1,7 @@
 import pytest
+from django.core.exceptions import ImproperlyConfigured
 
-from config.helpers import get_env_bool, get_env_int, get_env_list
+from config.helpers import check_email_security_settings, get_env_bool, get_env_int, get_env_list
 
 
 @pytest.mark.parametrize(
@@ -123,3 +124,25 @@ def test_get_env_list_default_is_not_shared_between_calls(monkeypatch):
     first.append("mutated")
 
     assert get_env_list("SOME_LIST") == []
+
+
+@pytest.mark.parametrize(
+    ["use_tls", "use_ssl"],
+    [
+        [False, False],
+        [True, False],
+        [False, True],
+    ],
+    ids=[
+        "both off is a real working case - plain unencrypted SMTP",
+        "tls only",
+        "ssl only",
+    ],
+)
+def test_check_email_security_settings_allows_non_conflicting_combinations(use_tls, use_ssl):
+    check_email_security_settings(use_tls=use_tls, use_ssl=use_ssl)
+
+
+def test_check_email_security_settings_rejects_both_true():
+    with pytest.raises(ImproperlyConfigured):
+        check_email_security_settings(use_tls=True, use_ssl=True)

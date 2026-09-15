@@ -5,7 +5,6 @@ from functools import cache
 
 import css_inline
 from django.conf import settings
-from django.contrib.sites.models import Site
 from django.contrib.staticfiles.finders import find as find_static
 from django.core.mail import EmailMultiAlternatives
 from django.urls import reverse
@@ -16,20 +15,6 @@ DEFAULT_EMAIL_SENDER_NAME = "Family Tree"
 DEFAULT_SMS_SENDER_ID = "FamilyTree"
 
 
-def _site_base_url() -> str:
-    """Builds scheme + domain from the Sites framework rather than request.get_host().
-
-    See SITE_DOMAIN in config/settings.py for how that's seeded - used
-    instead of request.get_host() since rendering always happens from a
-    Celery task with no request in play. Shared by absolute_url below,
-    and formerly by absolute_static_url too - see static_data_uri for
-    why the event-type icons no longer need an absolute URL at all.
-    """
-    domain = Site.objects.get_current().domain
-    scheme = "https" if settings.SITE_USE_HTTPS else "http"
-    return f"{scheme}://{domain}"
-
-
 @cache
 def static_data_uri(path: str) -> str:
     """Base64-embeds a static asset directly into an HTML email as a data URI.
@@ -38,7 +23,7 @@ def static_data_uri(path: str) -> str:
     notifications/templates/notifications/email/) instead of a hosted
     `<img src>` URL - no request back to this app's own domain is needed
     for the icon to render, so email rendering has no dependency on
-    WhiteNoise/`SITE_DOMAIN` being reachable from wherever the
+    WhiteNoise/`SITE_BASE_URL` being reachable from wherever the
     recipient's client is. Deliberately not SVG despite these being
     simple icons - real client support for inline `<svg>` markup sits
     around 40% (breaks in classic Outlook Windows, Thunderbird, Samsung
@@ -66,10 +51,14 @@ def static_data_uri(path: str) -> str:
 def absolute_url(view_name: str, *args, **kwargs) -> str:
     """Builds an absolute URL to a page on this site.
 
-    E.g. My Notifications, linked from the email footer - this one has
-    to stay a real clickable URL, unlike the icons above.
+    E.g. My Notifications, linked from the email footer, or the sign-in
+    magic link (accounts.views.RequestMagicLinkView) - both need a real,
+    correct clickable URL with no request in play (a Celery task, or a
+    scheme that has to reflect settings.SITE_BASE_URL rather than
+    whatever request.is_secure() would say - this app always terminates
+    TLS upstream, so that's never a reliable signal, see AGENTS.md).
     """
-    return f"{_site_base_url()}{reverse(view_name, args=args, kwargs=kwargs)}"
+    return f"{settings.SITE_BASE_URL}{reverse(view_name, args=args, kwargs=kwargs)}"
 
 
 def _inline_css(html: str) -> str:

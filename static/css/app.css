@@ -1065,6 +1065,45 @@ main.full-bleed {
   margin-top: 0.75rem;
 }
 
+/* Sign-in confirmation's "Sent to" / "Expires in" pair - same label-over-
+   value language as .dates-label above, just laid out as rows in a
+   bordered card instead of stacked, since these are two independent
+   facts side by side rather than one date's own two calendar readings. */
+
+.confirm-details {
+  margin: 1.25rem 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+}
+
+.confirm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.6rem 0.9rem;
+}
+
+.confirm-row + .confirm-row {
+  border-top: 1px solid var(--rule-soft);
+}
+
+.confirm-row dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+.confirm-row dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 /* --- Tom Select (father/mother/spouse pickers) - retint the library's
    default look to match the app's palette instead of its stock blue. --- */
 

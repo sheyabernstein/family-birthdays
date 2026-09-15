@@ -515,10 +515,11 @@ switching workspaces.
     so it can't drift if the family's later renamed, since `slug` is set
     once at creation and never changes - see `Family.save()`).
     `EMAIL_SENDING_DOMAIN` is deliberately a separate setting from
-    `SITE_DOMAIN` (the app's own served-at domain, used for links/static
-    URLs) - `SITE_DOMAIN`'s own dev default, `localhost:8000`, isn't even
-    a valid email domain (a port isn't legal there), and in production the
-    sending domain is often its own subdomain anyway, kept separate so
+    `SITE_BASE_URL` (the app's own served-at scheme+host, used for links/
+    static URLs) - `SITE_BASE_URL`'s own dev default, `http://localhost:8000`,
+    isn't even a valid email domain (a scheme and a port aren't legal
+    there), and in production the sending domain is often its own
+    subdomain anyway, kept separate so
     DKIM/SPF/DMARC reputation for mail doesn't tangle with the web app's
     domain. One domain, verified once at the domain level (SES, not
     per-address) - an arbitrary per-family local-part just works with no
@@ -936,6 +937,29 @@ switching workspaces.
   `notifications.views.ScheduledTasksView` (the static schedule, read-only)
   plus `django-celery-results`' own admin page (`TaskResult` — actual run
   history, status, tracebacks), both linked from the Django admin index.
+- **`SITE_BASE_URL` is one `proto://fqdn` setting, not a domain + a
+  use-https flag, and not `django.contrib.sites`.** Used wherever an
+  absolute URL needs building with no request in play -
+  `notifications.services.absolute_url` (the email footer's "Manage
+  notification settings" link) and the sign-in magic link
+  (`accounts.views.RequestMagicLinkView`, which deliberately doesn't use
+  `request.build_absolute_uri()` - see that view's own comment on why:
+  this app always terminates TLS upstream via a reverse proxy, so
+  `request.is_secure()` is never a reliable signal for what scheme to
+  use). This app briefly used `django.contrib.sites` for the domain half
+  (seeded from an env var by a migration, then "ordinary admin-editable
+  data" from then on) - dropped before the first real deploy once it
+  became clear that admin-editability bought nothing: changing the real
+  domain also means updating `ALLOWED_HOSTS`/DNS/the TLS cert, all of
+  which need a redeploy anyway, so a DB row that could be edited
+  independently of those just risked drifting out of sync with them, not
+  offering real flexibility. A single `SITE_BASE_URL` (rather than two
+  settings that have to agree, `SITE_DOMAIN` + `SITE_USE_HTTPS`) was a
+  deliberate choice too, made against this file's own general preference
+  for decomposed config (see the Redis bullet just below) - a
+  scheme+host pair is one value with one meaning here, not two
+  independent knobs that could each be reused separately elsewhere the
+  way `REDIS_HOST`/`_PORT`/`_DB`/`_PASSWORD` are.
 - **Redis config is discrete env vars (`REDIS_HOST`/`_PORT`/`_DB`/
   `_PASSWORD`), not a single `REDIS_URL`** - mirrors the `POSTGRES_*`
   pattern for the same reason (`config/settings.py` builds the actual
@@ -1133,7 +1157,7 @@ switching workspaces.
 - **Every non-string env var is parsed through `config.helpers`, never a
   one-off `os.getenv(...)` call with ad hoc truthy/int logic inline.**
   `get_env_bool`/`get_env_int`/`get_env_list` (`config/settings.py`'s
-  `DEBUG`/`SITE_USE_HTTPS`/`DIASPORA`/`EMAIL_USE_TLS`, `ALLOWED_HOSTS`,
+  `DEBUG`/`DIASPORA`/`EMAIL_USE_TLS`, `ALLOWED_HOSTS`,
   `POSTGRES_PORT`/`EMAIL_PORT`; `docker/scripts/wait_for_postgres.py`'s
   `WAIT_FOR_POSTGRES_MAX_TRIES`/`SLEEP_BETWEEN`) all treat unset *or
   blank* the same way - fall back to `default` - and an unparseable int
@@ -1472,3 +1496,26 @@ apart:
   than one combined step, so a failure shows up against that specific
   tool's name in the checks list instead of being buried inside a
   single "lint everything" step.
+
+## Git workflow
+
+Every change goes through a feature branch and a pull request into
+`main` - never a direct commit to `main`. `main` is what CI treats as
+deployable (`publish` in `.github/workflows/ci.yml` builds and pushes an
+image on every push to it), so it stays green by construction: nothing
+lands there that hasn't gone through `lint`/`test` on its own branch
+first.
+
+**Commit messages are short and mechanical; the "why" goes in the PR
+description, not the commit.** A commit message says what changed, in
+one line (`fix: ...`/`feat: ...`/plain imperative, matching whatever this
+repo's own history is already doing - check `git log` rather than
+inventing a new convention). The PR description is where the actual
+narrative lives: what problem this solves, why this approach over the
+alternatives, what was verified and how. Splitting it this way keeps
+`git log`/`git blame` scannable (a one-line summary per change, not a
+paragraph to scroll past) while still keeping the reasoning somewhere
+real - the PR - rather than losing it entirely. A PR bundling several
+related commits doesn't need each commit to carry its own essay either;
+one commit can be terse even when the PR as a whole represents a lot of
+discussion and iteration to get there.

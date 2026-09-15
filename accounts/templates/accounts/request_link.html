@@ -8,11 +8,26 @@
             <form method="post">
                 {% csrf_token %}
                 <label for="identifier">Email or phone number</label>
+                {% comment %}
+                    autocomplete="off" plus the vendor-specific ignore attributes below are a
+                    best-effort, not a guarantee - browsers/password managers increasingly
+                    autofill a field they recognize as login-like regardless of autocomplete="off",
+                    but there's no stronger standard signal to give them. This isn't a
+                    credential field (no password anywhere on this page - see AGENTS.md's
+                    passwordless-by-design bullet), so autofilling a stale/wrong saved value
+                    here is just a wrong-account paper cut, not a security issue - worth
+                    discouraging, not worth fighting harder than this over.
+                {% endcomment %}
                 <input type="text"
                        name="identifier"
                        id="identifier"
                        required
                        autofocus
+                       autocomplete="off"
+                       data-lpignore="true"
+                       data-1p-ignore
+                       data-bwignore
+                       data-form-type="other"
                        placeholder="you@example.com">
                 <button type="submit" class="btn">Send me a sign-in link</button>
             </form>
