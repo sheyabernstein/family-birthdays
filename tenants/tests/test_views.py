@@ -2,8 +2,11 @@ import uuid
 
 import pytest
 from django.contrib.auth.models import Permission
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from accounts.models import Account
+from family.models import Person
 from tenants.models import Family, FamilyMembership
 
 pytestmark = pytest.mark.django_db
@@ -194,6 +197,80 @@ def test_family_settings_lets_an_owner_update_sender_branding(client, family):
     family.refresh_from_db()
     assert family.sms_sender_id == "NewSender"
     assert family.reply_to_email == "reply@example.com"
+
+
+def test_family_settings_shows_the_linked_persons_name_and_links_to_them(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person = Person.objects.create(
+        family=family, first_name_en="Robert", last_name_en="Smith", nickname="Bobby", account=owner
+    )
+    _login_as(client, owner, family)
+
+    resp = client.get("/family/settings/")
+
+    assert resp.status_code == 200
+    assert f'href="/people/{person.uuid}/"'.encode() in resp.content
+    assert b"Bobby" in resp.content
+
+
+def test_family_settings_does_not_link_a_person_from_a_different_family(client, family):
+    # A member here with no Person record in this family, but a real one
+    # elsewhere - linking to that would 404 (not visible from here).
+    other_family = Family.objects.create(name="Other Family")
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person = Person.objects.create(
+        family=other_family, first_name_en="Robert", last_name_en="Smith", account=owner
+    )
+    _login_as(client, owner, family)
+
+    resp = client.get("/family/settings/")
+
+    assert resp.status_code == 200
+    assert b"Robert Smith" in resp.content
+    assert f'href="/people/{person.uuid}/"'.encode() not in resp.content
+
+
+def test_family_settings_links_to_the_right_person_when_the_account_has_one_in_each_family(client, family):
+    # Married into two families - should link to the one in *this*
+    # family, not fall back to the ambiguous global linked_person.
+    other_family = Family.objects.create(name="Other Family")
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    Person.objects.create(family=other_family, first_name_en="Robert", last_name_en="Smith", account=owner)
+    here = Person.objects.create(
+        family=family, first_name_en="Robert", last_name_en="Smith", nickname="Bobby", account=owner
+    )
+    _login_as(client, owner, family)
+
+    resp = client.get("/family/settings/")
+
+    assert resp.status_code == 200
+    assert f'href="/people/{here.uuid}/"'.encode() in resp.content
+    assert b"Bobby" in resp.content
+
+
+def _member_with_person(family, i):
+    account = Account.objects.create_user(email=f"member{i}@example.com")
+    FamilyMembership.objects.create(account=account, family=family, role=FamilyMembership.Role.MEMBER)
+    Person.objects.create(family=family, first_name_en=f"Person{i}", last_name_en="Test", account=account)
+    return account
+
+
+def test_family_settings_member_list_query_count_does_not_scale_with_member_count(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    for i in range(5):
+        _member_with_person(family, i)
+    _login_as(client, owner, family)
+
+    with CaptureQueriesContext(connection) as few:
+        client.get("/family/settings/")
+
+    for i in range(5, 20):
+        _member_with_person(family, i)
+
+    with CaptureQueriesContext(connection) as many:
+        client.get("/family/settings/")
+
+    assert len(many.captured_queries) == len(few.captured_queries)
 
 
 @pytest.mark.parametrize(
