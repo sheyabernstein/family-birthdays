@@ -96,11 +96,21 @@ class FamilySettingsView(FamilyRequiredMixin, UserPassesTestMixin, ListView):
         return self.request.method != "POST" or self.request.family_role == FamilyMembership.Role.OWNER
 
     def get_queryset(self) -> QuerySet[FamilyMembership]:
-        return FamilyMembership.objects.filter(family=self.request.family).select_related("account")
+        # Unfiltered prefetch - a filtered Prefetch object would poison
+        # this same cache for Account.linked_person's own use elsewhere.
+        return (
+            FamilyMembership.objects.filter(family=self.request.family)
+            .select_related("account")
+            .prefetch_related("account__people")
+        )
 
     def get_context_data(self, **kwargs) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context.setdefault("sender_form", FamilySenderSettingsForm(instance=self.request.family))
+        # person_in_family(), not linked_person - never ambiguous within
+        # one family even if the account is tracked in others too.
+        for membership in context["memberships"]:
+            membership.resolved_person = membership.account.person_in_family(self.request.family.id)
         return context
 
     def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:

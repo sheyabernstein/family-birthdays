@@ -1,8 +1,14 @@
+from typing import TYPE_CHECKING
+
 import reversion
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 from django.utils import timezone
+from django.utils.functional import cached_property
+
+if TYPE_CHECKING:
+    from family.models import Person
 
 
 class AccountManager(BaseUserManager):
@@ -67,7 +73,6 @@ class Account(AbstractBaseUser, PermissionsMixin):
     phone = models.CharField(
         max_length=32, unique=True, null=True, blank=True, help_text="E.164 format, e.g. +15551234567"
     )
-    display_name = models.CharField(max_length=255, blank=True)
     preferred_channel = models.CharField(max_length=10, choices=Channel.choices, default=Channel.EMAIL)
 
     # Top of the notification preference hierarchy: everyone is subscribed
@@ -98,6 +103,35 @@ class Account(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self) -> str:
         return self.display_name or self.email or self.phone or f"Account {self.pk}"
+
+    @cached_property
+    def linked_person(self) -> "Person | None":
+        """The one Person this login is, if unambiguous - family-agnostic.
+
+        None for zero or several (e.g. married into two families - see
+        AGENTS.md). For a context that already knows which family it's
+        asking about, use person_in_family() instead - it's never
+        ambiguous within one family. Cached per-instance; a queryset
+        looping over many accounts should .prefetch_related("people").
+        """
+        candidates = list(self.people.all()[:2])
+        return candidates[0] if len(candidates) == 1 else None
+
+    def person_in_family(self, family_id: int) -> "Person | None":
+        """The Person this account is within one specific family - never ambiguous, unlike linked_person.
+
+        Person's own family+account UniqueConstraint guarantees at most
+        one match. Filters self.people.all() in Python rather than
+        .filter(family_id=...), so it reuses a .prefetch_related("people")
+        cache instead of re-querying per call.
+        """
+        return next((p for p in self.people.all() if p.family_id == family_id), None)
+
+    @property
+    def display_name(self) -> str:
+        """A human-readable name, derived from the linked Person rather than stored (avoids drift on a nickname change)."""
+        person = self.linked_person
+        return person.display_name if person else ""
 
     @classmethod
     def find_by_identifier(cls, identifier: str) -> "Account | None":

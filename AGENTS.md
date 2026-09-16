@@ -1274,6 +1274,12 @@ docstring once one exists, and applies to two things:
 - Don't restate a type hint's own type inside `Args:`/`Returns:` (no
   `person (Person): ...`) - the signature already has it; describe what
   the value *means*, not what type it is.
+- **Narrative docstrings explaining *why* are welcome here, but keep each
+  one to the point** - one or two sentences of real reasoning, not a
+  multi-paragraph essay. If several new pieces of code in one change
+  share the same underlying reasoning, say it in full once and reference
+  it briefly from the others ("see X's own docstring") rather than
+  re-explaining it every time it comes up.
 
 Enforced by ruff's `D` rules (`pyproject.toml`,
 `[tool.ruff.lint.pydocstyle]` `convention = "google"`) for anything that

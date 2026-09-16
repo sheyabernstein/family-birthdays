@@ -44,16 +44,24 @@
                     <th>Phone</th>
                     <th>Role</th>
                     <th>Joined</th>
+                    <th>Last signed in</th>
                 </tr>
             </thead>
             <tbody>
                 {% for membership in memberships %}
                     <tr>
-                        <td>{{ membership.account.display_name|default:"-" }}</td>
+                        <td>
+                            {% if membership.resolved_person %}
+                                <a href="{% url 'family:person_detail' membership.resolved_person.uuid %}">{{ membership.resolved_person.display_name }}</a>
+                            {% else %}
+                                {{ membership.account.display_name|default:"-" }}
+                            {% endif %}
+                        </td>
                         <td>{{ membership.account.email|default:"-" }}</td>
                         <td>{{ membership.account.phone|default:"-" }}</td>
                         <td>{{ membership.get_role_display }}</td>
                         <td>{{ membership.joined_at|date:"M j, Y" }}</td>
+                        <td>{{ membership.account.last_login|date:"M j, Y"|default:"Never" }}</td>
                     </tr>
                 {% endfor %}
             </tbody>
