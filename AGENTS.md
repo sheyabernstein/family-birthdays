@@ -1004,10 +1004,12 @@ switching workspaces.
   give every pod its own useless local lock, silently defeating the whole
   point (confirmed directly against a running container: the lock key never
   showed up in `redis-cli KEYS "*"`, only in each pod's own memory). The
-  lock's value is a fresh `uuid4().hex` per acquisition, not the hostname -
-  a hostname can't distinguish "the lock this process holds right now"
-  from "a lock this same host held earlier that already expired and was
-  re-acquired by someone else" - and release is a `WATCH`/`MULTI`
+  lock's value is `hostname:8-char-uuid` - the hostname alone can't
+  distinguish "the lock this process holds right now" from "a lock this
+  same host held earlier that already expired and was re-acquired by
+  someone else" (that's what the uuid suffix is for), but a bare uuid on
+  its own makes `redis-cli GET`/the structured logs useless for "which
+  pod is actually holding this" - and release is a `WATCH`/`MULTI`
   compare-and-delete (get the value, only commit the `DELETE` if it hasn't
   changed), not a plain `GET`-then-`DEL`, so a stale release can't delete a
   lock someone else has since legitimately acquired. `conftest.py`'s

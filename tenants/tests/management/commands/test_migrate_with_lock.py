@@ -1,8 +1,25 @@
+import socket
+
 import pytest
 from django.core.management import CommandError, call_command
 
 from tenants.management.commands import migrate_with_lock
 from tenants.management.commands.migrate_with_lock import LOCK_KEY, Command
+
+
+def test_lock_id_is_hostname_prefixed_with_an_8_char_uuid_suffix(monkeypatch):
+    seen_lock_id = {}
+
+    def _fake_migrate(*args, **kwargs):
+        seen_lock_id["value"] = migrate_with_lock._redis_client.get(LOCK_KEY).decode()
+
+    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.call_command", _fake_migrate)
+
+    call_command("migrate_with_lock")
+
+    hostname, _, uid = seen_lock_id["value"].partition(":")
+    assert hostname == socket.gethostname()
+    assert len(uid) == 8
 
 
 def test_acquires_the_lock_runs_migrate_and_releases_the_lock(monkeypatch):
