@@ -1,3 +1,4 @@
+import socket
 import time
 import uuid
 from typing import Any
@@ -45,12 +46,15 @@ class Command(BaseCommand):
         migration_name = options.get("migration_name")
         verbosity = options.get("verbosity", 1)
 
-        # Unique per acquisition (not e.g. hostname) - lets _release_lock
-        # tell "the lock I acquired" apart from "a lock the same host
-        # acquired some other time", which matters once the lock can expire
-        # and be re-acquired by someone else while this process is still
-        # running.
-        self._lock_id = uuid.uuid4().hex
+        # hostname prefix is just for readable logs (which pod holds/held
+        # the lock); the uuid suffix is what actually makes this unique
+        # per acquisition, which lets _release_lock tell "the lock I
+        # acquired" apart from "a lock this same host acquired some other
+        # time" - matters once the lock can expire and be re-acquired by
+        # someone else while this process is still running.
+        hostname = socket.gethostname()
+        uid = uuid.uuid4().hex[:8]
+        self._lock_id = f"{hostname}:{uid}"
 
         if not self._acquire_lock():
             logger.error("migration lock unavailable", wait_timeout_seconds=LOCK_WAIT_TIMEOUT)
