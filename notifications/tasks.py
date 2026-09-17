@@ -386,6 +386,8 @@ def _delete_stale_unsent_occurrences(
     deleted, _ = qs.exclude(event_type_id__in=keep_event_type_ids).delete()
     if deleted:
         logger.info("stale occurrences removed", subject=str(person or union), count=deleted)
+    else:
+        logger.debug("no stale occurrences to remove", subject=str(person or union))
 
 
 def compute_occurrences_for_person(person: Person) -> None:
@@ -394,6 +396,7 @@ def compute_occurrences_for_person(person: Person) -> None:
     Called right after they're created/edited so their birthday/yahrzeit
     shows up immediately instead of waiting for the nightly sweep.
     """
+    logger.debug("recomputing person occurrences", person_id=person.pk)
     horizon = timezone.localdate() + dt.timedelta(days=OCCURRENCE_HORIZON_DAYS)
     today_hebrew_year = gregorian_to_hebrew(timezone.localdate()).year
     applicable_event_type_ids = set()
@@ -406,10 +409,16 @@ def compute_occurrences_for_person(person: Person) -> None:
                 )
                 applicable_event_type_ids.update(used_ids)
     _delete_stale_unsent_occurrences(person=person, keep_event_type_ids=applicable_event_type_ids)
+    logger.debug(
+        "person occurrences recomputed",
+        person_id=person.pk,
+        applicable_event_type_count=len(applicable_event_type_ids),
+    )
 
 
 def compute_occurrences_for_union(union: Union) -> None:
     """Same as compute_occurrences_for_person, for a marriage."""
+    logger.debug("recomputing union occurrences", union_id=union.pk)
     horizon = timezone.localdate() + dt.timedelta(days=OCCURRENCE_HORIZON_DAYS)
     today_hebrew_year = gregorian_to_hebrew(timezone.localdate()).year
     applicable_event_type_ids = set()
@@ -421,6 +430,11 @@ def compute_occurrences_for_union(union: Union) -> None:
             )
             applicable_event_type_ids.update(used_ids)
     _delete_stale_unsent_occurrences(union=union, keep_event_type_ids=applicable_event_type_ids)
+    logger.debug(
+        "union occurrences recomputed",
+        union_id=union.pk,
+        applicable_event_type_count=len(applicable_event_type_ids),
+    )
 
 
 @shared_task

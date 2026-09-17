@@ -151,7 +151,8 @@ switching workspaces.
   fine when an occurrence is computed well ahead of time (the nightly
   `compute_occurrences` sweep, 400 days out), but
   `compute_occurrences_for_person`/`_union` - the *immediate*, single-
-  subject recompute triggered by an edit - can run on the anchor date
+  subject recompute triggered by a `Person`/`Union` save (see
+  `family.signals` below) - can run on the anchor date
   itself, and if that date is Yom Tov, the walk-back lands `send_date`
   before "today" on arrival (found for real: a union anchored on 1
   Tishrei, edited on Rosh Hashanah itself). Both places that read
@@ -176,6 +177,38 @@ switching workspaces.
   it. Fixed the same way - `Q(send_date__gte=today) | Q(is_sent=False)` -
   rather than dropping the date filter entirely, since Upcoming still
   shouldn't show already-sent history.
+- **The immediate recompute is a `post_save` signal, not a call
+  sprinkled across every view that touches a `Person`/`Union`.**
+  `family/signals.py`'s `_recompute_person_occurrences`/
+  `_recompute_union_occurrences` (wired up in `FamilyConfig.ready()`)
+  call `compute_occurrences_for_person`/`_union` on every save,
+  unconditionally - no diffing which fields actually changed, the same
+  "just recompute, don't trust what was there before" policy the code
+  already used before this was a signal. That "don't diff" choice is
+  deliberate, not a missed optimization: the fields that matter aren't
+  confined to one model (a `Person`'s own death date changes their
+  `Union`'s eligibility - see the marriage-goes-stale-on-death bullet
+  below), so a "which fields are relevant" safelist would just be the
+  same bug-prone bookkeeping this signal exists to eliminate, moved one
+  layer down. Before this, the same call was duplicated across
+  `PersonCreateView`/`PersonUpdateView`/`UnionCreateView`/
+  `UnionUpdateView`'s own `form_valid()`s - correct as long as everyone
+  remembered to keep adding it to every new write path, and the Django
+  admin (`PersonAdmin`/`UnionAdmin` have no `save_model()` override)
+  never got it at all, silently relying on the nightly sweep to catch
+  up. A signal fixes both for free: single source of truth, and every
+  write path (the real forms, the admin, a future API, a one-off shell
+  script) gets it automatically with zero coordination required. Each
+  receiver wraps its recompute in a bare `try`/`except`, logging and
+  swallowing rather than raising - a recompute bug shouldn't turn an
+  otherwise-successful save into a 500; the nightly `compute_occurrences()`
+  sweep is still the self-healing backstop regardless. The one real gap
+  a signal doesn't close: `post_save` never fires for `bulk_create()`/
+  `bulk_update()`/`QuerySet.update()` - a future bulk data migration
+  touching many `Person`/`Union` rows that way won't get immediate
+  recompute (same nightly-sweep backstop applies, just with up to a
+  day's lag) unless it calls `compute_occurrences_for_person`/`_union`
+  itself per row.
 - **There's no "engaged" status to remember to flip to "married" later.**
   A Union is recorded as `MARRIED` from the moment it's added, even when
   `marriage_date_gregorian`/the Hebrew anchor is still in the future -
@@ -201,10 +234,10 @@ switching workspaces.
   prefers the Hebrew birth year over `Person.age` - `age` is Gregorian-
   only and is `None` for the common case of someone with only a Hebrew
   birth year recorded, which silently never triggers the cutoff.
-  `PersonUpdateView.form_valid` recomputes the edited person's own
-  unions' occurrences too, not just their own, since recording a death
-  there is exactly the moment that can turn an existing Anniversary
-  stale.
+  `family.signals._recompute_person_occurrences` recomputes the saved
+  person's own unions' occurrences too, not just their own, since
+  recording a death there is exactly the moment that can turn an
+  existing Anniversary stale.
 - **`Union.Status.WIDOWED`/`DIVORCED` aren't made redundant by the above -
   they're a second, independent path to the same suppression.** The
   automatic death-based check needs a death actually recorded
@@ -232,13 +265,13 @@ switching workspaces.
   a Union - a marriage doesn't get Wedding/Anniversary occurrences (and
   nobody gets notified about it) unless *both* spouses are tracked, not
   just both living. Toggling the flag takes effect immediately, in both
-  directions, for free: `PersonUpdateView.form_valid` already recomputes
-  the edited person's own occurrences and every union they're in on
-  every save (see the marriage-goes-stale-on-death bullet above) -
-  turning tracking off makes that recompute find nothing eligible and
-  delete the not-yet-sent future occurrences accordingly (already-sent
-  ones stay as history); turning it back on makes the same recompute
-  generate fresh ones. `family.views.PersonDetailView` mirrors this on
+  directions, for free: `family.signals._recompute_person_occurrences`
+  already recomputes the saved person's own occurrences and every union
+  they're in on every save (see the marriage-goes-stale-on-death bullet
+  above) - turning tracking off makes that recompute find nothing
+  eligible and delete the not-yet-sent future occurrences accordingly
+  (already-sent ones stay as history); turning it back on makes the same
+  recompute generate fresh ones. `family.views.PersonDetailView` mirrors this on
   the toggle UI itself: the "Notify me" card's toggles never appear for
   an untracked person (they'd be dead controls - nothing to toggle), and
   a union row is left out of "Anniversaries" the same way whenever

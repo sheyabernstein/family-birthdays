@@ -551,14 +551,13 @@ def test_compute_occurrences_relabels_an_existing_birthday_after_a_gender_correc
         dob_hebrew_month=month,
         dob_hebrew_day=day,
     )
-    birthday = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
-    Occurrence.objects.create(
-        person=person,
-        event_type=birthday,
-        hebrew_year=anchor_year,
-        occurrence_date=timezone.localdate(),
-        send_date=timezone.localdate(),
-    )
+    # family.signals already computed a Birthday occurrence for this
+    # exact (person, event_type, hebrew_year) the moment the person was
+    # created above - that's the pre-correction state this test wants,
+    # for free.
+    assert Occurrence.objects.filter(
+        person=person, event_type__code=EventType.BuiltinCode.BIRTHDAY, hebrew_year=anchor_year
+    ).exists()
 
     person.gender = Person.Gender.FEMALE
     person.save(update_fields=["gender"])
