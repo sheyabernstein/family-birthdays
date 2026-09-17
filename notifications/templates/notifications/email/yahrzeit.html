@@ -2,7 +2,7 @@
 {% load family_extras notifications_extras %}
 {% block title %}{{ occurrence.person.display_name }}'s yahrzeit{% endblock %}
 {% block icon %}
-    {% static_data_uri "notifications/img/event-icons/death.png" %}
+    {% event_icon_url "notifications/img/event-icons/death.png" %}
 {% endblock %}
 {% block icon_alt %}Yahrzeit{% endblock %}
 {% block body %}

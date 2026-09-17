@@ -551,32 +551,43 @@ switching workspaces.
     based bucketing the in-app badges already use - see that property's
     own docstring), under `notifications/static/notifications/img/event-icons/`
     (`birth.png`/`death.png`/`marriage.png`/`broadcast.png`, plus
-    `default.png` for a blank-anchor custom type), embedded directly into
-    the email as a base64 `data:` URI - `notifications.services.
-    static_data_uri` - rather than linked via a hosted `<img src>` URL.
-    Deliberately not SVG despite these being simple icons: real
-    email-client support for inline `<svg>` markup sits around 40%
-    (breaks in classic Outlook Windows, Thunderbird, Samsung Mail), while
-    a base64 PNG data URI is close to 81%, with PNG specifically the
-    most broadly-compatible embedded format (caniemail.com's
-    `image-base64`/`html-svg` feature pages). `static_data_uri` is
-    `functools.cache`d - a worker process re-sends the same handful of
-    icons for the lifetime of every email it ever handles, so each one
-    is read off disk (via `staticfiles.finders.find()`, not a URL/
-    `STATIC_ROOT` lookup - works identically in dev and in the
-    `collectstatic`'d production image) and base64-encoded exactly once
-    per process, not once per send. This also sidesteps a real problem
-    the previous hosted-URL approach had: `STORAGES["staticfiles"]` is
-    WhiteNoise's `CompressedManifestStaticFilesStorage`, which
-    content-hashes each file's URL (`birth.a1b2c3d4.png`), and since
-    `Message.html_body` is rendered once and persisted (see above), an
-    already-sent email had that exact hashed URL baked in forever - the
-    Dockerfile's multi-stage build runs `collectstatic` fresh into a new
-    image on every build with nothing carrying the previous image's
-    `staticfiles/` forward, so an icon's bytes changing would silently
-    break every already-delivered email referencing the old hash. Baking
-    the actual bytes into the email at send time removes that failure
-    mode entirely - there's no URL to go stale, hosted or not.
+    `default.png` for a blank-anchor custom type), linked via a real
+    hosted `<img src>` - `notifications.services.static_absolute_url`,
+    exposed to templates as `{% event_icon_url %}` - rather than a
+    base64 `data:` URI. This app used to embed these as base64 (see git
+    history) since a hosted URL has a real staleness problem: `Message.
+    html_body` is rendered once and persisted (see above), and
+    `STORAGES["staticfiles"]` is WhiteNoise's
+    `CompressedManifestStaticFilesStorage`, which content-hashes every
+    file's URL (`birth.a1b2c3d4.png`) - the Dockerfile's multi-stage
+    build runs `collectstatic` fresh into a new image on every build
+    with nothing carrying the previous image's `staticfiles/` forward,
+    so an icon's bytes changing would silently break every
+    already-delivered email's hashed URL. Base64 sidestepped that at
+    the cost of a worse one, confirmed for real by sending a live test
+    email: Gmail (web and app) never renders a `data:` URI image at
+    all, full stop, while an ordinary hosted image just falls under
+    Gmail's completely normal "images are blocked until you click
+    Display images below" gate - the same experience as any other
+    email with images, and strictly better than an image that never
+    renders regardless of what the recipient clicks. The staleness
+    problem is solved directly instead: `config.storage.
+    StableStaticFilesStorage` (a thin `CompressedManifestStaticFilesStorage`
+    subclass) overrides `file_hash()` to return `None` for anything
+    under `notifications/img/event-icons/` - a supported Django
+    extension point, since `HashedFilesMixin.hashed_name()` treats a
+    falsy `file_hash()` as "leave this filename alone" - so these icons
+    keep a stable, un-hashed URL forever while every other static asset
+    (`app.css`, the JS libs) still gets the normal cache-busted hashed
+    name. The one remaining edge case - an icon's bytes changing after
+    emails referencing the old ones have already gone out - just means
+    an old email silently shows the new icon on next render, not a
+    broken image or a 404; a fair trade given how rarely these change.
+    `static_absolute_url` builds off `settings.SITE_BASE_URL`, never
+    `EMAIL_SENDING_DOMAIN` - the two are independent on purpose (see
+    the sender-branding bullet below), and there's no reason a static
+    asset's URL should depend on which domain a message happens to be
+    sent from.
   - **The subject's own Hebrew first name, and a short "Parent &
     Parent's FirstName" label, both show on every occurrence email/SMS
     except Broadcast** (`Person.parents_label`, `family.templatetags.

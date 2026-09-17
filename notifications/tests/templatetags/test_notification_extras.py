@@ -1,21 +1,22 @@
 import pytest
+from django.conf import settings
 from django.template import Context, Template
 
-from notifications.templatetags.notifications_extras import absolute_page_url, static_data_uri_tag
+from notifications.templatetags.notifications_extras import absolute_page_url, event_icon_url_tag
 
 pytestmark = pytest.mark.django_db
 
 
-def test_static_data_uri_delegates_to_the_underlying_helper(monkeypatch):
+def test_event_icon_url_delegates_to_the_underlying_helper(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        "notifications.templatetags.notifications_extras.services.static_data_uri",
-        lambda path: calls.append(path) or "mocked-data-uri",
+        "notifications.templatetags.notifications_extras.services.static_absolute_url",
+        lambda path: calls.append(path) or "mocked-icon-url",
     )
 
-    result = static_data_uri_tag(path="notifications/img/event-icons/birth.png")
+    result = event_icon_url_tag(path="notifications/img/event-icons/birth.png")
 
-    assert result == "mocked-data-uri"
+    assert result == "mocked-icon-url"
     assert calls == ["notifications/img/event-icons/birth.png"]
 
 
@@ -32,14 +33,14 @@ def test_absolute_page_url_delegates_to_the_underlying_helper(monkeypatch):
     assert calls == ["notifications:subscriptions"]
 
 
-def test_static_data_uri_is_registered_and_loadable_from_a_template():
+def test_event_icon_url_is_registered_and_loadable_from_a_template():
     template = Template(
-        "{% load notifications_extras %}{% static_data_uri 'notifications/img/event-icons/birth.png' %}"
+        "{% load notifications_extras %}{% event_icon_url 'notifications/img/event-icons/birth.png' %}"
     )
 
     rendered = template.render(Context({}))
 
-    assert rendered.startswith("data:image/png;base64,")
+    assert rendered.startswith(f"{settings.SITE_BASE_URL}/static/")
 
 
 def test_absolute_page_url_is_registered_and_loadable_from_a_template():

@@ -2,7 +2,7 @@
 {% load family_extras notifications_extras %}
 {% block title %}{{ occurrence.event_type.name }}{% endblock %}
 {% block icon %}
-    {% static_data_uri "notifications/img/event-icons/default.png" %}
+    {% event_icon_url "notifications/img/event-icons/default.png" %}
 {% endblock %}
 {% block icon_alt %}{{ occurrence.event_type.name }}{% endblock %}
 {% block body %}
