@@ -2,7 +2,7 @@
 {% load family_extras notifications_extras %}
 {% block title %}{{ occurrence.union.person_a.display_name }} &amp; {{ occurrence.union.person_b.display_name }}'s wedding{% endblock %}
 {% block icon %}
-    {% static_data_uri "notifications/img/event-icons/marriage.png" %}
+    {% event_icon_url "notifications/img/event-icons/marriage.png" %}
 {% endblock %}
 {% block icon_alt %}Wedding{% endblock %}
 {% block body %}

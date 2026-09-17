@@ -2,7 +2,7 @@
 {% load family_extras notifications_extras %}
 {% block title %}{{ occurrence.person.display_name }}'s birthday{% endblock %}
 {% block icon %}
-    {% static_data_uri "notifications/img/event-icons/birth.png" %}
+    {% event_icon_url "notifications/img/event-icons/birth.png" %}
 {% endblock %}
 {% block icon_alt %}Birthday{% endblock %}
 {% block body %}

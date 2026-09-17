@@ -1,12 +1,9 @@
-import base64
-import mimetypes
 from email.utils import formataddr
-from functools import cache
 
 import css_inline
 from django.conf import settings
-from django.contrib.staticfiles.finders import find as find_static
 from django.core.mail import EmailMultiAlternatives
+from django.templatetags.static import static
 from django.urls import reverse
 
 from config.logging_config import logger
@@ -15,37 +12,28 @@ DEFAULT_EMAIL_SENDER_NAME = "Family Tree"
 DEFAULT_SMS_SENDER_ID = "FamilyTree"
 
 
-@cache
-def static_data_uri(path: str) -> str:
-    """Base64-embeds a static asset directly into an HTML email as a data URI.
+def static_absolute_url(path: str) -> str:
+    """Builds an absolute, stable URL to a static asset, for embedding in email HTML.
 
     Used for the event-type icons (see
-    notifications/templates/notifications/email/) instead of a hosted
-    `<img src>` URL - no request back to this app's own domain is needed
-    for the icon to render, so email rendering has no dependency on
-    WhiteNoise/`SITE_BASE_URL` being reachable from wherever the
-    recipient's client is. Deliberately not SVG despite these being
-    simple icons - real client support for inline `<svg>` markup sits
-    around 40% (breaks in classic Outlook Windows, Thunderbird, Samsung
-    Mail), while a base64 PNG data URI is close to 81%, with PNG
-    specifically called out as the most broadly-compatible embedded
-    format (see caniemail.com's image-base64/html-svg feature pages).
+    notifications/templates/notifications/email/) - a real hosted
+    `<img src>` rather than a base64 data URI, since Gmail (both webmail
+    and its apps) never renders a data URI image at all, while a hosted
+    one just falls under Gmail's completely normal "images are blocked
+    until you click Display images below" gate, the same as any other
+    email with images. Uses `settings.SITE_BASE_URL`, the same source
+    `absolute_url()` below uses - never `EMAIL_SENDING_DOMAIN`, which is
+    only about the `From:` address and has nothing to do with where a
+    static asset is actually served from (see AGENTS.md).
 
-    Memoized since a worker process re-sends the same handful of icons
-    for the lifetime of every email it ever handles - each one is read
-    off disk and base64-encoded exactly once per process, not once per
-    send. `finders.find()` (not a URL/`STATIC_ROOT` lookup) is what
-    makes this work identically in dev and in the `collectstatic`'d
-    production image - it resolves an app-relative static path straight
-    to the source file's real path on disk, no server involved.
+    Relies on `static()` resolving through the "staticfiles" storage's
+    own `url()` - `config.storage.StableStaticFilesStorage` deliberately
+    leaves this path's filename unhashed for exactly this reason: a
+    hashed name would 404 in every already-sent email the moment a
+    later `collectstatic` run reassigned the hash, since `Message.
+    html_body` is rendered once and persisted, not re-rendered on read.
     """
-    file_path = find_static(path)
-    if file_path is None:
-        raise FileNotFoundError(f"Static asset not found: {path}")
-    with open(file_path, "rb") as f:
-        encoded = base64.b64encode(f.read()).decode("ascii")
-    mime_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
-    return f"data:{mime_type};base64,{encoded}"
+    return f"{settings.SITE_BASE_URL}{static(path)}"
 
 
 def absolute_url(view_name: str, *args, **kwargs) -> str:

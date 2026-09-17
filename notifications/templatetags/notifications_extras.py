@@ -5,9 +5,9 @@ from notifications import services
 register = template.Library()
 
 
-@register.simple_tag(name="static_data_uri")
-def static_data_uri_tag(path: str) -> str:
-    return services.static_data_uri(path)
+@register.simple_tag(name="event_icon_url")
+def event_icon_url_tag(path: str) -> str:
+    return services.static_absolute_url(path)
 
 
 @register.simple_tag

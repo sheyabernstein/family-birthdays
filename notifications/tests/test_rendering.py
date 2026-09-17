@@ -6,11 +6,10 @@ from django.conf import settings
 from django.core import mail
 from django.utils import timezone
 
-import notifications.services
 from accounts.models import Account
 from family.models import Person, Union
 from notifications.models import Broadcast, Channel, EventType, Occurrence
-from notifications.services import absolute_url, send_email, send_sms, static_data_uri
+from notifications.services import absolute_url, send_email, send_sms, static_absolute_url
 from notifications.tasks import (
     SMS_CHAR_BUDGET,
     _render_broadcast_message,
@@ -71,7 +70,7 @@ def test_occurrence_email_renders_the_persons_own_template_with_an_icon(family, 
     assert "Sari Rokach" in html
     assert "Sari Rokach" in body
     assert "<script" not in html
-    assert "data:image/png;base64," in html
+    assert f"{settings.SITE_BASE_URL}/static/notifications/img/event-icons/" in html
     # Not a hardcoded "localhost:8000" - that only ever matched by
     # coincidence with settings.SITE_BASE_URL's own default, and broke
     # the moment a real .env set a different value (127.0.0.1 vs
@@ -521,32 +520,10 @@ def test_truncate_for_sms_exact_budget_is_not_truncated():
     assert _truncate_for_sms(text) == text
 
 
-def test_static_data_uri_embeds_the_asset_as_base64():
-    uri = static_data_uri("notifications/img/event-icons/birth.png")
+def test_static_absolute_url_builds_a_full_url_to_a_static_asset():
+    url = static_absolute_url("notifications/img/event-icons/birth.png")
 
-    assert uri.startswith("data:image/png;base64,")
-
-
-def test_static_data_uri_raises_for_a_missing_asset():
-    with pytest.raises(FileNotFoundError):
-        static_data_uri("notifications/img/event-icons/does-not-exist.png")
-
-
-def test_static_data_uri_is_memoized(monkeypatch):
-    calls = []
-    real_find = notifications.services.find_static
-
-    def _counting_find(path):
-        calls.append(path)
-        return real_find(path)
-
-    monkeypatch.setattr("notifications.services.find_static", _counting_find)
-    notifications.services.static_data_uri.cache_clear()
-
-    notifications.services.static_data_uri("notifications/img/event-icons/death.png")
-    notifications.services.static_data_uri("notifications/img/event-icons/death.png")
-
-    assert calls == ["notifications/img/event-icons/death.png"]
+    assert url == f"{settings.SITE_BASE_URL}/static/notifications/img/event-icons/birth.png"
 
 
 def test_absolute_url_builds_a_full_url_to_a_named_view():
