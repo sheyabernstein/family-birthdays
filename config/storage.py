@@ -18,7 +18,10 @@ class StableStaticFilesStorage(CompressedManifestStaticFilesStorage):
     rather than inserting a hash segment.
     """
 
-    def file_hash(self, name: str, content: File | None = None) -> str | None:
-        if name.startswith(STABLE_STATIC_PREFIXES):
+    def file_hash(self, name: str | None, content: File | None = None) -> str | None:
+        # save_manifest() calls this with name=None to hash the manifest
+        # file itself, not a real static asset path - not something to
+        # exempt from hashing.
+        if name is not None and name.startswith(STABLE_STATIC_PREFIXES):
             return None
         return super().file_hash(name, content)
