@@ -23,12 +23,7 @@ from family.tree_chart import build_chart_data
 from notifications.audience import PreferenceResolver, available_channels
 from notifications.helpers import channel_rows
 from notifications.models import EventType, Occurrence
-from notifications.tasks import (
-    compute_occurrences_for_person,
-    compute_occurrences_for_union,
-    person_has_passed_coming_of_age,
-    union_is_eligible_for_notifications,
-)
+from notifications.tasks import person_has_passed_coming_of_age, union_is_eligible_for_notifications
 from tenants.mixins import (
     FamilyEditorRequiredMixin,
     FamilyOwnerRequiredMixin,
@@ -422,15 +417,16 @@ class PersonCreateView(FamilyEditorRequiredMixin, CreateView):
         return context
 
     def form_valid(self, form: PersonForm) -> HttpResponse:
+        # Occurrence recompute (this new person's, and the anchor's below)
+        # happens via family.signals._recompute_person_occurrences,
+        # triggered by each object's own save().
         response = super().form_valid(form)
-        compute_occurrences_for_person(self.object)
 
         link_as = self._link_as()
         anchor = self._link_of()
         if link_as and anchor is not None:
             setattr(anchor, link_as, self.object)
             anchor.save(update_fields=[link_as])
-            compute_occurrences_for_person(anchor)
             messages.success(
                 self.request, f"Added {form.instance.display_name} as {anchor.display_name}'s {link_as}."
             )
@@ -461,19 +457,11 @@ class PersonUpdateView(FamilyScopedMixin, FamilyEditorRequiredMixin, UpdateView)
         return kwargs
 
     def form_valid(self, form: PersonForm) -> HttpResponse:
+        # Occurrence recompute (this person's own, and their unions' - a
+        # death date recorded here affects Anniversary eligibility too)
+        # happens via family.signals._recompute_person_occurrences,
+        # triggered by the save() inside super().form_valid().
         response = super().form_valid(form)
-        # Dates may have changed (or been added for the first time), so
-        # recompute rather than trust whatever was there before.
-        compute_occurrences_for_person(self.object)
-        # A death date just recorded here also changes whether this
-        # person's own marriage(s) still get an Anniversary - see the
-        # both-spouses-living check in notifications.tasks - so those
-        # need recomputing immediately too, not just on the nightly sweep.
-        unions = Union.objects.filter(
-            models.Q(person_a=self.object) | models.Q(person_b=self.object)
-        ).select_related("person_a", "person_b")
-        for union in unions:
-            compute_occurrences_for_union(union)
         messages.success(self.request, f"Saved changes to {form.instance.display_name}.")
         return response
 
@@ -527,8 +515,11 @@ class UnionCreateView(FamilyEditorRequiredMixin, CreateView):
         return context
 
     def form_valid(self, form: UnionForm) -> HttpResponse:
+        # Occurrence recompute happens via
+        # family.signals._recompute_union_occurrences, triggered by the
+        # save() inside super().form_valid() and inside
+        # _apply_existing_union_status_updates()'s own union.save().
         response = super().form_valid(form)
-        compute_occurrences_for_union(self.object)
         self._apply_existing_union_status_updates()
         messages.success(
             self.request,
@@ -549,9 +540,6 @@ class UnionCreateView(FamilyEditorRequiredMixin, CreateView):
             if new_status in valid_statuses and new_status != union.status:
                 union.status = new_status
                 union.save(update_fields=["status"])
-                # A status change (e.g. into or out of "married") changes
-                # whether this union should have anniversary occurrences.
-                compute_occurrences_for_union(union)
 
     def get_success_url(self) -> str:
         return self.request.POST.get("next") or reverse("family:person_detail", args=[self.person_a.uuid])
@@ -576,8 +564,10 @@ class UnionUpdateView(FamilyScopedMixin, FamilyEditorRequiredMixin, UpdateView):
         return context
 
     def form_valid(self, form: UnionEditForm) -> HttpResponse:
+        # Occurrence recompute happens via
+        # family.signals._recompute_union_occurrences, triggered by the
+        # save() inside super().form_valid().
         response = super().form_valid(form)
-        compute_occurrences_for_union(self.object)
         messages.success(self.request, "Saved changes to the marriage.")
         return response
 
