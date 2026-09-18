@@ -9,7 +9,14 @@ python "/app/docker/scripts/wait_for_postgres.py"
 python manage.py migrate_with_lock
 
 # _run_with_metrics.sh runs this alongside a dedicated Prometheus metrics
-# server on :9090 - see that script's own comment for why (no tini needed).
+# server on :9090 - see that script's own comment, and the Dockerfile's
+# tini ENTRYPOINT, for the full reasoning. GUNICORN_CMD_ARGS is set here,
+# not as a container-wide Dockerfile ENV, so each gunicorn invocation in
+# this container declares its own --control-socket path explicitly at its
+# own call site - the metrics server (that other script) needs a
+# different path of its own for the same reason.
+export GUNICORN_CMD_ARGS="--control-socket /tmp/gunicorn.ctl"
+
 exec /app/docker/entrypoints/_run_with_metrics.sh \
   gunicorn config.wsgi:application \
   --config /app/config/gunicorn_conf.py \

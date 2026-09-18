@@ -45,6 +45,10 @@ class ObservabilityMiddleware:
 
         method = request.method or ""
         route, tag = _resolve_route(request)
+        # Cached for process_exception below - it fires later in the same
+        # request/response cycle, and re-resolving from scratch there would
+        # just repeat work already done here.
+        request._observability_route = (route, tag)
 
         metrics.requests_in_progress.labels(method=method, route=route, tag=tag).inc()
         start = time.perf_counter()
@@ -70,7 +74,7 @@ class ObservabilityMiddleware:
         if request.path in EXCLUDED_PATHS:
             return
 
-        route, tag = _resolve_route(request)
+        route, tag = getattr(request, "_observability_route", None) or _resolve_route(request)
         metrics.exceptions_total.labels(
             method=request.method or "",
             exception_type=type(exception).__name__,

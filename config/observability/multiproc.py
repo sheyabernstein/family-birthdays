@@ -11,6 +11,8 @@ import atexit
 import os
 from pathlib import Path
 
+from config.helpers import get_env_bool
+
 _PURGE_ENV = "PROMETHEUS_MULTIPROC_WIPE"
 
 _initialized = False
@@ -49,7 +51,7 @@ def init_multiprocess_dir() -> str:
     path = Path(directory)
     path.mkdir(parents=True, exist_ok=True)
 
-    if os.environ.get(_PURGE_ENV, "0") == "1":
+    if get_env_bool(_PURGE_ENV, False):
         _purge_stale_db_files(path)
 
     _initialized = True

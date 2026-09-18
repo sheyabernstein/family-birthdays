@@ -1366,14 +1366,37 @@ switching workspaces.
   processes (`config/observability/multiproc.py`, ported from a FastAPI
   service built the same way). `docker/entrypoints/_run_with_metrics.sh`
   is what `web.sh`/`worker.sh` now `exec` into instead of the main command
-  directly - a plain `sh` `trap`+background-PIDs+`wait` script, no `tini`,
-  since neither gunicorn's nor Celery's own master process spawns/abandons
-  grandchildren that would need a real PID-1 zombie reaper; the trap
-  already correctly forwards `SIGTERM`/`SIGINT` to both processes. Gunicorn
-  workers get their own per-pid setup via `config/gunicorn_conf.py`'s
-  `post_fork` hook (that file still can't import `config.settings` - see
-  its own docstring - which is why the hook imports `config.observability.
-  multiproc` directly instead, a module with no Django dependency at all).
+  directly - it starts the metrics gunicorn as a background sibling, then
+  `exec`s into the real command so the main app *becomes* PID 1, rather
+  than staying a wrapper script forever. An earlier version kept the
+  wrapper script as PID 1 and used a `trap`+background-PIDs+bare `wait` to
+  tear both processes down together - wrong, since a bare `wait` only
+  returns once *every* backgrounded job has exited: the main app crashing
+  while the metrics sidecar stayed up never ended the container, silently
+  defeating `restart: unless-stopped`. The `exec`-based version fixes
+  that, but hands PID 1's reaping duties to whatever occupies that slot
+  afterward - the metrics sidecar ends up parented to the main app once
+  the wrapper's own image is replaced, and nothing about gunicorn's or
+  Celery's own arbiter loop guarantees it calls `wait()` on a child it
+  never forked itself, which is exactly the accumulating-zombie problem a
+  real PID-1 init is for. **This is why the Dockerfile runs `tini` as the
+  actual `ENTRYPOINT`** (`apk add tini`, Alpine ships it) rather than
+  relying on the wrapper script to reimplement generic child-reaping by
+  hand. **`GUNICORN_CMD_ARGS` (the `--control-socket` path) is set at each
+  gunicorn call site, not as one container-wide Dockerfile `ENV`** -
+  `web.sh` sets its own for the main app's gunicorn, `_run_with_metrics.sh`
+  sets a different one (scoped to just that command) for the metrics
+  gunicorn, since both processes sharing one path would mean two masters
+  racing to bind the same socket file. Leaving it empty/unset doesn't
+  disable the control socket feature either - gunicorn just falls back to
+  its own CWD-relative default (`/app/.gunicorn/...`), which fails
+  outright under `docker-compose.dev.yml`'s bind-mounted `/app` (that
+  mount doesn't support UNIX domain sockets) - found the hard way, as a
+  real startup error, not a hypothetical. Gunicorn workers get their own per-pid setup
+  via `config/gunicorn_conf.py`'s `post_fork` hook (that file still can't
+  import `config.settings` - see its own docstring - which is why the
+  hook imports `config.observability.multiproc` directly instead, a
+  module with no Django dependency at all).
 - **Every notification-volume env var/setting lives in `config/settings.py`
   alongside everything else this app parses** (`OTEL_*`, `SENTRY_*`,
   `METRICS_NAMESPACE`, `PROMETHEUS_MULTIPROC_DIR`, all through

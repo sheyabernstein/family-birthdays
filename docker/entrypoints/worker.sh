@@ -20,7 +20,8 @@ python manage.py migrate_with_lock
 # --statedb, the worker's own local state file, not --scheduler.
 
 # _run_with_metrics.sh runs this alongside a dedicated Prometheus metrics
-# server on :9090 - see that script's own comment for why (no tini needed).
+# server on :9090 - see that script's own comment, and the Dockerfile's
+# tini ENTRYPOINT, for the full reasoning.
 exec /app/docker/entrypoints/_run_with_metrics.sh \
   celery -q -A config worker --beat \
   -l info \

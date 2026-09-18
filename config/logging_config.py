@@ -156,6 +156,7 @@ LOGGING_DICT_CONFIG: dict[str, Any] = {
         "gunicorn.access": {"level": "WARNING", "handlers": ["console"], "propagate": False},
         "redis": {"level": "WARNING", "handlers": ["console"], "propagate": False},
         "kombu": {"level": "WARNING", "handlers": ["console"], "propagate": False},
+        "opentelemetry": {"level": "WARNING", "handlers": ["console"], "propagate": False},
         "urllib3": {"level": "WARNING", "handlers": ["console"], "propagate": False},
     },
 }
