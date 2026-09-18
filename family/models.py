@@ -51,10 +51,10 @@ class Person(models.Model):
         help_text="If this person has their own login, the account that is them.",
     )
 
-    first_name_en = models.CharField(max_length=100)
-    last_name_en = models.CharField(max_length=100)
-    first_name_he = models.CharField(max_length=100, blank=True)
-    last_name_he = models.CharField(max_length=100, blank=True)
+    first_name_en = models.CharField(max_length=100, verbose_name="first name (English)")
+    last_name_en = models.CharField(max_length=100, verbose_name="last name (English)")
+    first_name_he = models.CharField(max_length=100, blank=True, verbose_name="first name (Hebrew)")
+    last_name_he = models.CharField(max_length=100, blank=True, verbose_name="last name (Hebrew)")
     nickname = models.CharField(max_length=100, blank=True)
     gender = models.CharField(max_length=1, choices=Gender.choices, blank=True)
 
@@ -77,11 +77,15 @@ class Person(models.Model):
     # whether the birth was after sunset, since a Hebrew date derived from
     # only the Gregorian date is wrong by one day in that case.
     dob_gregorian = models.DateField(
-        null=True, blank=True, help_text="Civil calendar date. Enter directly if known."
+        null=True,
+        blank=True,
+        verbose_name="date of birth (Gregorian)",
+        help_text="Civil calendar date. Enter directly if known.",
     )
     dob_hebrew_year = models.PositiveIntegerField(
         null=True,
         blank=True,
+        verbose_name="Hebrew birth year",
         help_text=(
             "Hebrew year. Enter this directly if known, rather than letting it be computed from the "
             "Gregorian date - especially if the birth was after sunset, when the Hebrew date has "
@@ -89,21 +93,31 @@ class Person(models.Model):
         ),
     )
     dob_hebrew_month = models.PositiveSmallIntegerField(
-        choices=HEBREW_MONTH_CHOICES, null=True, blank=True, help_text="Hebrew month."
+        choices=HEBREW_MONTH_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name="Hebrew birth month",
+        help_text="Hebrew month.",
     )
     dob_hebrew_day = models.PositiveSmallIntegerField(
-        null=True, blank=True, help_text="Hebrew day of the month."
+        null=True, blank=True, verbose_name="Hebrew birth day", help_text="Hebrew day of the month."
     )
-    dob_year_only = models.BooleanField(default=False, help_text="Only the year of birth is known")
+    dob_year_only = models.BooleanField(
+        default=False, verbose_name="year of birth only", help_text="Only the year of birth is known"
+    )
 
     # Date of death, same shape - and the sunset caveat matters even more
     # here, since the Hebrew date is what yahrzeit observance is based on.
     dod_gregorian = models.DateField(
-        null=True, blank=True, help_text="Civil calendar date. Enter directly if known."
+        null=True,
+        blank=True,
+        verbose_name="date of death (Gregorian)",
+        help_text="Civil calendar date. Enter directly if known.",
     )
     dod_hebrew_year = models.PositiveIntegerField(
         null=True,
         blank=True,
+        verbose_name="Hebrew death year",
         help_text=(
             "Hebrew year. Enter this directly if known - e.g. from the yahrzeit already observed for "
             "this person - rather than letting it be computed from the Gregorian date. This matters "
@@ -112,20 +126,30 @@ class Person(models.Model):
         ),
     )
     dod_hebrew_month = models.PositiveSmallIntegerField(
-        choices=HEBREW_MONTH_CHOICES, null=True, blank=True, help_text="Hebrew month."
+        choices=HEBREW_MONTH_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name="Hebrew death month",
+        help_text="Hebrew month.",
     )
     dod_hebrew_day = models.PositiveSmallIntegerField(
-        null=True, blank=True, help_text="Hebrew day of the month."
+        null=True, blank=True, verbose_name="Hebrew death day", help_text="Hebrew day of the month."
     )
 
     # Per-person overrides for the halachic ambiguities in yahrzeit dates.
     # Defaults reflect common Ashkenazi custom; some family branches will
     # differ and need to override these explicitly.
     yahrzeit_adar_observance = models.CharField(
-        max_length=10, choices=AdarObservance.choices, default=AdarObservance.ADAR_II
+        max_length=10,
+        choices=AdarObservance.choices,
+        default=AdarObservance.ADAR_II,
+        verbose_name="yahrzeit Adar observance",
     )
     yahrzeit_day30_observance = models.CharField(
-        max_length=20, choices=Day30Observance.choices, default=Day30Observance.NEXT_MONTH
+        max_length=20,
+        choices=Day30Observance.choices,
+        default=Day30Observance.NEXT_MONTH,
+        verbose_name="yahrzeit 30-day observance",
     )
 
     # Off for someone recorded for lineage only - e.g. an in-law's own
@@ -140,7 +164,9 @@ class Person(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["last_name_en", "first_name_en"]
+        # pk tiebreaker - duplicate names are the norm here, not the
+        # exception (see AGENTS.md's "three Blimi Rokachs" example).
+        ordering = ["last_name_en", "first_name_en", "pk"]
         constraints = [
             # A given Account should only ever represent one Person within
             # a single family's ledger - two Persons here sharing a login
@@ -304,11 +330,15 @@ class Union(models.Model):
     )
 
     marriage_date_gregorian = models.DateField(
-        null=True, blank=True, help_text="Civil calendar date. Enter directly if known."
+        null=True,
+        blank=True,
+        verbose_name="marriage date (Gregorian)",
+        help_text="Civil calendar date. Enter directly if known.",
     )
     marriage_hebrew_year = models.PositiveIntegerField(
         null=True,
         blank=True,
+        verbose_name="Hebrew marriage year",
         help_text=(
             "Hebrew year. Enter this directly if known, rather than letting it be computed from the "
             "Gregorian date - especially if the wedding was after sunset, when the Hebrew date has "
@@ -316,19 +346,33 @@ class Union(models.Model):
         ),
     )
     marriage_hebrew_month = models.PositiveSmallIntegerField(
-        choices=HEBREW_MONTH_CHOICES, null=True, blank=True, help_text="Hebrew month."
+        choices=HEBREW_MONTH_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name="Hebrew marriage month",
+        help_text="Hebrew month.",
     )
     marriage_hebrew_day = models.PositiveSmallIntegerField(
-        null=True, blank=True, help_text="Hebrew day of the month."
+        null=True, blank=True, verbose_name="Hebrew marriage day", help_text="Hebrew day of the month."
     )
 
-    divorce_date_gregorian = models.DateField(null=True, blank=True)
+    divorce_date_gregorian = models.DateField(null=True, blank=True, verbose_name="divorce date (Gregorian)")
 
     class Meta:
         constraints = [
             models.CheckConstraint(
                 condition=~models.Q(person_a=models.F("person_b")), name="union_distinct_people"
             ),
+        ]
+        # No timestamp field on this model - mirrors Person's own
+        # ordering rather than adding one just for this. person_b breaks
+        # ties on person_a's own name before falling back to pk.
+        ordering = [
+            "person_a__last_name_en",
+            "person_a__first_name_en",
+            "person_b__last_name_en",
+            "person_b__first_name_en",
+            "pk",
         ]
 
     def __str__(self) -> str:

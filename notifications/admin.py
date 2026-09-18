@@ -1,6 +1,4 @@
 from django.contrib import admin
-from django.db.models import QuerySet
-from django.http import HttpRequest
 from reversion.admin import VersionAdmin
 
 from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
@@ -18,16 +16,15 @@ class EventTypeAdmin(VersionAdmin):
         "recurs",
         "notify_days_before",
     )
+    list_select_related = ("family",)
     list_filter = ("family",)
     autocomplete_fields = ("family",)
-
-    def get_queryset(self, request: HttpRequest) -> QuerySet[EventType]:
-        return super().get_queryset(request=request).select_related("family")
 
 
 @admin.register(NotificationPreference)
 class NotificationPreferenceAdmin(VersionAdmin):
     list_display = ("account", "event_type", "state", "person", "union", "channel", "created_at")
+    list_select_related = ("account", "event_type", "person", "union")
     list_filter = ("event_type", "state", "channel")
     autocomplete_fields = ("account", "person", "union")
 
@@ -42,6 +39,8 @@ class OccurrenceAdmin(admin.ModelAdmin):
         "shifted_for_shabbat_or_yomtov",
         "is_sent",
     )
+    # __str__ touches person, union, and event_type - see Occurrence.__str__.
+    list_select_related = ("person", "union", "event_type")
     list_filter = ("event_type", "is_sent", "shifted_for_shabbat_or_yomtov")
     date_hierarchy = "send_date"
 
@@ -56,6 +55,7 @@ class MessageAdmin(admin.ModelAdmin):
 @admin.register(Broadcast)
 class BroadcastAdmin(VersionAdmin):
     list_display = ("family", "text", "created_by", "send_at", "is_sent", "sent_at")
+    list_select_related = ("family", "created_by")
     list_filter = ("family", "is_sent")
     autocomplete_fields = ("created_by", "people")
     date_hierarchy = "send_at"

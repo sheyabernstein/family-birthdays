@@ -1595,6 +1595,23 @@ first.
 Never push to git without asking the user first. Never merge a PR on
 your own.
 
+Git commit message types serve as a beacon of understanding in the sea of
+changes that is a software project. These types not only categorize the
+changes made but also communicate the intent and scope of each commit.
+
+Here are the common types:
+1. **feat**: Introducing new features or significant improvements.
+2. **fix**: Bug fixes that resolve issues in your code.
+3. **docs**: Updates or additions to documentation.
+4. **style**: Cosmetic changes that don't affect code functionality (like formatting).
+5. **refactor**: Code changes that neither fix a bug nor add a feature but improve structure.
+6. **test**: Everything about testing - adding or fixing tests.
+7. **chore**: Routine tasks or updates to the build process.
+8. **perf**: Enhancements that improve performance.
+9. **ci**: Modifications related to CI/CD processes.
+10. **build**: Changes affecting the build system or external dependencies.
+11. **revert**: Undoing previous changes.
+
 **Commit messages are short and mechanical; the "why" goes in the PR
 description, not the commit.** A commit message says what changed, in
 one line (`fix: ...`/`feat: ...`/plain imperative, matching whatever this
@@ -1608,3 +1625,11 @@ real - the PR - rather than losing it entirely. A PR bundling several
 related commits doesn't need each commit to carry its own essay either;
 one commit can be terse even when the PR as a whole represents a lot of
 discussion and iteration to get there.
+
+**PR titles follow the same `type: description` convention as commit
+messages, and both are lowercase after the type prefix** - `fix: don't
+say "Today is..." for a shifted occurrence`, not `Fix: Don't Say...` or
+a bare `Model Meta cleanup`. One consistent format across `git log` and
+the PR list means either one is scannable on its own, and a PR whose
+title doesn't already start with a type prefix is a sign it's bundling
+unrelated changes that should probably be split instead.

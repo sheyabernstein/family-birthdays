@@ -84,7 +84,7 @@ class EventType(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["family", "code"], name="unique_event_type_code_per_family"),
         ]
-        ordering = ["name"]
+        ordering = ["name", "pk"]
 
     def __str__(self) -> str:
         return self.name
@@ -179,6 +179,7 @@ class NotificationPreference(models.Model):
                 name="unique_union_preference",
             ),
         ]
+        ordering = ["-created_at", "pk"]
 
     def __str__(self) -> str:
         scope = self.person or self.union or "the whole event type"
@@ -218,7 +219,9 @@ class Occurrence(models.Model):
     send_date = models.DateField(
         help_text="The date the notification actually goes out (shifted for Shabbat/Yom Tov)"
     )
-    shifted_for_shabbat_or_yomtov = models.BooleanField(default=False)
+    shifted_for_shabbat_or_yomtov = models.BooleanField(
+        default=False, verbose_name="shifted for Shabbat/Yom Tov"
+    )
 
     is_sent = models.BooleanField(default=False)
     computed_at = models.DateTimeField(auto_now_add=True)
@@ -246,7 +249,7 @@ class Occurrence(models.Model):
             ),
         ]
         indexes = [models.Index(fields=["send_date", "is_sent"])]
-        ordering = ["send_date", "occurrence_date"]
+        ordering = ["send_date", "occurrence_date", "pk"]
 
     def __str__(self) -> str:
         subject = self.person or self.union
@@ -329,7 +332,7 @@ class Broadcast(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-send_at"]
+        ordering = ["-send_at", "pk"]
 
     def __str__(self) -> str:
         status = "sent" if self.is_sent else "scheduled for"
@@ -389,6 +392,7 @@ class Message(models.Model):
                 name="message_exactly_one_of_occurrence_or_broadcast",
             ),
         ]
+        ordering = ["-created_at", "pk"]
 
     def __str__(self) -> str:
         return f"{self.channel} to {self.destination}: {self.subject or self.body[:40]}"
