@@ -4,7 +4,7 @@ from tenants.models import Family
 
 
 class FamilySenderSettingsForm(forms.ModelForm):
-    """Owner/editor only - see tenants.views.FamilySettingsView.
+    """Requires the tenants.change_family permission - see tenants.views.FamilySettingsView.
 
     Both fields are optional (sms_sender_id falls back to notifications.
     services.DEFAULT_SMS_SENDER_ID when blank; reply_to_email blank just
