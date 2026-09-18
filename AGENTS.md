@@ -1595,6 +1595,23 @@ first.
 Never push to git without asking the user first. Never merge a PR on
 your own.
 
+Git commit message types serve as a beacon of understanding in the sea of
+changes that is a software project. These types not only categorize the
+changes made but also communicate the intent and scope of each commit.
+
+Here are the common types:
+1. **feat**: Introducing new features or significant improvements.
+2. **fix**: Bug fixes that resolve issues in your code.
+3. **docs**: Updates or additions to documentation.
+4. **style**: Cosmetic changes that don't affect code functionality (like formatting).
+5. **refactor**: Code changes that neither fix a bug nor add a feature but improve structure.
+6. **test**: Everything about testing - adding or fixing tests.
+7. **chore**: Routine tasks or updates to the build process.
+8. **perf**: Enhancements that improve performance.
+9. **ci**: Modifications related to CI/CD processes.
+10. **build**: Changes affecting the build system or external dependencies.
+11. **revert**: Undoing previous changes.
+
 **Commit messages are short and mechanical; the "why" goes in the PR
 description, not the commit.** A commit message says what changed, in
 one line (`fix: ...`/`feat: ...`/plain imperative, matching whatever this
