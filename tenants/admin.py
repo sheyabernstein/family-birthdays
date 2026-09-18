@@ -13,5 +13,6 @@ class FamilyAdmin(VersionAdmin):
 @admin.register(FamilyMembership)
 class FamilyMembershipAdmin(VersionAdmin):
     list_display = ("account", "family", "role", "joined_at")
+    list_select_related = ("account", "family")
     list_filter = ("role", "family")
     autocomplete_fields = ("account", "family")
