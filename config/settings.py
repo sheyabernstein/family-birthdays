@@ -187,9 +187,22 @@ MAILERS = {
 }
 
 # --- SMS ---
-# "console" just logs; swap in a real provider (Twilio, AWS SNS, ...) later
-# by implementing it in notifications/services.py and pointing this at it.
-SMS_BACKEND = os.getenv("SMS_BACKEND", "console")
+# A dotted class path (see notifications/sms.py), same shape as
+# STORAGES["staticfiles"]["BACKEND"] above - the default just logs; swap in
+# a real provider by subclassing SmsBackend there and pointing this at it.
+SMS_BACKEND = os.getenv("SMS_BACKEND", "notifications.sms.ConsoleSmsBackend")
+
+# Only required when SMS_BACKEND is notifications.sms.SnsSmsBackend - see
+# SnsSmsBackend.validate_settings(), called from NotificationsConfig.ready()
+# rather than checked here (importing notifications.sms this early would
+# mean it reads django.conf.settings while this very module is still
+# mid-execution as the module that settings object resolves to). Passed
+# explicitly to boto3 rather than relying on its own default credential
+# chain (env vars/IAM role) so every SMS-relevant setting lives in one
+# place, alongside SMS_BACKEND itself.
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+AWS_SNS_REGION = os.getenv("AWS_SNS_REGION", "")
 
 # --- Redis --- (shared by Celery and the magic-link token store)
 # Built from discrete env vars rather than accepting a REDIS_URL directly -

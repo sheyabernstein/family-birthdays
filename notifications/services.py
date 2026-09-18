@@ -1,12 +1,17 @@
 from email.utils import formataddr
+from functools import lru_cache
 
 import css_inline
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
+from django.core.signals import setting_changed
+from django.dispatch import receiver
 from django.templatetags.static import static
 from django.urls import reverse
+from django.utils.module_loading import import_string
 
 from config.logging_config import logger
+from notifications.sms import SmsBackend
 
 DEFAULT_EMAIL_SENDER_NAME = "Family Tree"
 DEFAULT_SMS_SENDER_ID = "FamilyTree"
@@ -147,11 +152,20 @@ def send_email(
     return {"sent_count": sent_count}
 
 
-def send_sms(to: str, body: str, *, sender_id: str = "") -> dict:
-    """Pluggable SMS send - defaults to logging only.
+@lru_cache(maxsize=1)
+def _sms_backend() -> SmsBackend:
+    return import_string(settings.SMS_BACKEND)()
 
-    Wire in a real provider (Twilio, AWS SNS, ...) by implementing it
-    here and pointing settings.SMS_BACKEND at it.
+
+@receiver(setting_changed)
+def _clear_sms_backend_cache(*, setting: str, **kwargs) -> None:
+    """Lets override_settings(SMS_BACKEND=...) actually take effect in tests."""
+    if setting == "SMS_BACKEND":
+        _sms_backend.cache_clear()
+
+
+def send_sms(to: str, body: str, *, sender_id: str = "") -> dict:
+    """Sends via whichever notifications.sms.SmsBackend settings.SMS_BACKEND names.
 
     Args:
         to: Recipient phone number.
@@ -170,8 +184,4 @@ def send_sms(to: str, body: str, *, sender_id: str = "") -> dict:
         active SMS_BACKEND.
     """
     sender_id = sender_id or DEFAULT_SMS_SENDER_ID
-    backend = settings.SMS_BACKEND
-    if backend == "console":
-        logger.info("sms logged", to=to, body=body, sender_id=sender_id)
-        return {"status": "logged", "to": to, "sender_id": sender_id}
-    raise NotImplementedError(f"SMS backend '{backend}' is not implemented yet.")
+    return _sms_backend().send(to=to, body=body, sender_id=sender_id)

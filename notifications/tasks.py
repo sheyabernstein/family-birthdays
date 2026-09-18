@@ -22,6 +22,7 @@ from notifications.audience import resolve_audience, resolve_broadcast_audience
 from notifications.helpers import html_to_plain_text
 from notifications.models import Broadcast, Channel, EventType, Message, Occurrence
 from notifications.services import send_email, send_sms
+from notifications.sms import SmsUnrecoverableError
 
 # A single GSM-7 SMS segment - see AGENTS.md. Deliberately conservative
 # rather than budgeting for 2-segment messages: forces genuinely terse
@@ -732,6 +733,19 @@ def send_message(self: Task, message_id: int) -> None:
             provider_response = send_sms(
                 to=message.destination, body=message.body, sender_id=message.family.sms_sender_id
             )
+    except SmsUnrecoverableError as exc:
+        message.status = Message.Status.FAILED
+        message.error = str(exc)
+        message.tries += 1
+        message.save(update_fields=["status", "error", "tries"])
+        logger.error(
+            "message send failed permanently, not retrying",
+            message_id=message.pk,
+            subject=message.subject,
+            tries=message.tries,
+            exc_info=exc,
+        )
+        raise
     except Exception as exc:
         message.status = Message.Status.FAILED
         message.error = str(exc)
