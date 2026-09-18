@@ -8,7 +8,7 @@
     <div class="card">
         <h2>Notification branding</h2>
         <p class="muted">How this family's texts and emails identify themselves to recipients.</p>
-        {% if request.family_role == "owner" %}
+        {% if perms.tenants.change_family %}
             <form method="post">
                 {% csrf_token %}
                 <div class="form-field">

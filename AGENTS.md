@@ -598,11 +598,19 @@ switching workspaces.
     someone in more than one family (see the Person/Account bullet below)
     couldn't tell two families' texts apart at all. `Family.sms_sender_id`
     (alphanumeric, 10 chars - a real carrier constraint, not an arbitrary
-    one) is self-service, editable by an owner/editor from Workspace
-    Settings (`tenants.forms.FamilySenderSettingsForm`, `tenants.views.
-    FamilySettingsView`) or set at creation time (`tenants.views.
-    CreateFamilyView`) - blank falls back to `notifications.services.
-    DEFAULT_SMS_SENDER_ID` ("FamilyTree") rather than sending unbranded.
+    one) is editable from Workspace Settings
+    (`tenants.forms.FamilySenderSettingsForm`, `tenants.views.
+    FamilySettingsView`) by whoever holds the global `tenants.change_family`
+    permission - a site admin grant (Django staff via the admin), the
+    same "site admin" concept `tenants.add_family` uses for
+    `CreateFamilyView` - not a family role. This is a genuinely global
+    Django permission, not scoped to one family, so it isn't self-service
+    for an ordinary family owner the way most other per-family settings
+    are; a family's own owner/editor sees the current values read-only on
+    that page. It can also be set at creation time (`tenants.views.
+    CreateFamilyView`, itself gated on `tenants.add_family`) - blank falls
+    back to `notifications.services.DEFAULT_SMS_SENDER_ID` ("FamilyTree")
+    rather than sending unbranded.
     Email doesn't need an equivalent settable field for the display name -
     it's just `Family.name` (there's no separate "email sender name"
     concept) - but the address itself *is* per-family:

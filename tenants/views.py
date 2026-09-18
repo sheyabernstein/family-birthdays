@@ -10,7 +10,7 @@ from django.views.generic import ListView, TemplateView
 
 from config.logging_config import logger
 from tenants.forms import FamilySenderSettingsForm
-from tenants.mixins import FamilyRequiredMixin
+from tenants.mixins import FamilyEditorRequiredMixin
 from tenants.models import Family, FamilyMembership
 
 
@@ -68,32 +68,25 @@ class SwitchFamilyView(LoginRequiredMixin, View):
         return render(request, "tenants/switch_family.html", {"memberships": memberships})
 
 
-class FamilySettingsView(FamilyRequiredMixin, UserPassesTestMixin, ListView):
+class FamilySettingsView(FamilyEditorRequiredMixin, UserPassesTestMixin, ListView):
     """Member list and sender branding settings, with per-method permission checks.
 
-    Viewing this page (the member list, and sender branding read-only)
-    is open to any member, but *changing* sender branding is family-wide,
-    owner-only (narrower than the usual editor-level bar for a
-    family-wide-effect action - branding affects how every member's
-    email/SMS looks, not just ledger data).
-
-    UserPassesTestMixin fits cleanly here specifically
-    because there's nothing else to chain into for a different failure
-    mode - contrast FamilyEditorRequiredMixin/FamilyOwnerRequiredMixin
-    (tenants.mixins), which override dispatch() by hand instead of using
-    this because they need to fall through to FamilyRequiredMixin's own
-    redirect (switch/create/no-access) for the "no family at all" case
-    while still raising a specific PermissionDenied message for the
-    "wrong role" case - two different failure responses in one chain,
-    which test_func()-returns-a-bool can't express on its own.
+    Viewing (FamilyEditorRequiredMixin) is owner/editor only, matching the
+    nav's own "Workspace Settings" link. *Changing* sender branding is a
+    further, narrower gate: the global tenants.change_family permission
+    (a site admin grant - see CreateFamilyView's tenants.add_family for
+    the same concept), not a family role - so an owner without that grant
+    sees the branding fields read-only, same as an editor. See AGENTS.md's
+    Roles/permissions section for why UserPassesTestMixin is layered on
+    top of FamilyEditorRequiredMixin here rather than either alone.
     """
 
     template_name = "tenants/family_settings.html"
     context_object_name = "memberships"
-    permission_denied_message = "Only family owners can change workspace settings."
+    permission_denied_message = "Only site admins can change workspace settings."
 
     def test_func(self) -> bool:
-        return self.request.method != "POST" or self.request.family_role == FamilyMembership.Role.OWNER
+        return self.request.method != "POST" or self.request.user.has_perm("tenants.change_family")
 
     def get_queryset(self) -> QuerySet[FamilyMembership]:
         # Unfiltered prefetch - a filtered Prefetch object would poison

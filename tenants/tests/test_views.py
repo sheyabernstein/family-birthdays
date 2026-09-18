@@ -162,8 +162,11 @@ def _login_as(client, account, family):
     session.save()
 
 
-def test_family_settings_shows_the_editable_form_to_an_editor(client, family):
+def test_family_settings_shows_the_editable_form_to_a_site_admin(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
+    owner.user_permissions.add(
+        Permission.objects.get(codename="change_family", content_type__app_label="tenants")
+    )
     _login_as(client, owner, family)
 
     resp = client.get("/family/settings/")
@@ -172,10 +175,13 @@ def test_family_settings_shows_the_editable_form_to_an_editor(client, family):
     assert b'name="sms_sender_id"' in resp.content
 
 
-def test_family_settings_shows_read_only_values_to_a_plain_member(client, family):
+@pytest.mark.parametrize(
+    ["role"], [[FamilyMembership.Role.OWNER], [FamilyMembership.Role.EDITOR]], ids=["owner", "editor"]
+)
+def test_family_settings_shows_read_only_values_without_the_change_family_permission(role, client, family):
     family.sms_sender_id = "RokachFam"
     family.save(update_fields=["sms_sender_id"])
-    member = _member(family, FamilyMembership.Role.MEMBER)
+    member = _member(family, role)
     _login_as(client, member, family)
 
     resp = client.get("/family/settings/")
@@ -185,8 +191,20 @@ def test_family_settings_shows_read_only_values_to_a_plain_member(client, family
     assert b"RokachFam" in resp.content
 
 
-def test_family_settings_lets_an_owner_update_sender_branding(client, family):
+def test_family_settings_rejects_viewing_from_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    _login_as(client, member, family)
+
+    resp = client.get("/family/settings/")
+
+    assert resp.status_code == 403
+
+
+def test_family_settings_lets_a_site_admin_update_sender_branding(client, family):
     owner = _member(family=family, role=FamilyMembership.Role.OWNER)
+    owner.user_permissions.add(
+        Permission.objects.get(codename="change_family", content_type__app_label="tenants")
+    )
     _login_as(client, owner, family)
 
     resp = client.post(
@@ -274,9 +292,11 @@ def test_family_settings_member_list_query_count_does_not_scale_with_member_coun
 
 
 @pytest.mark.parametrize(
-    ["role"], [[FamilyMembership.Role.EDITOR], [FamilyMembership.Role.MEMBER]], ids=["editor", "member"]
+    ["role"],
+    [[FamilyMembership.Role.OWNER], [FamilyMembership.Role.EDITOR], [FamilyMembership.Role.MEMBER]],
+    ids=["owner", "editor", "member"],
 )
-def test_family_settings_rejects_updates_from_editor_member(role, client, family):
+def test_family_settings_rejects_updates_without_the_change_family_permission(role, client, family):
     member = _member(family=family, role=role)
     _login_as(client, member, family)
 
