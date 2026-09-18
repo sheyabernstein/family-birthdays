@@ -1,0 +1,33 @@
+# Grafana Tempo config, pinned to v2.10.5's schema (see docker-compose.
+# observability.yml's own comment on why :latest isn't used) - mirrors
+# prom-gateway's own already-working tempo.yaml. Stateless: traces don't
+# need to survive a `docker compose down` here.
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 1h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /tmp/tempo/wal
+    local:
+      path: /tmp/tempo/blocks
+
+usage_report:
+  reporting_enabled: false

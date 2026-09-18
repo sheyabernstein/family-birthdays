@@ -11,6 +11,7 @@ from django.utils.html import strip_tags
 from hdate.hebrew_date import Months
 
 from config.logging_config import logger
+from config.observability import metrics
 from family.hebrew import (
     gregorian_to_hebrew,
     hebrew_to_gregorian,
@@ -361,6 +362,9 @@ def compute_occurrences() -> None:
         created_or_updated += written
 
     logger.info("occurrences computed", count=created_or_updated)
+    metrics.beat_task_last_success_timestamp.labels(task_name="compute_occurrences").set(
+        timezone.now().timestamp()
+    )
 
 
 def _delete_stale_unsent_occurrences(
@@ -516,6 +520,9 @@ def send_due_notifications() -> None:
             queued += 1
 
     logger.info("notifications queued", occurrences_due=claimed_count, messages_queued=queued)
+    metrics.beat_task_last_success_timestamp.labels(task_name="send_due_notifications").set(
+        timezone.now().timestamp()
+    )
 
 
 def _truncate_for_sms(text: str, budget: int = SMS_CHAR_BUDGET) -> str:
@@ -713,11 +720,29 @@ def send_due_broadcasts() -> None:
         sent += 1
 
     logger.info("broadcasts sent", count=sent)
+    metrics.beat_task_last_success_timestamp.labels(task_name="send_due_broadcasts").set(
+        timezone.now().timestamp()
+    )
+
+
+def _metric_event_type(message: Message) -> str:
+    """Resolves the bounded event_type label for the notifications_*_sent_total metrics.
+
+    A raw EventType.code isn't safe to use directly - a family can set it
+    to anything (see EventType.BuiltinCode's own docstring) - so this maps
+    down to one of the 7 builtin codes, "custom" for any family-defined
+    event type, or "broadcast" for a Message with no Occurrence at all.
+    """
+    if message.occurrence is None:
+        return EventType.BuiltinCode.BROADCAST
+    code = message.occurrence.event_type.code
+    return code if code in EventType.BuiltinCode.values else "custom"
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=300)
 def send_message(self: Task, message_id: int) -> None:
     message = Message.objects.get(pk=message_id)
+    event_type = _metric_event_type(message)
     try:
         if message.channel == Channel.EMAIL:
             provider_response = send_email(
@@ -725,13 +750,17 @@ def send_message(self: Task, message_id: int) -> None:
                 subject=message.subject,
                 body=message.body,
                 html=message.html_body or None,
+                event_type=event_type,
                 from_name=message.family.name,
                 from_email=message.family.sender_email,
                 reply_to=message.family.reply_to_email,
             )
         else:
             provider_response = send_sms(
-                to=message.destination, body=message.body, sender_id=message.family.sms_sender_id
+                to=message.destination,
+                body=message.body,
+                event_type=event_type,
+                sender_id=message.family.sms_sender_id,
             )
     except SmsUnrecoverableError as exc:
         message.status = Message.Status.FAILED

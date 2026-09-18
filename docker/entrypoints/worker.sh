@@ -19,7 +19,10 @@ python manage.py migrate_with_lock
 # on `celery worker` (unlike `celery beat`), -S is short for
 # --statedb, the worker's own local state file, not --scheduler.
 
-exec celery -q -A config worker --beat \
+# _run_with_metrics.sh runs this alongside a dedicated Prometheus metrics
+# server on :9090 - see that script's own comment for why (no tini needed).
+exec /app/docker/entrypoints/_run_with_metrics.sh \
+  celery -q -A config worker --beat \
   -l info \
   --concurrency "${CELERY_CONCURRENCY:-1}" \
   -n "$(uname -n):${BUILD_VERSION}"

@@ -1,13 +1,46 @@
 import os
 
 from celery import Celery
-from celery.signals import setup_logging
+from celery.signals import setup_logging, worker_process_init
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
 app = Celery("family_birthdays")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
+
+# Wires task_prerun/task_postrun/task_failure/task_retry to Prometheus task
+# metrics + a Sentry capture fallback - importing for its side effect of
+# connecting the receivers, same pattern as _use_structlog below.
+import config.observability.celery_signals  # noqa: E402,F401
+
+
+@worker_process_init.connect
+def _init_observability_per_worker(**_kwargs) -> None:
+    """Re-initializes OTel + Prometheus multiprocess state post-fork.
+
+    Celery's prefork pool forks worker child processes after this module
+    is imported in the parent - a BatchSpanProcessor's background export
+    thread and prometheus_client's per-pid .db files both need to be set
+    up in the child, not inherited from the parent across fork(). See
+    config/observability/tracing.py's own docstring for the full reasoning.
+    """
+    from config.observability.metrics import set_build_info
+    from config.observability.multiproc import init_multiprocess_dir, register_atexit_mark_dead
+    from config.observability.tracing import init_tracing
+
+    # init_multiprocess_dir() first, always - prometheus_client's
+    # multiprocess mode needs this directory to actually exist by the time
+    # a metric is first written, not just PROMETHEUS_MULTIPROC_DIR set in
+    # the environment. The Dockerfile happens to pre-create it, which is
+    # why this worked without this call - but nothing about running the
+    # Celery worker itself guaranteed that, unlike gunicorn's own
+    # post_fork hook (config/gunicorn_conf.py), which always calls this
+    # first for exactly this reason.
+    init_multiprocess_dir()
+    init_tracing()
+    register_atexit_mark_dead()
+    set_build_info(os.getenv("BUILD_VERSION", "dev"))
 
 
 @setup_logging.connect

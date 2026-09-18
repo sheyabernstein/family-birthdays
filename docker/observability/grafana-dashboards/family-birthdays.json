@@ -1,0 +1,539 @@
+{
+  "title": "Family Birthdays - Overview",
+  "uid": "family-birthdays",
+  "schemaVersion": 39,
+  "editable": true,
+  "time": { "from": "now-24h", "to": "now" },
+  "refresh": "auto",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "label": "Prometheus",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false
+      },
+      {
+        "name": "namespace",
+        "type": "query",
+        "label": "Namespace",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(up{job=~\"family-birthdays-.*\"}, namespace)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Overview",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 1,
+      "title": "Healthy replicas",
+      "description": "Count of scraped instances currently up, per service. There can be any number of web/worker pods behind each service - a replica that's actually down simply stops contributing to this count.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "textMode": "value_and_name", "colorMode": "background" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(up{namespace=\"$namespace\"}) by (service)",
+          "legendFormat": "{{service}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Total request rate",
+      "description": "Combined request rate across every web replica.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(family_birthdays_requests_total{namespace=\"$namespace\"}[$__rate_interval]))",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Error rate (4xx/5xx)",
+      "description": "Rate of responses in the last interval with a 4xx or 5xx status code.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.1 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(family_birthdays_requests_total{namespace=\"$namespace\", status_code=~\"4..|5..\"}[$__rate_interval])) or vector(0)",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Build info",
+      "description": "One row per (service, version) combination actually running, with a replica count - not one row per pod, so a rolling deploy across several replicas reads as 'N old + M new'.",
+      "type": "table",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "count(family_birthdays_build_info{namespace=\"$namespace\"}) by (service, version)",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "renameByName": { "Value": "replicas" }
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Beat: seconds since last successful run",
+      "description": "The nightly/periodic notification sweeps each record their own successful completion here, not just 'the scheduler fired.' A tick occasionally arriving late and catching up is normal; this rising without bound means the sweep itself has stopped completing, which is worth paging on. Aggregated with max() across replicas - only one worker replica holds the scheduling lock at a time, so max() always reflects whichever one currently does.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 3600 },
+              { "color": "red", "value": 90000 }
+            ]
+          }
+        }
+      },
+      "options": { "textMode": "value", "colorMode": "background" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "time() - max(family_birthdays_beat_task_last_success_timestamp{namespace=\"$namespace\"})",
+          "legendFormat": "{{task_name}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 110,
+      "type": "row",
+      "title": "Web (HTTP)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }
+    },
+    {
+      "id": 10,
+      "title": "Request rate by status code",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(family_birthdays_requests_total{namespace=\"$namespace\"}[$__rate_interval])) by (status_code)",
+          "legendFormat": "{{status_code}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Request duration (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.50, sum(rate(family_birthdays_requests_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.95, sum(rate(family_birthdays_requests_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.99, sum(rate(family_birthdays_requests_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (le))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "In-flight requests by route",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(family_birthdays_requests_in_progress{namespace=\"$namespace\"}) by (route)",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Top 10 slowest routes (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "topk(10, histogram_quantile(0.95, sum(rate(family_birthdays_requests_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (le, route)))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Exceptions by type",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(family_birthdays_exceptions_total{namespace=\"$namespace\"}[$__rate_interval])) by (exception_type, route)",
+          "legendFormat": "{{exception_type}} ({{route}})"
+        }
+      ]
+    },
+    {
+      "id": 120,
+      "type": "row",
+      "title": "Worker (Celery)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 }
+    },
+    {
+      "id": 20,
+      "title": "Task completion rate by outcome",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(family_birthdays_celery_tasks_total{namespace=\"$namespace\"}[$__rate_interval])) by (task_name, status)",
+          "legendFormat": "{{task_name}} ({{status}})"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Task duration (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.50, sum(rate(family_birthdays_celery_task_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (le, task_name))",
+          "legendFormat": "{{task_name}} p50"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.95, sum(rate(family_birthdays_celery_task_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (le, task_name))",
+          "legendFormat": "{{task_name}} p95"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "histogram_quantile(0.99, sum(rate(family_birthdays_celery_task_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (le, task_name))",
+          "legendFormat": "{{task_name}} p99"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "title": "Tasks in progress",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(family_birthdays_celery_tasks_in_progress{namespace=\"$namespace\"}) by (task_name)",
+          "legendFormat": "{{task_name}}"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Task failure rate by task",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars" },
+          "color": { "mode": "fixed", "fixedColor": "red" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(family_birthdays_celery_tasks_total{namespace=\"$namespace\", status=\"failure\"}[$__rate_interval])) by (task_name)",
+          "legendFormat": "{{task_name}}"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "Top 10 slowest Celery tasks (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "topk(10, histogram_quantile(0.95, sum(rate(family_birthdays_celery_task_duration_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (le, task_name)))",
+          "legendFormat": "{{task_name}}"
+        }
+      ]
+    },
+    {
+      "id": 130,
+      "type": "row",
+      "title": "Notifications",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 39 }
+    },
+    {
+      "id": 35,
+      "title": "Email success rate",
+      "description": "Sent / (sent + failed) over the selected time range. A sustained drop here is worth investigating before it shows up as a support complaint.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 0.95 },
+              { "color": "green", "value": 0.99 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(increase(family_birthdays_notifications_emails_sent_total{namespace=\"$namespace\", status=\"sent\"}[$__range])) / sum(increase(family_birthdays_notifications_emails_sent_total{namespace=\"$namespace\"}[$__range]))",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "title": "SMS success rate",
+      "description": "Sent / (sent + failed) over the selected time range.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 0.95 },
+              { "color": "green", "value": 0.99 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(increase(family_birthdays_notifications_sms_sent_total{namespace=\"$namespace\", status=\"sent\"}[$__range])) / sum(increase(family_birthdays_notifications_sms_sent_total{namespace=\"$namespace\"}[$__range]))",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "title": "Total emails sent",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "round(sum(increase(family_birthdays_notifications_emails_sent_total{namespace=\"$namespace\", status=\"sent\"}[$__range])))",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "title": "Total SMS sent",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "round(sum(increase(family_birthdays_notifications_sms_sent_total{namespace=\"$namespace\", status=\"sent\"}[$__range])))",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "title": "Emails sent by event type",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(family_birthdays_notifications_emails_sent_total{namespace=\"$namespace\", status=\"sent\"}[$__rate_interval])) by (event_type)",
+          "legendFormat": "{{event_type}}"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "title": "Emails failed by event type",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "red" } } },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(family_birthdays_notifications_emails_sent_total{namespace=\"$namespace\", status=\"failed\"}[$__rate_interval])) by (event_type)",
+          "legendFormat": "{{event_type}}"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "title": "SMS sent by country",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(family_birthdays_notifications_sms_sent_total{namespace=\"$namespace\", status=\"sent\"}[$__rate_interval])) by (country)",
+          "legendFormat": "{{country}}"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "title": "SMS sent by event type",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum(rate(family_birthdays_notifications_sms_sent_total{namespace=\"$namespace\", status=\"sent\"}[$__rate_interval])) by (event_type)",
+          "legendFormat": "{{event_type}}"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "title": "Estimated SMS spend by country (USD)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "description": "Per-country pricing is edited directly in this panel's query, not in a recording rule or persisted anywhere upstream - carrier pricing changes on its own schedule, and this keeps a price update a no-deploy change that re-evaluates the whole selected time range correctly. Rates shown are the published per-message price for outbound transactional SMS as of 2026-09-18: United Kingdom $0.05000, Austria $0.10526, Israel $0.21747. Add another price clause here for any other destination country actually in use. Of these three, Austria and Israel accept an alphanumeric sender name with no extra setup; the United Kingdom requires a one-time sender name registration, or carriers there will flag the message as unregistered.",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum by (country) (increase(family_birthdays_notifications_sms_sent_total{namespace=\"$namespace\", status=\"sent\"}[$__range])) * on(country) group_left() (label_replace(vector(0.05000), \"country\", \"GB\", \"\", \"\") or label_replace(vector(0.10526), \"country\", \"AT\", \"\", \"\") or label_replace(vector(0.21747), \"country\", \"IL\", \"\", \"\"))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "cost"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "expr": "sum by (country) (increase(family_birthdays_notifications_sms_sent_total{namespace=\"$namespace\", status=\"sent\"}[$__range]))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "volume"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": { "byField": "country", "mode": "outer" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time 1": true, "Time 2": true },
+            "renameByName": { "Value #A": "estimated_cost_usd", "Value #B": "sms_sent" }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -6,11 +6,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     PYTHONPATH=/app \
-    GUNICORN_CMD_ARGS="--control-socket /tmp/gunicorn.ctl"
+    GUNICORN_CMD_ARGS="--control-socket /tmp/gunicorn.ctl" \
+    PROMETHEUS_MULTIPROC_DIR=/tmp/prom_multiproc
 
 RUN apk add --no-cache curl \
     && addgroup -S app \
-    && adduser -S -G app -h /app app
+    && adduser -S -G app -h /app app \
+    && mkdir -p "${PROMETHEUS_MULTIPROC_DIR}" \
+    && chown -R app:app "${PROMETHEUS_MULTIPROC_DIR}"
 
 
 FROM base AS build
@@ -53,5 +56,5 @@ ENV BUILD_NAME="${BUILD_NAME}" \
 
 USER app
 
-EXPOSE 8000
+EXPOSE 8000 9090
 CMD ["/app/docker/entrypoints/web.sh"]

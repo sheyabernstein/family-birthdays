@@ -662,7 +662,9 @@ def test_absolute_url_builds_a_full_url_to_a_named_view():
 
 
 def test_send_email_sends_a_real_multipart_email_when_html_is_given():
-    send_email(to="a@example.com", subject="Subj", body="Plain body", html="<p>Rich</p>")
+    send_email(
+        to="a@example.com", subject="Subj", body="Plain body", html="<p>Rich</p>", event_type="broadcast"
+    )
 
     sent = mail.outbox[-1]
     assert sent.body == "Plain body"
@@ -678,7 +680,7 @@ def test_send_email_sends_a_real_multipart_email_when_html_is_given():
 def test_send_email_inlines_plain_css_rules_onto_their_elements():
     html = "<html><head><style>p { color: red; }</style></head><body><p>Hi</p></body></html>"
 
-    send_email(to="a@example.com", subject="Subj", body="Plain body", html=html)
+    send_email(to="a@example.com", subject="Subj", body="Plain body", html=html, event_type="broadcast")
 
     html_content, _ = mail.outbox[-1].alternatives[0]
     assert 'style="color: red' in html_content
@@ -690,7 +692,7 @@ def test_send_email_keeps_at_rules_for_clients_that_support_them():
         "{ p { color: white; } }</style></head><body><p>Hi</p></body></html>"
     )
 
-    send_email(to="a@example.com", subject="Subj", body="Plain body", html=html)
+    send_email(to="a@example.com", subject="Subj", body="Plain body", html=html, event_type="broadcast")
 
     html_content, _ = mail.outbox[-1].alternatives[0]
     assert "prefers-color-scheme: dark" in html_content
@@ -702,20 +704,22 @@ def test_send_email_falls_back_to_the_original_html_on_an_inlining_error(monkeyp
 
     monkeypatch.setattr("notifications.services.css_inline.inline", _raise)
 
-    send_email(to="a@example.com", subject="Subj", body="Plain body", html="<p>Rich</p>")
+    send_email(
+        to="a@example.com", subject="Subj", body="Plain body", html="<p>Rich</p>", event_type="broadcast"
+    )
 
     html_content, _ = mail.outbox[-1].alternatives[0]
     assert html_content == "<p>Rich</p>"
 
 
 def test_send_email_is_plain_text_only_without_html():
-    send_email(to="a@example.com", subject="Subj", body="Plain body")
+    send_email(to="a@example.com", subject="Subj", body="Plain body", event_type="broadcast")
 
     assert mail.outbox[-1].alternatives == []
 
 
 def test_send_email_uses_the_default_sender_when_blank():
-    send_email(to="a@example.com", subject="Subj", body="Plain body")
+    send_email(to="a@example.com", subject="Subj", body="Plain body", event_type="broadcast")
 
     assert mail.outbox[-1].from_email == f"Family Tree <{settings.DEFAULT_FROM_EMAIL}>"
 
@@ -725,6 +729,7 @@ def test_send_email_uses_the_given_sender_name_and_address():
         to="a@example.com",
         subject="Subj",
         body="Plain body",
+        event_type="broadcast",
         from_name="Family Rokach",
         from_email="noreply-rokach@family-tree.example",
     )
@@ -733,13 +738,19 @@ def test_send_email_uses_the_given_sender_name_and_address():
 
 
 def test_send_email_omits_reply_to_when_blank():
-    send_email(to="a@example.com", subject="Subj", body="Plain body")
+    send_email(to="a@example.com", subject="Subj", body="Plain body", event_type="broadcast")
 
     assert mail.outbox[-1].reply_to == []
 
 
 def test_send_email_sets_reply_to_when_given():
-    send_email(to="a@example.com", subject="Subj", body="Plain body", reply_to="owner@example.com")
+    send_email(
+        to="a@example.com",
+        subject="Subj",
+        body="Plain body",
+        reply_to="owner@example.com",
+        event_type="broadcast",
+    )
 
     assert mail.outbox[-1].reply_to == ["owner@example.com"]
 
@@ -748,12 +759,12 @@ def test_send_email_sets_reply_to_when_given():
 
 
 def test_send_sms_uses_the_default_sender_id_when_blank():
-    result = send_sms(to="+15551234567", body="Hi")
+    result = send_sms(to="+15551234567", body="Hi", event_type="broadcast")
 
     assert result["sender_id"] == "FamilyTree"
 
 
 def test_send_sms_uses_the_given_sender_id():
-    result = send_sms(to="+15551234567", body="Hi", sender_id="RokachFam")
+    result = send_sms(to="+15551234567", body="Hi", sender_id="RokachFam", event_type="broadcast")
 
     assert result["sender_id"] == "RokachFam"

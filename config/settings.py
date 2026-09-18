@@ -6,7 +6,13 @@ from pathlib import Path
 from celery.schedules import crontab
 from dotenv import load_dotenv
 
-from config.helpers import check_email_security_settings, get_env_bool, get_env_int, get_env_list
+from config.helpers import (
+    check_email_security_settings,
+    get_env_bool,
+    get_env_float,
+    get_env_int,
+    get_env_list,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 if (env_path := BASE_DIR / ".env").exists():
@@ -51,6 +57,10 @@ INSTALLED_APPS = [
 SITE_BASE_URL = os.getenv("SITE_BASE_URL", "http://localhost:8000").rstrip("/")
 
 MIDDLEWARE = [
+    # First, so request latency/in-flight metrics cover Django's own
+    # security/session layers too, not just the "real" view - see
+    # config/observability/django_middleware.py.
+    "config.observability.django_middleware.ObservabilityMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -262,6 +272,37 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute="*/5"),
     },
 }
+
+# --- Observability ---
+# OTel is always on (spans are always recorded); a real OTLP exporter
+# (Tempo in prod) is only attached once OTEL_ENDPOINT is actually set -
+# OTEL_ENABLED isn't its own env var, since "is there an endpoint to
+# export to" already answers the same question and a separate flag would
+# just be a second setting that could disagree with the first (e.g.
+# OTEL_ENABLED=true with no OTEL_ENDPOINT, or vice versa). Same reasoning
+# for SENTRY_ENABLED/SENTRY_DSN below. See config/observability/ for how
+# these are actually used - kept here, not read via bare os.getenv() in
+# that package, so every env var this app parses goes through one place,
+# per this file's own existing convention.
+OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "family-birthdays")
+OTEL_ENDPOINT = os.getenv("OTEL_ENDPOINT", "")
+OTEL_ENABLED = bool(OTEL_ENDPOINT)
+OTEL_TRACES_SAMPLE_RATE = get_env_float("OTEL_TRACES_SAMPLE_RATE", 1.0)
+# k=v pairs, e.g. "authorization=Bearer xyz" - for an OTLP collector that
+# needs auth headers; blank/unset sends no extra headers.
+OTEL_EXPORTER_OTLP_HEADERS = get_env_list("OTEL_EXPORTER_OTLP_HEADERS", default=[])
+
+SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+SENTRY_ENABLED = bool(SENTRY_DSN)
+SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "development")
+
+# Prometheus namespace prefix for every metric this app exports (see
+# config/observability/metrics.py) and the multiprocess directory
+# gunicorn/Celery's prefork workers write per-pid metric files into (see
+# config/observability/multiproc.py, config/gunicorn_conf.py's post_fork
+# hook, and config/celery.py's worker_process_init receiver).
+METRICS_NAMESPACE = os.getenv("METRICS_NAMESPACE", "family_birthdays")
+PROMETHEUS_MULTIPROC_DIR = os.getenv("PROMETHEUS_MULTIPROC_DIR", "/tmp/prom_multiproc")
 
 # --- Logging (structlog) ---
 # JSON always (not just in production) - one consistent shape for every

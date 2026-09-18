@@ -175,7 +175,10 @@ def test_request_magic_link_email_falls_back_to_the_default_brand_for_a_multi_fa
 def test_request_magic_link_texts_a_sign_in_link_for_a_known_phone(client, monkeypatch):
     Account.objects.create_user(phone="+15551234567")
     calls = []
-    monkeypatch.setattr("accounts.views.send_sms", lambda to, body, sender_id="": calls.append((to, body)))
+    monkeypatch.setattr(
+        "accounts.views.send_sms",
+        lambda to, body, event_type="", sender_id="": calls.append((to, body)),
+    )
 
     resp = client.post(reverse("accounts:request_link"), {"identifier": "+15551234567"})
 
