@@ -100,6 +100,7 @@ class Account(AbstractBaseUser, PermissionsMixin):
                 name="account_has_email_or_phone",
             ),
         ]
+        ordering = ["email", "phone", "pk"]
 
     def __str__(self) -> str:
         return self.display_name or self.email or self.phone or f"Account {self.pk}"

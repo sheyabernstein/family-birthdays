@@ -10,9 +10,9 @@ from accounts.models import Account
 
 @admin.register(Account)
 class AccountAdmin(VersionAdmin):
+    # No explicit ordering - Account.Meta.ordering already covers this.
     list_display = ("email", "phone", "linked_person_link", "preferred_channel", "is_staff", "is_active")
     search_fields = ("email", "phone")
-    ordering = ("email", "phone", "pk")
     exclude = ("password",)
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[Account]:

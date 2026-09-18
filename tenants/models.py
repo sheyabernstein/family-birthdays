@@ -52,6 +52,7 @@ class Family(models.Model):
 
     class Meta:
         verbose_name_plural = "families"
+        ordering = ["name", "pk"]
 
     def __str__(self) -> str:
         return self.name
@@ -106,6 +107,7 @@ class FamilyMembership(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["account", "family"], name="unique_family_membership"),
         ]
+        ordering = ["-joined_at", "pk"]
 
     def __str__(self) -> str:
         return f"{self.account} in {self.family} ({self.role})"

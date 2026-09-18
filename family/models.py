@@ -140,7 +140,9 @@ class Person(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["last_name_en", "first_name_en"]
+        # pk tiebreaker - duplicate names are the norm here, not the
+        # exception (see AGENTS.md's "three Blimi Rokachs" example).
+        ordering = ["last_name_en", "first_name_en", "pk"]
         constraints = [
             # A given Account should only ever represent one Person within
             # a single family's ledger - two Persons here sharing a login
@@ -329,6 +331,16 @@ class Union(models.Model):
             models.CheckConstraint(
                 condition=~models.Q(person_a=models.F("person_b")), name="union_distinct_people"
             ),
+        ]
+        # No timestamp field on this model - mirrors Person's own
+        # ordering rather than adding one just for this. person_b breaks
+        # ties on person_a's own name before falling back to pk.
+        ordering = [
+            "person_a__last_name_en",
+            "person_a__first_name_en",
+            "person_b__last_name_en",
+            "person_b__first_name_en",
+            "pk",
         ]
 
     def __str__(self) -> str:
