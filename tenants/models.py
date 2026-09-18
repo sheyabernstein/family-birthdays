@@ -36,6 +36,7 @@ class Family(models.Model):
         max_length=10,
         blank=True,
         validators=[RegexValidator(r"^[A-Za-z0-9]*$", "Letters and digits only, no spaces or symbols.")],
+        verbose_name="SMS sender ID",
         help_text='Shown as the SMS sender (e.g. "RokachFam") - letters and digits only, up to 10 '
         'characters. Leave blank to use the default ("FamilyTree").',
     )
@@ -46,7 +47,9 @@ class Family(models.Model):
     # then just goes nowhere useful, same as it already would without
     # this field.
     reply_to_email = models.EmailField(
-        blank=True, help_text="Optional - replies to this family's emails go here if set."
+        blank=True,
+        verbose_name="Reply-To email",
+        help_text="Optional - replies to this family's emails go here if set.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

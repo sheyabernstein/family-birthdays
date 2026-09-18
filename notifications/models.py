@@ -219,7 +219,9 @@ class Occurrence(models.Model):
     send_date = models.DateField(
         help_text="The date the notification actually goes out (shifted for Shabbat/Yom Tov)"
     )
-    shifted_for_shabbat_or_yomtov = models.BooleanField(default=False)
+    shifted_for_shabbat_or_yomtov = models.BooleanField(
+        default=False, verbose_name="shifted for Shabbat/Yom Tov"
+    )
 
     is_sent = models.BooleanField(default=False)
     computed_at = models.DateTimeField(auto_now_add=True)
