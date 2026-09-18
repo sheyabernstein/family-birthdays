@@ -542,7 +542,55 @@ switching workspaces.
     split it into two texts) via `_truncate_for_sms`, applied even to
     the built-in per-type templates (a defensively long name could still
     blow the budget) and to a Broadcast's own SMS rendering (raw HTML
-    stripped down to plain text first, not sent as markup).
+    stripped down to plain text first, not sent as markup). This budget is
+    app policy, not provider-specific - it doesn't change with the SMS
+    backend below, since it exists to keep every text a single GSM-7
+    segment regardless of who's actually sending it.
+  - **The actual SMS send is a pluggable backend** (`notifications/sms.py`),
+    selected via `settings.SMS_BACKEND` - a dotted class path, same shape
+    as `STORAGES["staticfiles"]["BACKEND"]`, not a magic string like the
+    old `"console"`. `SmsBackend` is the interface (`send(to, body,
+    sender_id) -> dict`); `ConsoleSmsBackend` (the default, for dev/tests)
+    just logs; `SnsSmsBackend` sends via AWS SNS's `Publish` API.
+    `notifications.services.send_sms` resolves and caches one backend
+    instance (`functools.lru_cache`, invalidated on `SMS_BACKEND` changing
+    via `setting_changed`, so `override_settings` still works in tests) -
+    not re-resolved per send, and not built at import/settings-load time
+    either, since a boto3 client constructed in a Celery prefork worker's
+    parent process before fork is exactly the kind of thing that can
+    misbehave post-fork. `SnsSmsBackend` needs `AWS_ACCESS_KEY_ID`/
+    `AWS_SECRET_ACCESS_KEY`/`AWS_SNS_REGION` (passed explicitly to boto3,
+    not left to its own default credential chain, so every SMS-relevant
+    setting lives in one place) - each backend owns its own
+    `SmsBackend.validate_settings()` classmethod (a no-op on the base
+    class; `SnsSmsBackend`'s enforces all three are set) rather than a
+    separate helper elsewhere hardcoding which dotted path needs what,
+    since that knowledge belongs with the class that actually needs it -
+    adding a future backend with different requirements means implementing
+    this classmethod, nothing else. Called once from
+    `NotificationsConfig.ready()` (`notifications/apps.py`, same
+    `AppConfig.ready()` convention as `family/signals.py`'s wiring), not
+    from `config/settings.py` directly like `check_email_security_settings`
+    - resolving the configured class means importing `notifications.sms`,
+    which reads `django.conf.settings`, and `config/settings.py` would
+    still be mid-execution as the exact module that settings object
+    resolves to at that point. `ready()` runs after settings and the app
+    registry are both fully loaded, so this still fails loudly at real
+    startup (`manage.py`, gunicorn, and Celery workers all call
+    `django.setup()`) - just not for a bare script importing `config.
+    settings` without going through `django.setup()`. Alphanumeric Sender ID
+    (`AWS.SNS.SMS.SenderID`, from `Family.sms_sender_id`) isn't supported
+    in the US/Canada - AWS silently drops it there and sends from a
+    shared/random long code instead, not a bug to chase. **Some SNS
+    failures aren't worth retrying** - a bad phone number or bad IAM auth
+    will fail identically on every attempt - so `SnsSmsBackend.send`
+    re-raises those specific `botocore` error codes as
+    `SmsUnrecoverableError`; `notifications.tasks.send_message` catches
+    that separately from a generic send failure and skips `self.retry()`
+    entirely (logged at `error`, then re-raised so the task still shows up
+    as a real `FAILURE` in the Task Results admin, not a silent success) -
+    every other exception still goes through the existing retry path
+    unchanged.
   - **Sender branding is per-family, not per-message-type.** This app
     serves many families from what's normally one shared sending number
     (SMS) and one shared sending domain (email), so without something

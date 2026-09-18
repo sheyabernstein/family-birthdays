@@ -11,7 +11,8 @@ from hdate.hebrew_date import Months
 from accounts.models import Account
 from family.hebrew import gregorian_to_hebrew, resolve_send_date
 from family.models import Person, Union
-from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
+from notifications.models import Broadcast, Channel, EventType, Message, NotificationPreference, Occurrence
+from notifications.sms import SmsUnrecoverableError
 from notifications.tasks import (
     compute_occurrences,
     compute_occurrences_for_person,
@@ -19,6 +20,7 @@ from notifications.tasks import (
     person_has_passed_coming_of_age,
     send_due_broadcasts,
     send_due_notifications,
+    send_message,
 )
 from notifications.tests.conftest import member as _member
 from tenants.models import Family, FamilyMembership
@@ -916,3 +918,57 @@ def test_send_due_broadcasts_excludes_accounts_outside_the_family(family):
     send_due_broadcasts()
 
     assert Message.objects.count() == 0
+
+
+# --- send_message ---
+
+
+def _sms_message(family) -> Message:
+    creator = Account.objects.create_user(email="creator@example.com")
+    broadcast = Broadcast.objects.create(family=family, text="Hi", created_by=creator)
+    return Message.objects.create(
+        broadcast=broadcast,
+        channel=Channel.SMS,
+        destination="+15551234567",
+        body="Hi",
+    )
+
+
+def test_send_message_does_not_retry_an_unrecoverable_sms_error(monkeypatch, family):
+    """An SmsUnrecoverableError (e.g. a bad phone number) should fail the
+    message immediately - no self.retry(), so it never gets attempted a
+    second time - and surface as a real task failure (re-raised, not
+    swallowed), not a silent success."""
+    message = _sms_message(family)
+    send_calls = []
+
+    def _raise_unrecoverable(**kwargs):
+        send_calls.append(kwargs)
+        raise SmsUnrecoverableError("bad number")
+
+    monkeypatch.setattr("notifications.tasks.send_sms", _raise_unrecoverable)
+
+    with pytest.raises(SmsUnrecoverableError):
+        send_message(message.pk)
+
+    assert len(send_calls) == 1
+    message.refresh_from_db()
+    assert message.status == Message.Status.FAILED
+    assert message.tries == 1
+    assert message.error == "bad number"
+
+
+def test_send_message_retries_a_transient_sms_error(monkeypatch, family):
+    message = _sms_message(family)
+
+    def _raise_generic(**kwargs):
+        raise RuntimeError("temporary provider hiccup")
+
+    monkeypatch.setattr("notifications.tasks.send_sms", _raise_generic)
+
+    with pytest.raises(RuntimeError):
+        send_message(message.pk)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.FAILED
+    assert message.tries >= 1
