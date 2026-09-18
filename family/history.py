@@ -13,8 +13,6 @@ per field, since both models' FKs (father/mother/account, person_a/
 person_b) work the same way.
 """
 
-from __future__ import annotations
-
 import dataclasses
 import datetime as dt
 from collections import defaultdict

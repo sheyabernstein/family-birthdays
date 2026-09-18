@@ -9,8 +9,6 @@ separate copies of that check scattered across templates and views is
 exactly what would eventually drift apart if the role model ever changes.
 """
 
-from __future__ import annotations
-
 import dataclasses
 
 from tenants.models import FamilyMembership
