@@ -3,6 +3,7 @@ import datetime as dt
 import css_inline
 import pytest
 from django.conf import settings
+from django.contrib.humanize.templatetags.humanize import naturalday
 from django.core import mail
 from django.utils import timezone
 
@@ -20,31 +21,48 @@ from notifications.tasks import (
 pytestmark = pytest.mark.django_db
 
 
-def _occurrence_for(family, code, *, days_ago=0):
+def _occurrence_for(family, code, *, days_ago=0, days_ahead=0):
     event_type = EventType.objects.get(family=None, code=code)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
-    occurrence_date = timezone.localdate() - dt.timedelta(days=days_ago)
+    today = timezone.localdate()
+    if days_ahead:
+        # Mirrors the real Shabbat/Yom Tov shift (family.hebrew.
+        # resolve_send_date): the notification goes out ahead of the
+        # actual anchor date, not on it.
+        occurrence_date = today + dt.timedelta(days=days_ahead)
+        send_date = today
+    else:
+        occurrence_date = today - dt.timedelta(days=days_ago)
+        send_date = occurrence_date
     return Occurrence.objects.create(
         person=person,
         event_type=event_type,
         hebrew_year=5786,
         occurrence_date=occurrence_date,
-        send_date=occurrence_date,
+        send_date=send_date,
+        shifted_for_shabbat_or_yomtov=bool(days_ahead),
     )
 
 
-def _union_occurrence_for(family, code, *, days_ago=0):
+def _union_occurrence_for(family, code, *, days_ago=0, days_ahead=0):
     event_type = EventType.objects.get(family=None, code=code)
     person_a = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
     person_b = Person.objects.create(family=family, first_name_en="Moshe", last_name_en="Rokach")
     union = Union.objects.create(person_a=person_a, person_b=person_b)
-    occurrence_date = timezone.localdate() - dt.timedelta(days=days_ago)
+    today = timezone.localdate()
+    if days_ahead:
+        occurrence_date = today + dt.timedelta(days=days_ahead)
+        send_date = today
+    else:
+        occurrence_date = today - dt.timedelta(days=days_ago)
+        send_date = occurrence_date
     return Occurrence.objects.create(
         union=union,
         event_type=event_type,
         hebrew_year=5786,
         occurrence_date=occurrence_date,
-        send_date=occurrence_date,
+        send_date=send_date,
+        shifted_for_shabbat_or_yomtov=bool(days_ahead),
     )
 
 
@@ -399,12 +417,68 @@ def test_shabbat_shift_ahead_of_occurrence_date_is_not_treated_as_late(family):
     # day early. This is the exact shape of a real bug that shipped to
     # production: every template's "not late" branch used to say
     # "Today is ..." unconditionally, which was simply false here - the
-    # occurrence_date is tomorrow, not today.
-    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
+    # occurrence_date is tomorrow, not today. Also covers the subject
+    # line, since a prior version of this test only checked the body -
+    # the subject had its own independent "always says today" bug (see
+    # _occurrence_subject) that a body-only test would never catch.
+    occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ahead=1)
+
+    subject, _body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+
+    assert "birthday is tomorrow" in html
+    assert "is today" not in html
+    assert "birthday was" not in html
+    assert "is tomorrow" in subject
+    assert "today" not in subject
+
+
+@pytest.mark.parametrize(
+    ["code", "event_name"],
+    [
+        [EventType.BuiltinCode.BIRTHDAY, "birthday"],
+        [EventType.BuiltinCode.YAHRZEIT, "yahrzeit"],
+        [EventType.BuiltinCode.BAR_MITZVAH, "Bar Mitzvah"],
+        [EventType.BuiltinCode.BAT_MITZVAH, "Bat Mitzvah"],
+    ],
+    ids=["birthday", "yahrzeit", "bar mitzvah", "bat mitzvah"],
+)
+def test_person_occurrence_says_tomorrow_when_shifted_a_single_day_early(family, code, event_name):
+    # Every non-Wedding event type, not just birthday (the one that
+    # actually broke in production) - the same "not late" branch used to
+    # hardcode "Today is ..." in all of them.
+    occurrence = _occurrence_for(family, code, days_ahead=1)
+
+    subject, body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    assert f"{event_name} is tomorrow" in html
+    assert "is today" not in html
+    assert "is tomorrow" in subject
+    assert "today" not in subject
+
+    _subject, sms_body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    assert f"{event_name} is tomorrow" in sms_body
+    assert "is today" not in sms_body
+
+
+def test_union_occurrence_says_tomorrow_when_shifted_a_single_day_early(family):
+    occurrence = _union_occurrence_for(family, EventType.BuiltinCode.ANNIVERSARY, days_ahead=1)
+
+    subject, body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    assert "anniversary is tomorrow" in html
+    assert "is today" not in html
+    assert "is tomorrow" in subject
+    assert "today" not in subject
+
+    _subject, sms_body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    assert "anniversary is tomorrow" in sms_body
+    assert "is today" not in sms_body
+
+
+def test_default_template_says_tomorrow_when_shifted_a_single_day_early(family):
+    custom = EventType.objects.create(family=family, code="graduation", name="Graduation")
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
     occurrence = Occurrence.objects.create(
         person=person,
-        event_type=event_type,
+        event_type=custom,
         hebrew_year=5786,
         occurrence_date=timezone.localdate() + dt.timedelta(days=1),
         send_date=timezone.localdate(),
@@ -413,9 +487,49 @@ def test_shabbat_shift_ahead_of_occurrence_date_is_not_treated_as_late(family):
 
     _subject, _body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
 
-    assert "birthday is tomorrow" in html
+    assert "Graduation is tomorrow" in html
+    assert "Graduation is today" not in html
+
+
+@pytest.mark.parametrize(
+    ["code", "event_name"],
+    [
+        [EventType.BuiltinCode.BIRTHDAY, "birthday"],
+        [EventType.BuiltinCode.YAHRZEIT, "yahrzeit"],
+        [EventType.BuiltinCode.BAR_MITZVAH, "Bar Mitzvah"],
+        [EventType.BuiltinCode.BAT_MITZVAH, "Bat Mitzvah"],
+    ],
+    ids=["birthday", "yahrzeit", "bar mitzvah", "bat mitzvah"],
+)
+def test_person_occurrence_says_yesterday_when_late_by_exactly_one_day(family, code, event_name):
+    # naturalday only renders the "yesterday"/"tomorrow" words for a
+    # 1-day gap - everything else (the days_ago=3 cases elsewhere in
+    # this file) falls back to a formatted date, so this boundary needs
+    # its own coverage.
+    occurrence = _occurrence_for(family, code, days_ago=1)
+
+    subject, body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    assert f"{event_name} was yesterday" in html
+    assert "was yesterday" in subject
+
+    _subject, sms_body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    assert f"{event_name} was yesterday" in sms_body
+
+
+def test_occurrence_falls_back_to_a_formatted_date_when_shifted_multiple_days_early(family):
+    # A 2-day Diaspora Yom Tov immediately followed by Shabbat can shift
+    # send_date more than a single day ahead of occurrence_date -
+    # naturalday only has words for a 1-day gap, so this must fall back
+    # to a real formatted date rather than mislabeling it "tomorrow".
+    occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ahead=3)
+    expected = naturalday(occurrence.occurrence_date)
+
+    subject, _body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+
+    assert f"birthday is {expected}" in html
+    assert "is tomorrow" not in html
     assert "is today" not in html
-    assert "birthday was" not in html
+    assert f"is {expected}" in subject
 
 
 def test_subject_line_matches_the_body_wording_when_late(family):
