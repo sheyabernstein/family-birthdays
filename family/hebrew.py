@@ -18,8 +18,6 @@ Two distinct problems live here:
    multiple days back.
 """
 
-from __future__ import annotations
-
 import datetime as dt
 
 from hdate import HDateInfo, HebrewDate
