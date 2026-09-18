@@ -1,5 +1,5 @@
 {% extends "email/_base.html" %}
-{% load family_extras notifications_extras %}
+{% load family_extras humanize notifications_extras %}
 {% block title %}{{ occurrence.union.person_a.display_name }} &amp; {{ occurrence.union.person_b.display_name }}'s anniversary{% endblock %}
 {% block icon %}
     {% event_icon_url "notifications/img/event-icons/marriage.png" %}
@@ -9,13 +9,13 @@
     {% if is_late %}
         <p>
             <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
-            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s anniversary was on
-            {{ occurrence.occurrence_date|date:"l, F j" }}.
+            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s anniversary was
+            {{ occurrence.occurrence_date|naturalday }}.
         </p>
     {% else %}
         <p>
-            Today is <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
-            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s anniversary!
+            <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
+            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s anniversary is {{ occurrence.occurrence_date|naturalday }}!
         </p>
     {% endif %}
     {% include "notifications/email/_parents.html" with person=occurrence.union.person_a %}

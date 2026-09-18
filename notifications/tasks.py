@@ -4,8 +4,9 @@ from collections.abc import Iterator
 from html import unescape as unescape_html
 
 from celery import Task, shared_task
+from django.contrib.humanize.templatetags.humanize import naturalday
 from django.template.loader import render_to_string
-from django.utils import dateformat, timezone
+from django.utils import timezone
 from django.utils.html import strip_tags
 from hdate.hebrew_date import Months
 
@@ -528,9 +529,16 @@ def _occurrence_template_context(occurrence: Occurrence) -> dict:
     # missed run, an outage - see send_due_notifications' own docstring),
     # not when it's early for Shabbat/Yom Tov (occurrence_date > today,
     # already called out separately via shifted_for_shabbat_or_yomtov) -
-    # templates use this to say "was on <date>" instead of "Today is"
-    # once send_date__lte's catch-up has let a real gap open up between
-    # when this was sent and when the event itself actually happened.
+    # templates use this to pick "was"/"is" tense, then say *when* via
+    # the occurrence_date|naturalday filter rather than hardcoding
+    # "Today is ..." - a real bug once shipped to production: a birthday
+    # whose real Hebrew date fell on Yom Tov got shifted a day earlier
+    # by resolve_send_date, so it was neither late nor actually today,
+    # and every template's "not late" branch unconditionally claimed
+    # "Today is ..." anyway. naturalday reads "today"/"tomorrow"/
+    # "yesterday" for a 1-day gap either direction and falls back to a
+    # formatted date beyond that, so the same filter covers the on-time
+    # case and the shifted-early case without a separate flag for it.
     return {
         "occurrence": occurrence,
         "family_name": family.name,
@@ -542,21 +550,21 @@ def _occurrence_subject(occurrence: Occurrence, *, is_late: bool) -> str:
     """Builds the email subject line for one occurrence.
 
     Mirrors the body templates' own on-time/late/coming-up wording (see
-    _occurrence_template_context's is_late) rather than unconditionally
-    saying "today" - a subject line claiming "today" over
-    a body that says "was on <date>" (a late catch-up send) or "coming
-    up" (Wedding, sent notify_days_before ahead of the day itself, so
-    "today" was never accurate for it even on time) would be a confusing
+    _occurrence_template_context's is_late, and its naturalday use) so
+    the subject line never disagrees with the body it's paired with - a
+    subject claiming "today" over a body that says "was on <date>" (a
+    late catch-up send) or "coming up" (Wedding, sent
+    notify_days_before ahead of the day itself) would be a confusing
     mismatch for whoever's just glancing at their inbox.
     """
     subject_obj = occurrence.person or occurrence.union
     name = getattr(subject_obj, "display_name", str(subject_obj))
     event_name = occurrence.event_type.name
     if is_late:
-        return f"{name} - {event_name} was on {dateformat.format(occurrence.occurrence_date, 'F j')}"
+        return f"{name} - {event_name} was {naturalday(occurrence.occurrence_date)}"
     if occurrence.event_type.code == EventType.BuiltinCode.WEDDING:
         return f"{name} - {event_name} coming up"
-    return f"{name} - {event_name} today"
+    return f"{name} - {event_name} is {naturalday(occurrence.occurrence_date)}"
 
 
 def _render_occurrence_message(occurrence: Occurrence, *, channel: str) -> tuple[str, str, str]:

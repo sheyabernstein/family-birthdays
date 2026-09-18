@@ -429,28 +429,43 @@ switching workspaces.
   subject`/`body`/`html_body` are the persisted result, the same
   audit-trail reasoning as before this template rewrite, just backed by
   real templates instead of f-strings now.
-  - **A late send says so, in both the subject and the body.** Because
-    `send_date` can land before "today" (see the bullet above) and
-    `send_due_notifications` deliberately catches up on it rather than
-    dropping it, a `Message` can genuinely be rendered days after its
-    `occurrence_date`. `_occurrence_template_context` computes
-    `is_late = occurrence.occurrence_date < timezone.localdate()` once,
-    and every occurrence template (email + SMS, including `_default`)
-    branches on it - "is today"/"Today is..." only when not late,
-    "was on <date>" (Wedding: "took place on <date>") when it is.
-    `_occurrence_subject` takes the same flag as a keyword argument so
-    the subject line never disagrees with the body it's paired with -
-    this was a real bug caught by hand-rendering a late message during
-    development: the body had been fixed to say "was on ...", but the
-    subject still unconditionally said "today" until the caller was
-    updated to pass `is_late` through. Wedding's on-time wording is
-    "coming up", not "today", regardless of lateness - it's sent
-    `notify_days_before=3` ahead of the actual date, so "today" was
-    never accurate for it even in the normal case. This is separate from
-    `shifted_for_shabbat_or_yomtov` (`occurrence_date` moved *earlier*
-    than the real anchor, on purpose) - `is_late` only fires when
+  - **A late send says so, in both the subject and the body - and an
+    early one (shifted for Shabbat/Yom Tov) says *when*, not just
+    "today".** Because `send_date` can land before "today" (see the
+    bullet above) and `send_due_notifications` deliberately catches up
+    on it rather than dropping it, a `Message` can genuinely be rendered
+    days after its `occurrence_date`. `_occurrence_template_context`
+    computes `is_late = occurrence.occurrence_date < timezone.localdate()`
+    once, and every occurrence template (email + SMS, including
+    `_default`) branches on it for tense ("is"/"was"), then renders
+    *when* via `occurrence.occurrence_date|naturalday` (humanize's
+    filter - reads "today"/"tomorrow"/"yesterday" for a 1-day gap either
+    direction, a formatted date beyond that) rather than hardcoding
+    "Today is ...". `_occurrence_subject` takes `is_late` as a keyword
+    argument and uses the same `naturalday` call so the subject line
+    never disagrees with the body it's paired with - this was a real bug
+    caught by hand-rendering a late message during development: the body
+    had been fixed to say "was ...", but the subject still
+    unconditionally said "today" until the caller was updated to pass
+    `is_late` through. Wedding's on-time wording is "coming up", not a
+    date, regardless of lateness - it's sent `notify_days_before=3` ahead
+    of the actual date, so "today" was never accurate for it even in the
+    normal case. **`naturalday` earns its place here for a second, later
+    bug, not just the first one**: `shifted_for_shabbat_or_yomtov`
+    (`occurrence_date` moved *earlier* than the real anchor, on purpose)
+    is deliberately not `is_late` - `is_late` only fires when
     `occurrence_date` itself is in the past, never when it's still ahead
-    of "today".
+    of "today" - but every template's own "not late" branch used to
+    hardcode "Today is ..." regardless, which is simply false when the
+    real anchor is tomorrow (or later) and only the *notification* went
+    out early. Shipped to production for real (a birthday whose Hebrew
+    date fell on Yom Tov: sent a day ahead, on time, correctly not
+    "late" - and every email/SMS about it confidently said "Today is
+    ..." for a birthday that was actually the next day) before
+    `naturalday` replaced the hardcoded wording - the same filter call
+    covers the on-time case and the shifted-early case for free, with no
+    separate `is_today`-style flag needed. `django.contrib.humanize` is
+    in `INSTALLED_APPS` for exactly this one filter.
   - **Email** gets a real HTML body (`Message.html_body`) built on
     `templates/email/_base.html` - a table-based layout (for mail-client
     compatibility) with a `@media (prefers-color-scheme: dark)` block
