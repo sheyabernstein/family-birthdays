@@ -80,6 +80,7 @@ class RequestMagicLinkView(View):
                         subject="Your sign-in link",
                         body=html_to_plain_text(html),
                         html=html,
+                        event_type="magic_link",
                         from_name=family.name if family else "",
                         from_email=family.sender_email if family else "",
                         reply_to=family.reply_to_email if family else "",
@@ -88,6 +89,7 @@ class RequestMagicLinkView(View):
                     send_sms(
                         to=destination,
                         body=f"Your sign-in link (valid {ttl_minutes} min): {url}",
+                        event_type="magic_link",
                         sender_id=family.sms_sender_id if family else "",
                     )
 

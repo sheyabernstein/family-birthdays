@@ -36,6 +36,19 @@ def get_env_int(key: str, default: int | None = None) -> int | None:
         return default
 
 
+def get_env_float(key: str, default: float | None = None) -> float | None:
+    """Parse an env var as a float, falling back to `default` rather than raising.
+
+    Unset, blank, or not a valid float all fall back to `default`.
+    """
+    val = os.getenv(key, "").strip()
+
+    try:
+        return float(val)
+    except ValueError:
+        return default
+
+
 def get_env_list(key: str, default: list[str] | None = None, delimiter: str = ",") -> list[str]:
     """Split a delimited env var into stripped, non-empty strings.
 

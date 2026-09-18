@@ -6,11 +6,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     PYTHONPATH=/app \
-    GUNICORN_CMD_ARGS="--control-socket /tmp/gunicorn.ctl"
+    PROMETHEUS_MULTIPROC_DIR=/tmp/prom_multiproc
 
-RUN apk add --no-cache curl \
+RUN apk add --no-cache curl tini \
     && addgroup -S app \
-    && adduser -S -G app -h /app app
+    && adduser -S -G app -h /app app \
+    && mkdir -p "${PROMETHEUS_MULTIPROC_DIR}" \
+    && chown -R app:app "${PROMETHEUS_MULTIPROC_DIR}"
 
 
 FROM base AS build
@@ -53,5 +55,15 @@ ENV BUILD_NAME="${BUILD_NAME}" \
 
 USER app
 
-EXPOSE 8000
+EXPOSE 8000 9090
+
+# tini is real PID 1: it forwards signals to its one child correctly and,
+# more importantly here, reaps the metrics sidecar (_run_with_metrics.sh
+# execs into the real app, so that sidecar ends up parented to whatever
+# occupies PID 1's process slot afterward - the app's own arbiter/worker
+# loop has no reason to know about a process it never forked, so nothing
+# else guarantees it gets waited on when it exits). Without tini, this
+# app's CMD script would have to reimplement that generic reaping itself
+# to avoid an accumulating zombie every time the sidecar restarts.
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["/app/docker/entrypoints/web.sh"]

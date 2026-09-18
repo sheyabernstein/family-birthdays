@@ -2,6 +2,7 @@ from email.utils import formataddr
 from functools import lru_cache
 
 import css_inline
+import phonenumbers
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.core.signals import setting_changed
@@ -11,6 +12,7 @@ from django.urls import reverse
 from django.utils.module_loading import import_string
 
 from config.logging_config import logger
+from config.observability import metrics
 from notifications.sms import SmsBackend
 
 DEFAULT_EMAIL_SENDER_NAME = "Family Tree"
@@ -93,6 +95,7 @@ def send_email(
     body: str,
     html: str | None = None,
     *,
+    event_type: str,
     from_name: str = "",
     from_email: str = "",
     reply_to: str = "",
@@ -116,6 +119,12 @@ def send_email(
             genuine multipart email, not html-only with a lossy
             afterthought) - run through _inline_css first (see that
             function's own docstring for why).
+        event_type: One of notifications.models.EventType.BuiltinCode's
+            values, "custom" (a family-defined event type), or
+            "magic_link" - labels the
+            config.observability.metrics.notifications_emails_sent_total
+            counter incremented below. Required, not defaulted, so a new
+            call site can't silently go unlabeled.
         from_name: A family's own sender identity - just Family.name
             (see AGENTS.md - there's no separate "email sender name"
             field, the family's own name is the name). Blank - which is
@@ -147,7 +156,12 @@ def send_email(
     )
     if html:
         message.attach_alternative(_inline_css(html), "text/html")
-    sent_count = message.send(fail_silently=False)
+    try:
+        sent_count = message.send(fail_silently=False)
+    except Exception:
+        metrics.notifications_emails_sent_total.labels(status="failed", event_type=event_type).inc()
+        raise
+    metrics.notifications_emails_sent_total.labels(status="sent", event_type=event_type).inc()
     logger.info("email sent", to=to, subject=subject)
     return {"sent_count": sent_count}
 
@@ -164,12 +178,33 @@ def _clear_sms_backend_cache(*, setting: str, **kwargs) -> None:
         _sms_backend.cache_clear()
 
 
-def send_sms(to: str, body: str, *, sender_id: str = "") -> dict:
+def _country_for_sms_metric(to: str) -> str:
+    """Best-effort ISO alpha-2 country code for `to`, for the notifications_sms_sent_total metric.
+
+    `to` is always E.164 (see Account.phone's own docstring) - parsed with
+    no default region since the leading "+" already carries the country.
+    Falls back to "unknown" on anything unparseable rather than raising -
+    this is a metric label, not something worth blocking a real send over.
+    """
+    try:
+        return phonenumbers.region_code_for_number(phonenumbers.parse(to, None)) or "unknown"
+    except phonenumbers.NumberParseException:
+        return "unknown"
+
+
+def send_sms(to: str, body: str, *, event_type: str, sender_id: str = "") -> dict:
     """Sends via whichever notifications.sms.SmsBackend settings.SMS_BACKEND names.
 
     Args:
         to: Recipient phone number.
         body: Message text.
+        event_type: One of notifications.models.EventType.BuiltinCode's
+            values, "custom" (a family-defined event type), or
+            "magic_link" - labels the
+            config.observability.metrics.notifications_sms_sent_total
+            counter incremented below, alongside a country derived from
+            `to`. Required, not defaulted, so a new call site can't
+            silently go unlabeled.
         sender_id: A family's own alphanumeric sender ID
             (Family.sms_sender_id) - this app serves many families from
             what's normally one shared sending number/short code, so
@@ -184,4 +219,13 @@ def send_sms(to: str, body: str, *, sender_id: str = "") -> dict:
         active SMS_BACKEND.
     """
     sender_id = sender_id or DEFAULT_SMS_SENDER_ID
-    return _sms_backend().send(to=to, body=body, sender_id=sender_id)
+    country = _country_for_sms_metric(to)
+    try:
+        result = _sms_backend().send(to=to, body=body, sender_id=sender_id)
+    except Exception:
+        metrics.notifications_sms_sent_total.labels(
+            status="failed", event_type=event_type, country=country
+        ).inc()
+        raise
+    metrics.notifications_sms_sent_total.labels(status="sent", event_type=event_type, country=country).inc()
+    return result

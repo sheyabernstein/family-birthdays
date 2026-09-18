@@ -1,0 +1,71 @@
+# Additive overlay for building/testing dashboards locally - not part of
+# the default `docker compose up`. Everything here is stateless (no named
+# volumes): this is for local dashboard-building, not long-term retention.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+#     -f docker-compose.observability.yml up
+#
+# Then set OTEL_ENABLED=true and OTEL_ENDPOINT=http://tempo:4317 for the
+# web/worker services (e.g. in .env) to actually export traces here -
+# OTEL_ENABLED stays false in docker-compose.dev.yml's own defaults, so a
+# plain `docker compose up` never tries to dial a Tempo endpoint that isn't
+# running. Shares the default project network with the main compose files,
+# so Prometheus can scrape web:9090/worker:9090 by service DNS name.
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: family-birthdays-prometheus
+    restart: unless-stopped
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-family-birthdays}
+    volumes:
+      - ./docker/observability/prometheus.yml.template:/etc/prometheus/prometheus.yml.template:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      # The prom/prometheus image is busybox-based and has no envsubst
+      # (gettext) binary, only sed. `$$` (not `$`) is Compose's own escape
+      # for a literal `$` - needed so Compose's interpolation pass leaves
+      # $COMPOSE_PROJECT_NAME for the container's shell to expand, instead
+      # of substituting it itself before the container ever starts.
+      - sed "s/__NAMESPACE__/$$COMPOSE_PROJECT_NAME/g"
+        /etc/prometheus/prometheus.yml.template > /tmp/prometheus.yml &&
+        exec /bin/prometheus --config.file=/tmp/prometheus.yml
+    ports:
+      - "9091:9090"
+
+  tempo:
+    # Pinned, not :latest - v3's config schema is a breaking change from
+    # v2's (e.g. top-level `compactor` no longer parses), and this is the
+    # version prom-gateway's own already-working tempo.yaml targets.
+    image: grafana/tempo:2.10.5
+    container_name: family-birthdays-tempo
+    restart: unless-stopped
+    # Tempo's default non-root user can't always write /tmp/tempo inside
+    # this image - running as root avoids a second permissions failure
+    # mode for what's disposable, stateless local dev storage anyway.
+    user: "0"
+    volumes:
+      - ./docker/observability/tempo.yml:/etc/tempo.yml:ro
+    command: ["-config.file=/etc/tempo.yml"]
+    ports:
+      - "4317:4317" # OTLP gRPC - the app's OTEL_ENDPOINT points here
+      - "3200:3200" # Tempo's own query API, used by Grafana's datasource
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: family-birthdays-grafana
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./docker/observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./docker/observability/grafana-dashboards-provider.yml:/etc/grafana/provisioning/dashboards/provider.yml:ro
+      - ./docker/observability/grafana-dashboards:/etc/grafana/provisioning/dashboards/definitions:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo

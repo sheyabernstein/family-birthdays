@@ -1313,6 +1313,175 @@ switching workspaces.
   though every current call site's default is either `None` or a
   literal built fresh at the call site anyway.
 
+## Observability
+
+- **OpenTelemetry is the always-on, vendor-neutral source of truth; Tempo
+  and Sentry are just exporters attached to the same `TracerProvider`, not
+  independent instrumentation.** `config/observability/tracing.py` builds
+  one `TracerProvider` per process (spans always recorded, regardless of
+  whether `OTEL_ENABLED` attaches a real OTLP exporter) and instruments
+  Django/Celery/Redis/psycopg2/botocore off it; `config/observability/
+  sentry.py` mirrors those same spans into Sentry via `SentrySpanProcessor`
+  rather than letting Sentry's own Django/Celery auto-instrumentation start
+  a second, competing root span - see that module's own docstring for why
+  this is what makes trace/span ids match across Tempo, Sentry, and the
+  structured logs. `config/logging_config.py`'s `add_trace_context`
+  processor is the piece that actually gets those ids into every JSON log
+  line - without it the correlation the whole design exists for wouldn't
+  reach the logs at all.
+- **Neither `init_tracing()` nor Django/Celery instrumentation is called
+  from `config/settings.py` itself.** `DjangoInstrumentor().instrument()`
+  mutates `django.conf.settings.MIDDLEWARE`, which is exactly the kind of
+  thing that's fragile to do from inside the settings module while it's
+  still mid-import. `config/wsgi.py` calls `init_tracing()`;
+  `config/celery.py`'s `worker_process_init` receiver calls it again,
+  post-fork, in each Celery prefork child - a `BatchSpanProcessor`'s
+  background export thread doesn't survive `fork()` correctly, so the
+  parent process's own initialization isn't enough for Celery the way it
+  is for gunicorn (which forks *before* `config.wsgi` is even imported, so
+  it never needs a second call). `init_tracing()` is idempotent, so
+  calling it more than once in one process is a no-op past the first
+  call. A bare `manage.py` command never calls this at all - a one-off
+  command doesn't need request/task tracing.
+  **`init_tracing()` runs *before* `get_wsgi_application()` in
+  `config/wsgi.py`, not after - found the hard way, by tracing a real
+  request end-to-end and finding no request span at all, only an
+  orphaned, parent-less `SELECT` span from psycopg2's own independent
+  instrumentation.** `get_wsgi_application()`'s own `WSGIHandler.__init__`
+  is what compiles `settings.MIDDLEWARE` into the actual request-handling
+  chain (`load_middleware()`) - calling `DjangoInstrumentor().instrument()`
+  any later means its middleware insertion mutates a list nobody reads
+  again, so the request span it's meant to create silently never gets
+  built, even though `settings.MIDDLEWARE` itself looks correct on
+  inspection (the entry's right there in the list - it's just wired to a
+  `WSGIHandler` instance that was already built before the mutation
+  happened). `django.conf.settings` is still safely readable at this
+  point without `get_wsgi_application()` having run first - accessing it
+  (which `DjangoInstrumentor` needs, to insert into `MIDDLEWARE`) fully
+  executes `config/settings.py` on first attribute access regardless.
+- **Prometheus metrics are served from a dedicated port-9090 process per
+  container, separate from the main app port, using `prometheus_client`'s
+  multiprocess mode** - both gunicorn's own worker prefork and Celery's
+  worker prefork pool need per-pid metric files aggregated across
+  processes (`config/observability/multiproc.py`, ported from a FastAPI
+  service built the same way). `docker/entrypoints/_run_with_metrics.sh`
+  is what `web.sh`/`worker.sh` now `exec` into instead of the main command
+  directly - it starts the metrics gunicorn as a background sibling, then
+  `exec`s into the real command so the main app *becomes* PID 1, rather
+  than staying a wrapper script forever. An earlier version kept the
+  wrapper script as PID 1 and used a `trap`+background-PIDs+bare `wait` to
+  tear both processes down together - wrong, since a bare `wait` only
+  returns once *every* backgrounded job has exited: the main app crashing
+  while the metrics sidecar stayed up never ended the container, silently
+  defeating `restart: unless-stopped`. The `exec`-based version fixes
+  that, but hands PID 1's reaping duties to whatever occupies that slot
+  afterward - the metrics sidecar ends up parented to the main app once
+  the wrapper's own image is replaced, and nothing about gunicorn's or
+  Celery's own arbiter loop guarantees it calls `wait()` on a child it
+  never forked itself, which is exactly the accumulating-zombie problem a
+  real PID-1 init is for. **This is why the Dockerfile runs `tini` as the
+  actual `ENTRYPOINT`** (`apk add tini`, Alpine ships it) rather than
+  relying on the wrapper script to reimplement generic child-reaping by
+  hand. **`GUNICORN_CMD_ARGS` (the `--control-socket` path) is set at each
+  gunicorn call site, not as one container-wide Dockerfile `ENV`** -
+  `web.sh` sets its own for the main app's gunicorn, `_run_with_metrics.sh`
+  sets a different one (scoped to just that command) for the metrics
+  gunicorn, since both processes sharing one path would mean two masters
+  racing to bind the same socket file. Leaving it empty/unset doesn't
+  disable the control socket feature either - gunicorn just falls back to
+  its own CWD-relative default (`/app/.gunicorn/...`), which fails
+  outright under `docker-compose.dev.yml`'s bind-mounted `/app` (that
+  mount doesn't support UNIX domain sockets) - found the hard way, as a
+  real startup error, not a hypothetical. Gunicorn workers get their own per-pid setup
+  via `config/gunicorn_conf.py`'s `post_fork` hook (that file still can't
+  import `config.settings` - see its own docstring - which is why the
+  hook imports `config.observability.multiproc` directly instead, a
+  module with no Django dependency at all).
+- **Every notification-volume env var/setting lives in `config/settings.py`
+  alongside everything else this app parses** (`OTEL_*`, `SENTRY_*`,
+  `METRICS_NAMESPACE`, `PROMETHEUS_MULTIPROC_DIR`, all through
+  `config/helpers.py`, including a new `get_env_float` for
+  `OTEL_TRACES_SAMPLE_RATE`) - `config/observability/*` modules read them
+  via `django.conf.settings`, never a second, parallel `os.getenv()` call
+  of their own, the one deliberate exception being
+  `PROMETHEUS_MULTIPROC_DIR` itself: `config/observability/multiproc.py`
+  reads that one straight from `os.environ`, because `prometheus_client`'s
+  multiprocess mode needs the literal process environment variable set
+  (not just a Django setting) to even switch into multiprocess mode in the
+  first place, and the Dockerfile's own `ENV PROMETHEUS_MULTIPROC_DIR=...`
+  already guarantees it's there before any Python process starts.
+- **`notifications_emails_sent_total`/`notifications_sms_sent_total`
+  (email/SMS volume, for cost visibility over time - SMS by destination
+  country) are incremented inside `notifications.services.send_email`/
+  `send_sms` themselves, not `notifications.tasks.send_message`.** The
+  magic-link sign-in flow (`accounts.views.RequestMagicLinkView`) calls
+  `send_email`/`send_sms` directly, bypassing `Message`/`send_message`
+  entirely (see the Person/Account bullet elsewhere in this file) -
+  instrumenting only `send_message` would silently miss every sign-in
+  email/SMS. Both functions take a required keyword-only `event_type: str`
+  - never the raw, family-controlled `EventType.code` (a family can set
+  that to anything), always one of the 7 `EventType.BuiltinCode` values,
+  `"custom"` for a family-defined event type, or `"magic_link"` - see
+  `notifications.tasks._metric_event_type` for the mapping. Country is
+  derived from the E.164 `to` number via `phonenumbers.
+  region_code_for_number` (`notifications.services.
+  _country_for_sms_metric`), falling back to `"unknown"` rather than
+  raising - a metric label is never worth blocking a real send over.
+- **SES/SNS $-cost math deliberately isn't a Prometheus recording rule or
+  anything in app code - it lives entirely in the Grafana dashboard JSON
+  itself** (`docker/observability/grafana-dashboards/notifications.json`'s
+  "SMS volume by country" panel, via a `calculateField` transform).
+  Prometheus/the app only ever emit pure volume counters. SNS/SES pricing
+  changes independently of this app's own state and varies by destination
+  country in ways nothing here should need a deploy to reflect - a price
+  update is a dashboard-panel edit, which re-evaluates the whole historical
+  time range correctly the moment it's changed, unlike a value baked into
+  a metric at write time.
+- **`beat_task_last_success_timestamp` is set by hand, inside
+  `compute_occurrences`/`send_due_notifications`/`send_due_broadcasts`
+  themselves, at the very end of each function body - never derived from
+  a generic Celery signal.** These three tasks are *designed* to silently
+  self-heal (idempotent recompute, `send_date__lte`/`send_at__lte`
+  catch-up, RedBeat's own leader lock - see the Beat bullet elsewhere in
+  this file), so "Celery ran this task" isn't the same claim as "this task
+  did its job" - a worker restart missing one `send_due_broadcasts` tick
+  and catching up on the next run is working exactly as designed, not an
+  incident worth a stale-gauge alert. A signal-based "last ran" gauge
+  can't tell that apart from a genuine failure; a gauge set at the end of
+  a function body that actually completed naturally can.
+- **`docker-compose.observability.yml` is additive, never merged into
+  `docker-compose.yml`/`docker-compose.dev.yml`, and everything in it is
+  stateless (no named volumes)** - Prometheus/Tempo/Grafana here are for
+  building and testing dashboards locally, not long-term retention.
+  `OTEL_ENABLED` stays `false` in `.env.sample`'s own default (spans are
+  still always recorded per the always-on-provider design above, just
+  never exported) specifically so a plain `docker compose up` never tries
+  to dial a Tempo endpoint that isn't running; flip it (and point
+  `OTEL_ENDPOINT` at `http://tempo:4317`) only once this overlay is also
+  up. `docker/observability/prometheus.yml.template` is `sed`'d at
+  container start (see that service's own `command` - the `prom/
+  prometheus` image is busybox-based with no `envsubst`/gettext, only
+  `sed`) specifically to attach a `namespace` label to every scraped
+  series - prod's own Grafana dashboards key off a k8s-namespace variable,
+  and templating it this way means the exact same dashboard JSON works
+  against both local and prod data with no per-environment fork. The
+  template's placeholder is the plain token `__NAMESPACE__`, not
+  `${COMPOSE_PROJECT_NAME}` - a literal `${...}` there collides with
+  Compose's own interpolation (which runs on the whole compose file before
+  any container starts, and doesn't respect a backslash-escape in front of
+  `${...}`) as much as it would with `sed`'s own pattern syntax, so a
+  dollar-sign-free placeholder sidesteps both at once.
+- **The `tempo` service is pinned to `grafana/tempo:2.10.5`, never
+  `:latest`, and runs as `user: "0"`.** `:latest` currently resolves to
+  Tempo v3, whose config schema is a breaking change from v2's - the exact
+  same top-level `compactor`/`storage.trace.local.path` shape this file
+  uses (matching prom-gateway's own already-working `tempo.yaml`) fails to
+  parse at all under v3 (`field compactor not found in type app.Config`).
+  Running as root sidesteps a second, independent failure mode - the
+  image's default non-root user can't always write `/tmp/tempo` - which
+  is a fine trade for storage this stateless local stack already treats
+  as disposable.
+
 ## Where to look next
 
 Read the Django app docstrings and model comments for the actual mechanics

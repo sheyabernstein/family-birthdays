@@ -24,6 +24,7 @@ import traceback
 from typing import Any
 
 import structlog
+from opentelemetry import trace as otel_trace
 from structlog.typing import WrappedLogger
 
 
@@ -42,6 +43,26 @@ class OrderedJSONRenderer:
         ordered.update(sorted(event_dict.items()))
 
         return json.dumps(ordered, default=str)
+
+
+def add_trace_context(logger: WrappedLogger, name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+    """Injects the active OTel span's trace_id/span_id into every log line.
+
+    `get_current_span()` always returns a valid object - a real recording
+    span if one is active, otherwise a cheap no-op INVALID_SPAN - so this
+    is safe to call unconditionally, including before
+    config.observability.tracing.init_tracing() has run (e.g. a bare
+    manage.py command) or entirely outside a request/task (nothing gets
+    added, event_dict passes through unchanged). This is what actually
+    makes the trace/span ids in Tempo/Sentry match what shows up in these
+    JSON log lines - see config/observability/sentry.py's own docstring
+    for why that match matters.
+    """
+    span_context = otel_trace.get_current_span().get_span_context()
+    if span_context.is_valid:
+        event_dict["trace_id"] = format(span_context.trace_id, "032x")
+        event_dict["span_id"] = format(span_context.span_id, "016x")
+    return event_dict
 
 
 def render_exception(logger: WrappedLogger, name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
@@ -107,6 +128,7 @@ LOGGING_DICT_CONFIG: dict[str, Any] = {
                 structlog.stdlib.add_logger_name,
                 structlog.processors.TimeStamper(fmt="iso", utc=True),
                 structlog.processors.StackInfoRenderer(),
+                add_trace_context,
                 render_exception,
             ],
         },
@@ -134,6 +156,8 @@ LOGGING_DICT_CONFIG: dict[str, Any] = {
         "gunicorn.access": {"level": "WARNING", "handlers": ["console"], "propagate": False},
         "redis": {"level": "WARNING", "handlers": ["console"], "propagate": False},
         "kombu": {"level": "WARNING", "handlers": ["console"], "propagate": False},
+        "opentelemetry": {"level": "WARNING", "handlers": ["console"], "propagate": False},
+        "urllib3": {"level": "WARNING", "handlers": ["console"], "propagate": False},
     },
 }
 
@@ -145,6 +169,7 @@ structlog.configure(
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
+        add_trace_context,
         render_exception,
         structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
     ],

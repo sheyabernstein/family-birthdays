@@ -13,10 +13,11 @@ from botocore.exceptions import ClientError
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
+from config.exceptions import FamilyBirthdaysError
 from config.logging_config import logger
 
 
-class SmsUnrecoverableError(Exception):
+class SmsUnrecoverableError(FamilyBirthdaysError):
     """A send failure that retrying can't fix (bad number, opted out, bad auth, ...).
 
     notifications.tasks.send_message catches this separately from a
