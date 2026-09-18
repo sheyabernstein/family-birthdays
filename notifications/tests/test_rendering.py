@@ -292,20 +292,27 @@ def test_occurrence_sms_falls_back_to_the_default_template(family):
 # --- Regression coverage for the wording half of the send_date__lte fix
 # (notifications.tasks.send_due_notifications) - a notification caught up
 # late (occurrence_date already in the past by the time it's actually
-# sent, e.g. after a worker outage) must not still claim "Today is ..."
+# sent, e.g. after a worker outage) must not still claim "is today ..."
 # for an event that already happened. is_late is False whenever
 # occurrence_date == today - including the normal case where send_date
 # lands *earlier* than occurrence_date for a Shabbat/Yom Tov shift -
-# since the event itself hasn't passed. ---
+# since the event itself hasn't passed. Wording is built with
+# occurrence_date|naturalday (see _occurrence_template_context's own
+# docstring for the real production bug that drove this - a birthday
+# shifted a day earlier for Yom Tov was neither late nor actually today,
+# and every template's "not late" branch claimed "Today is ..." anyway;
+# naturalday reads "today"/"tomorrow"/"yesterday" for a 1-day gap either
+# direction and a formatted date beyond that, covering the on-time and
+# shifted-early cases with the same filter). ---
 
 
 @pytest.mark.parametrize(
     ["code", "today_phrase", "late_phrase"],
     [
-        [EventType.BuiltinCode.BIRTHDAY, "Today is", "birthday was on"],
-        [EventType.BuiltinCode.YAHRZEIT, "Today is", "yahrzeit was on"],
-        [EventType.BuiltinCode.BAR_MITZVAH, "Today is", "Bar Mitzvah was on"],
-        [EventType.BuiltinCode.BAT_MITZVAH, "Today is", "Bat Mitzvah was on"],
+        [EventType.BuiltinCode.BIRTHDAY, "birthday is today", "birthday was"],
+        [EventType.BuiltinCode.YAHRZEIT, "yahrzeit is today", "yahrzeit was"],
+        [EventType.BuiltinCode.BAR_MITZVAH, "Bar Mitzvah is today", "Bar Mitzvah was"],
+        [EventType.BuiltinCode.BAT_MITZVAH, "Bat Mitzvah is today", "Bat Mitzvah was"],
     ],
     ids=["birthday", "yahrzeit", "bar mitzvah", "bat mitzvah"],
 )
@@ -324,7 +331,7 @@ def test_person_occurrence_email_wording_by_lateness(family, code, today_phrase,
 @pytest.mark.parametrize(
     ["code", "on_time_phrase", "late_phrase"],
     [
-        [EventType.BuiltinCode.ANNIVERSARY, "Today is", "anniversary was on"],
+        [EventType.BuiltinCode.ANNIVERSARY, "anniversary is today", "anniversary was"],
         [EventType.BuiltinCode.WEDDING, "is coming up", "took place on"],
     ],
     ids=["anniversary", "wedding"],
@@ -353,7 +360,7 @@ def test_default_template_wording_by_lateness_for_a_person(family):
         send_date=timezone.localdate(),
     )
     _subject, _body, html = _render_occurrence_message(on_time, channel=Channel.EMAIL)
-    assert "Today is" in html
+    assert "Graduation is today" in html
 
     late = Occurrence.objects.create(
         person=person,
@@ -363,16 +370,16 @@ def test_default_template_wording_by_lateness_for_a_person(family):
         send_date=timezone.localdate() - dt.timedelta(days=3),
     )
     _subject, _body, html = _render_occurrence_message(late, channel=Channel.EMAIL)
-    assert "was on" in html
-    assert "Today is" not in html
+    assert "Graduation was" in html
+    assert "Graduation is today" not in html
 
 
 def test_sms_wording_switches_for_a_late_birthday(family):
-    late = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ago=2)
+    late = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ago=3)
 
     _subject, body, _html = _render_occurrence_message(late, channel=Channel.SMS)
 
-    assert "was on" in body
+    assert "birthday was" in body
     assert "is today" not in body
 
 
@@ -382,14 +389,17 @@ def test_sms_still_says_today_when_not_late(family):
     _subject, body, _html = _render_occurrence_message(on_time, channel=Channel.SMS)
 
     assert "is today" in body
-    assert "was on" not in body
+    assert "was" not in body
 
 
 def test_shabbat_shift_ahead_of_occurrence_date_is_not_treated_as_late(family):
     # send_date earlier than occurrence_date (the normal Shabbat/Yom Tov
     # shift - see family.hebrew.resolve_send_date) is not "lateness" -
     # the event itself is still ahead, only the notification went out a
-    # day early.
+    # day early. This is the exact shape of a real bug that shipped to
+    # production: every template's "not late" branch used to say
+    # "Today is ..." unconditionally, which was simply false here - the
+    # occurrence_date is tomorrow, not today.
     event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
     occurrence = Occurrence.objects.create(
@@ -403,19 +413,20 @@ def test_shabbat_shift_ahead_of_occurrence_date_is_not_treated_as_late(family):
 
     _subject, _body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
 
-    assert "Today is" in html
-    assert "was on" not in html
+    assert "birthday is tomorrow" in html
+    assert "is today" not in html
+    assert "birthday was" not in html
 
 
 def test_subject_line_matches_the_body_wording_when_late(family):
-    # A subject saying "today" over a body that says "was on <date>"
+    # A subject saying "today" over a body that says "was <date>"
     # would be a confusing mismatch - see _occurrence_subject.
     late = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ago=3)
 
     subject, _body, _html = _render_occurrence_message(late, channel=Channel.EMAIL)
 
     assert "today" not in subject
-    assert "was on" in subject
+    assert "was" in subject
 
 
 def test_subject_line_says_today_when_not_late(family):
@@ -442,7 +453,7 @@ def test_wedding_subject_says_was_on_when_late(family):
 
     subject, _body, _html = _render_occurrence_message(late, channel=Channel.EMAIL)
 
-    assert "was on" in subject
+    assert "was" in subject
     assert "coming up" not in subject
 
 

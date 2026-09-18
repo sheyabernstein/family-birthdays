@@ -1,5 +1,5 @@
 {% extends "email/_base.html" %}
-{% load family_extras notifications_extras %}
+{% load family_extras humanize notifications_extras %}
 {% block title %}{{ occurrence.person.display_name }}'s yahrzeit{% endblock %}
 {% block icon %}
     {% event_icon_url "notifications/img/event-icons/death.png" %}
@@ -7,9 +7,9 @@
 {% block icon_alt %}Yahrzeit{% endblock %}
 {% block body %}
     {% if is_late %}
-        <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s yahrzeit was on {{ occurrence.occurrence_date|date:"l, F j" }}.</p>
+        <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s yahrzeit was {{ occurrence.occurrence_date|naturalday }}.</p>
     {% else %}
-        <p>Today is <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s yahrzeit.</p>
+        <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s yahrzeit is {{ occurrence.occurrence_date|naturalday }}.</p>
     {% endif %}
     {% include "notifications/email/_parents.html" with person=occurrence.person %}
     <p class="muted" style="font-size: 14px;">
