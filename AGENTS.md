@@ -1625,3 +1625,11 @@ real - the PR - rather than losing it entirely. A PR bundling several
 related commits doesn't need each commit to carry its own essay either;
 one commit can be terse even when the PR as a whole represents a lot of
 discussion and iteration to get there.
+
+**PR titles follow the same `type: description` convention as commit
+messages, and both are lowercase after the type prefix** - `fix: don't
+say "Today is..." for a shifted occurrence`, not `Fix: Don't Say...` or
+a bare `Model Meta cleanup`. One consistent format across `git log` and
+the PR list means either one is scannable on its own, and a PR whose
+title doesn't already start with a type prefix is a sign it's bundling
+unrelated changes that should probably be split instead.
