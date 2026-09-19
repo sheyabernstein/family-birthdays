@@ -64,73 +64,77 @@
                     included or excluded - use the toggle on that person's own page instead; it always wins over this.
                 </p>
             </div>
-            <table class="subscribe-table">
-                <thead>
-                    <tr>
-                        <th>Event</th>
-                        {% for channel in event_type_rows.0.channels %}<th>{{ channel.label }}</th>{% endfor %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in event_type_rows %}
+            <div class="table-scroll">
+                <table class="subscribe-table">
+                    <thead>
                         <tr>
-                            <td><span class="badge badge-{{ row.event_type.badge_class }}">{{ row.event_type.name }}</span></td>
-                            {% for channel in row.channels %}
-                                <td>
-                                    <div style="display: flex;
-                                                align-items: center;
-                                                flex-wrap: wrap;
-                                                gap: 0.5rem">
-                                        <form method="post"
-                                              action="{% url 'notifications:update_event_type_preference' %}"
-                                              style="display: flex;
-                                                     align-items: center;
-                                                     gap: 0.4rem">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="event_type_id" value="{{ row.event_type.uuid }}">
-                                            <input type="hidden" name="channel" value="{{ channel.code }}">
-                                            <input type="hidden"
-                                                   name="next"
-                                                   value="{% url 'notifications:subscriptions' %}">
-                                            <select name="state">
-                                                <option value="subscribed"
-                                                        {% if channel.state == "subscribed" %}selected{% endif %}>Everyone</option>
-                                                <option value="immediate_family_only"
-                                                        {% if channel.state == "immediate_family_only" %}selected{% endif %}>Immediate family only</option>
-                                                <option value="muted"
-                                                        {% if channel.state == "muted" %}selected{% endif %}>Muted</option>
-                                            </select>
-                                            <button type="submit"
-                                                    class="btn btn-sm"
-                                                    title="Save this setting for {{ row.event_type.name }} ({{ channel.label }})">Save</button>
-                                        </form>
-                                        {% if channel.is_override %}
+                            <th>Event</th>
+                            {% for channel in event_type_rows.0.channels %}<th>{{ channel.label }}</th>{% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in event_type_rows %}
+                            <tr>
+                                <td><span class="badge badge-{{ row.event_type.badge_class }}">{{ row.event_type.name }}</span></td>
+                                {% for channel in row.channels %}
+                                    <td>
+                                        <div style="display: flex;
+                                                    align-items: center;
+                                                    flex-wrap: wrap;
+                                                    gap: 0.5rem">
                                             <form method="post"
-                                                  action="{% url 'notifications:update_event_type_preference' %}">
+                                                  action="{% url 'notifications:update_event_type_preference' %}"
+                                                  style="display: flex;
+                                                         align-items: center;
+                                                         gap: 0.4rem">
                                                 {% csrf_token %}
                                                 <input type="hidden"
                                                        name="event_type_id"
                                                        value="{{ row.event_type.uuid }}">
                                                 <input type="hidden" name="channel" value="{{ channel.code }}">
-                                                <input type="hidden" name="action" value="reset">
                                                 <input type="hidden"
                                                        name="next"
                                                        value="{% url 'notifications:subscriptions' %}">
+                                                <select name="state">
+                                                    <option value="subscribed"
+                                                            {% if channel.state == "subscribed" %}selected{% endif %}>Everyone</option>
+                                                    <option value="immediate_family_only"
+                                                            {% if channel.state == "immediate_family_only" %}selected{% endif %}>Immediate family only</option>
+                                                    <option value="muted"
+                                                            {% if channel.state == "muted" %}selected{% endif %}>Muted</option>
+                                                </select>
                                                 <button type="submit"
                                                         class="btn btn-sm"
-                                                        style="font-size: 0.8rem"
-                                                        title="Remove your override and go back to the family default for {{ row.event_type.name }} ({{ channel.label }})">Reset to family default</button>
+                                                        title="Save this setting for {{ row.event_type.name }} ({{ channel.label }})">Save</button>
                                             </form>
-                                        {% else %}
-                                            <span class="muted" style="font-size: 0.8rem;">(family default)</span>
-                                        {% endif %}
-                                    </div>
-                                </td>
-                            {% endfor %}
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                                            {% if channel.is_override %}
+                                                <form method="post"
+                                                      action="{% url 'notifications:update_event_type_preference' %}">
+                                                    {% csrf_token %}
+                                                    <input type="hidden"
+                                                           name="event_type_id"
+                                                           value="{{ row.event_type.uuid }}">
+                                                    <input type="hidden" name="channel" value="{{ channel.code }}">
+                                                    <input type="hidden" name="action" value="reset">
+                                                    <input type="hidden"
+                                                           name="next"
+                                                           value="{% url 'notifications:subscriptions' %}">
+                                                    <button type="submit"
+                                                            class="btn btn-sm"
+                                                            style="font-size: 0.8rem"
+                                                            title="Remove your override and go back to the family default for {{ row.event_type.name }} ({{ channel.label }})">Reset to family default</button>
+                                                </form>
+                                            {% else %}
+                                                <span class="muted" style="font-size: 0.8rem;">(family default)</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         {% endif %}
     </div>
     <div class="card">

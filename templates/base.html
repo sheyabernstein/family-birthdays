@@ -17,6 +17,8 @@
                 <header class="topbar">
                     <a class="wordmark"
                        href="{% url 'family:dashboard' %}">{{ request.family.name|default:"Family Tree" }}</a>
+                    <input type="checkbox" id="nav-toggle" class="nav-toggle-checkbox">
+                    <label for="nav-toggle" class="nav-toggle-label">Menu</label>
                     <nav class="nav">
                         <a href="{% url 'family:dashboard' %}">Upcoming</a>
                         <a href="{% url 'family:person_list' %}">Family</a>

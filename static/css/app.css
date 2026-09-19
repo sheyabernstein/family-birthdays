@@ -135,6 +135,21 @@ p {
   gap: 0.4rem;
 }
 
+/* Real checkbox, not display: none - kept focusable/tabbable (just
+   visually hidden) so the nav toggle still works for keyboard users.
+   Both are no-ops above the mobile breakpoint, where .nav-toggle-label
+   stays display: none and .nav's own flex-wrap handles things directly
+   - see that breakpoint for the collapsed-menu rules themselves. */
+.nav-toggle-checkbox {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nav-toggle-label {
+  display: none;
+}
+
 .nav {
   display: flex;
   gap: 1.25rem;
@@ -792,6 +807,19 @@ label {
   margin-bottom: 0.25rem;
 }
 
+/* --- Table scroll wrapper - every <table> on the site (.data-table,
+   .subscribe-table, .history-table, the bare admin-facing one on
+   scheduled_tasks.html) gets wrapped in one of these. None of them had
+   this before; they only ever survived narrow screens because their
+   columns happened to be short today. A table has no way to reflow like
+   a card/grid can, so the real fix is letting the table itself scroll
+   horizontally in its own box rather than either squeezing columns
+   illegibly or forcing the whole page to scroll sideways the moment a
+   row gets wide (a long diff line, a long name). */
+.table-scroll {
+  overflow-x: auto;
+}
+
 /* --- Generic data table (e.g. Workspace Settings' member list) --- */
 
 .data-table {
@@ -836,6 +864,17 @@ label {
   padding: 0.55rem 0.5rem;
   border-bottom: 1px solid var(--rule-soft);
   vertical-align: middle;
+}
+
+/* Without a floor, the state <select> here (width: 100% of its own flex
+   form) happily shrinks well past its own option text ("Everyone"
+   rendering as "Ever") once the table's own columns get tight - exactly
+   the "squeezed illegibly" failure .table-scroll exists to avoid. A
+   min-width keeps every option readable; the surrounding .table-scroll
+   wrapper is what lets the table scroll horizontally instead, once the
+   row genuinely doesn't fit. */
+.subscribe-table select {
+  min-width: 9rem;
 }
 
 .subscribe-table form {
@@ -1041,8 +1080,19 @@ main.full-bleed {
 
 /* --- Auth pages --- */
 
+/* min-height: 100% (not 100vh) - .auth-shell renders inside <main>,
+   which is already flex: 1 inside .shell's own min-height: 100vh flex
+   column. Every page that reaches this while signed in (switch/create
+   workspace, no-family-access) always has the topbar above it too, so a
+   second independent 100vh here stacked a full extra viewport's worth of
+   height on top of the topbar's - the page was taller than the viewport
+   by exactly the topbar's height, which read as dead space below the
+   fold and rubber-band overscroll trying to reach it. main's own flex-
+   grown size is what's actually available, so filling that (100%)
+   rather than the whole viewport again is what keeps this centered
+   without spilling past the bottom of the screen. */
 .auth-shell {
-  min-height: 100vh;
+  min-height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1193,6 +1243,83 @@ main.full-bleed {
 
   .field-list dt {
     margin-top: 0.5rem;
+  }
+
+  /* .form-row's own auto-fit minmax(11rem, ...) looks responsive but
+     11rem (176px) is only enough for a short name field - an email
+     address or a phone number (with the intl-tel-input flag button
+     eating into its padding) kept two cramped columns instead of
+     collapsing, visibly truncating the text inside. Forcing one column
+     here, at the same breakpoint every other multi-column layout on the
+     site already collapses at, is simpler and more predictable than
+     tuning the minmax threshold further. */
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* --- Collapsed nav menu ---
+     Above this breakpoint .nav just wraps in place. Below it, wrapping
+     alone still dumps 7+ plain-text links across 2-3 lines above every
+     single page's actual content - functional, but it reads as app
+     chrome eating the whole first screen on a phone. A CSS-only
+     checkbox toggle (see the header markup in templates/base.html) beats
+     a JS-driven one here: the nav must never become permanently
+     inaccessible on mobile if a script fails to load, and this app
+     otherwise avoids reaching for JS for simple show/hide toggles it
+     doesn't need. */
+  .nav-toggle-label {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    margin-top: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--paper-raised);
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .nav-toggle-label:hover {
+    color: var(--ink);
+  }
+
+  .nav-toggle-label::after {
+    content: " \25BE";
+  }
+
+  .nav-toggle-checkbox:checked ~ .nav-toggle-label::after {
+    content: " \25B4";
+  }
+
+  .nav {
+    display: none;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.9rem;
+    width: 100%;
+    margin-top: 0.75rem;
+  }
+
+  .nav-toggle-checkbox:checked ~ .nav {
+    display: flex;
+  }
+
+  /* Trix's own toolbar is a fixed row of 14 icon buttons with no
+     built-in responsive behavior - at phone width it has nowhere near
+     enough room and would otherwise overflow its card. Scrolling the
+     toolbar itself horizontally (rather than trying to wrap icon
+     buttons onto multiple rows, which Trix doesn't support out of the
+     box) keeps every button reachable without the surrounding page
+     scrolling sideways. */
+  trix-toolbar {
+    overflow-x: auto;
+  }
+
+  trix-toolbar .trix-button-row {
+    flex-wrap: nowrap;
+    width: max-content;
   }
 }
 
