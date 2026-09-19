@@ -42,6 +42,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
+from config.logging_config import logger
 from config.observability.django_middleware import EXCLUDED_PATHS
 
 _PROVIDER: TracerProvider | None = None
@@ -80,6 +81,7 @@ def init_tracing() -> TracerProvider:
     provider = TracerProvider(resource=resource, sampler=sampler)
 
     if settings.OTEL_ENABLED:
+        logger.info("enabling otel exporter", endpoint=settings.OTEL_ENDPOINT)
         provider.add_span_processor(
             BatchSpanProcessor(
                 OTLPSpanExporter(endpoint=settings.OTEL_ENDPOINT, headers=_normalized_headers())
