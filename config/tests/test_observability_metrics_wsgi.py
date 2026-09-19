@@ -2,14 +2,23 @@
 import time, off whatever PROMETHEUS_MULTIPROC_DIR is set to at that
 moment - so the env var has to be pointed at a throwaway directory before
 the module is first imported anywhere in the test session, not inside an
-individual test.
+individual test (tmp_path isn't available yet at this point - no test has
+started running).
+
+Always overwritten, not os.environ.setdefault() - the real value is
+already set to /tmp/prom_multiproc under a container (see the
+Dockerfile), and setdefault() would silently keep that instead of
+pointing this test at its own isolated directory.
 """
 
+import atexit
 import os
+import shutil
 import tempfile
 
 _tmp_dir = tempfile.mkdtemp(prefix="prom_multiproc_test_")
-os.environ.setdefault("PROMETHEUS_MULTIPROC_DIR", _tmp_dir)
+atexit.register(shutil.rmtree, _tmp_dir, ignore_errors=True)
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = _tmp_dir
 
 from config.observability.metrics_wsgi import application  # noqa: E402
 
