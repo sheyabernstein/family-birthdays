@@ -30,7 +30,7 @@ from tenants.mixins import (
     FamilyRequiredMixin,
     FamilyScopedMixin,
 )
-from tenants.models import FamilyMembership
+from tenants.models import Family, FamilyMembership
 
 
 class HelpView(LoginRequiredMixin, TemplateView):
@@ -46,6 +46,41 @@ class HelpView(LoginRequiredMixin, TemplateView):
     """
 
     template_name = "family/help.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        if self.request.family is not None:
+            context["family_owners"] = _family_owner_contacts(self.request.family)
+        return context
+
+
+def _family_owner_contacts(family: Family) -> list[dict[str, str | None]]:
+    """Who to contact about a workspace: its owner(s), by name and email.
+
+    Email only, never phone - a member reaching out about a family/tenant
+    problem (a role that needs changing, a record only an owner can
+    delete) is exactly the kind of contact that shouldn't assume SMS is
+    even set up. Named via the owner's own Person record in this family
+    when one exists (the name people actually recognize them by), falling
+    back to their account email when it doesn't (e.g. an owner who hasn't
+    been added to their own family's tree).
+    """
+    memberships = (
+        FamilyMembership.objects.filter(family=family, role=FamilyMembership.Role.OWNER)
+        .select_related("account")
+        .order_by("account__email")
+    )
+    contacts = []
+    for membership in memberships:
+        account = membership.account
+        person = family.people.filter(account=account).first()
+        contacts.append(
+            {
+                "name": person.display_name if person else (account.email or "Owner"),
+                "email": account.email,
+            }
+        )
+    return contacts
 
 
 class GregorianToHebrewView(LoginRequiredMixin, View):

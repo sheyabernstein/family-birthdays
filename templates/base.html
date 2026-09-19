@@ -30,7 +30,7 @@
                         {% if perms.tenants.add_family or request.has_multiple_families %}
                             <a href="{% url 'tenants:switch_family' %}">Switch Workspace</a>
                         {% endif %}
-                        <a href="{% url 'family:help' %}">?</a>
+                        <a href="{% url 'family:help' %}">Help</a>
                         <form method="post" action="{% url 'accounts:logout' %}">
                             {% csrf_token %}
                             <button type="submit" class="link-button">Sign out</button>

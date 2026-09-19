@@ -1006,3 +1006,54 @@ def test_union_endpoints_404_for_a_union_entirely_outside_your_family(
 
     assert resp.status_code == 404
     assert Union.objects.filter(pk=union.pk).exists()
+
+
+def test_help_shows_the_owner_by_name_and_email_when_they_have_a_person_record(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    Person.objects.create(family=family, first_name_en="Sheya", last_name_en="Bernstein", account=owner)
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    _login_as(client, member, family)
+
+    resp = client.get("/help/")
+
+    assert resp.status_code == 200
+    assert "Sheya Bernstein" in resp.content.decode()
+    assert f"mailto:{owner.email}" in resp.content.decode()
+
+
+def test_help_joins_multiple_owners_with_commas_and_a_trailing_and(client, family):
+    owner_a = Account.objects.create_user(email="a-owner@example.com")
+    owner_b = Account.objects.create_user(email="b-owner@example.com")
+    owner_c = Account.objects.create_user(email="c-owner@example.com")
+    for account, first_name in [(owner_a, "Alpha"), (owner_b, "Bravo"), (owner_c, "Charlie")]:
+        FamilyMembership.objects.create(account=account, family=family, role=FamilyMembership.Role.OWNER)
+        Person.objects.create(family=family, first_name_en=first_name, last_name_en="Owner", account=account)
+    _login_as(client, owner_a, family)
+
+    resp = client.get("/help/")
+
+    text = " ".join(resp.content.decode().split())
+    assert (
+        '<strong>Alpha Owner</strong> (<a href="mailto:a-owner@example.com">a-owner@example.com</a>), '
+        '<strong>Bravo Owner</strong> (<a href="mailto:b-owner@example.com">b-owner@example.com</a>) and '
+        "<strong>Charlie Owner</strong>"
+    ) in text
+
+
+def test_help_falls_back_to_the_owner_account_email_with_no_person_record(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    resp = client.get("/help/")
+
+    assert f"mailto:{owner.email}" in resp.content.decode()
+
+
+def test_help_shows_nothing_owner_related_with_no_current_family(client):
+    account = Account.objects.create_user(email="floating@example.com")
+    client.force_login(account)
+
+    resp = client.get("/help/")
+
+    assert resp.status_code == 200
+    assert "is managed by" not in resp.content.decode()
