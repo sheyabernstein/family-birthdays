@@ -1,0 +1,5 @@
+{% extends "admin/base.html" %}
+{% block userlinks %}
+    {{ block.super }}
+    <span style="margin-left: 1em; text-transform: initial;">{{ BUILD_VERSION }}</span>
+{% endblock %}

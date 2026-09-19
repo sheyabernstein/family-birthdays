@@ -10,6 +10,7 @@ from django.utils import timezone
 from django.utils.html import strip_tags
 from hdate.hebrew_date import Months
 
+from config.enums import TaskPriority
 from config.logging_config import logger
 from config.observability import metrics
 from family.hebrew import (
@@ -20,10 +21,11 @@ from family.hebrew import (
 )
 from family.models import Person, Union
 from notifications.audience import resolve_audience, resolve_broadcast_audience
+from notifications.enums import ChannelEnum
 from notifications.helpers import html_to_plain_text
-from notifications.models import Broadcast, Channel, EventType, Message, Occurrence
+from notifications.models import Broadcast, EventType, Message, Occurrence
 from notifications.services import send_email, send_sms
-from notifications.sms import SmsUnrecoverableError
+from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 
 # A single GSM-7 SMS segment - see AGENTS.md. Deliberately conservative
 # rather than budgeting for 2-segment messages: forces genuinely terse
@@ -343,14 +345,16 @@ def _compute_for_subject(
     return written, used_event_type_ids
 
 
-@shared_task
+@shared_task(queue=TaskPriority.LOW)
 def compute_occurrences() -> None:
     """Ensures every (person/union, event_type) pair has Occurrence rows out to the horizon.
 
     Runs nightly as a self-healing full sweep - see
     compute_occurrences_for_person/_union for the immediate,
-    single-subject version called right after an edit.
+    single-subject version called right after an edit. Background work,
+    never a human waiting on it - see config.enums.TaskPriority.
     """
+    logger.debug("compute_occurrences starting", horizon_days=OCCURRENCE_HORIZON_DAYS)
     horizon = timezone.localdate() + dt.timedelta(days=OCCURRENCE_HORIZON_DAYS)
     today_hebrew_year = gregorian_to_hebrew(timezone.localdate()).year
 
@@ -443,7 +447,7 @@ def compute_occurrences_for_union(union: Union) -> None:
     )
 
 
-@shared_task
+@shared_task(queue=TaskPriority.LOW)
 def send_due_notifications() -> None:
     """Sends every due, unsent Occurrence's notifications.
 
@@ -468,6 +472,7 @@ def send_due_notifications() -> None:
     due_ids = list(
         Occurrence.objects.filter(send_date__lte=today, is_sent=False).values_list("pk", flat=True)
     )
+    logger.debug("send_due_notifications starting", due_count=len(due_ids))
 
     queued = 0
     claimed_count = 0
@@ -594,7 +599,7 @@ def _render_occurrence_message(occurrence: Occurrence, *, channel: str) -> tuple
     name pushes it over.
     """
     context = _occurrence_template_context(occurrence)
-    if channel == Channel.EMAIL:
+    if channel == ChannelEnum.EMAIL:
         html = render_to_string(
             [f"notifications/email/{occurrence.event_type.code}.html", "notifications/email/_default.html"],
             context,
@@ -647,7 +652,7 @@ def _render_broadcast_message(
     template, but SMS needs its own plain, budget-truncated derivation
     rather than raw markup.
     """
-    if channel == Channel.EMAIL:
+    if channel == ChannelEnum.EMAIL:
         html = render_to_string(
             "notifications/email/broadcast.html",
             {"broadcast": broadcast, "people": people, "family_name": broadcast.family.name},
@@ -666,7 +671,7 @@ def _render_broadcast_message(
     return "", text, ""
 
 
-@shared_task
+@shared_task(queue=TaskPriority.LOW)
 def send_due_broadcasts() -> None:
     """Sends every due, unsent Broadcast.
 
@@ -686,6 +691,7 @@ def send_due_broadcasts() -> None:
     due_ids = list(
         Broadcast.objects.filter(is_sent=False, send_at__lte=timezone.now()).values_list("pk", flat=True)
     )
+    logger.debug("send_due_broadcasts starting", due_count=len(due_ids))
 
     sent = 0
     for broadcast_id in due_ids:
@@ -739,12 +745,36 @@ def _metric_event_type(message: Message) -> str:
     return code if code in EventType.BuiltinCode.values else "custom"
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=300)
+@shared_task(
+    bind=True,
+    queue=TaskPriority.NORMAL,
+    autoretry_for=(Exception,),
+    dont_autoretry_for=(SmsUnrecoverableError,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=3,
+)
 def send_message(self: Task, message_id: int) -> None:
+    """Sends one already-rendered Message, retrying transient failures with backoff.
+
+    autoretry_for=(Exception,) covers both a generic provider failure and
+    SmsRateLimitedError (notifications.sms) - the SNS global rate limit
+    freeing up is exactly the kind of transient condition an exponential
+    backoff is for, not a real failure. dont_autoretry_for excludes
+    SmsUnrecoverableError, which retrying can never fix.
+    """
     message = Message.objects.get(pk=message_id)
     event_type = _metric_event_type(message)
+    logger.debug(
+        "send_message starting",
+        message=message.uuid,
+        channel=message.channel,
+        event_type=event_type,
+        attempt=self.request.retries + 1,
+    )
     try:
-        if message.channel == Channel.EMAIL:
+        if message.channel == ChannelEnum.EMAIL:
             provider_response = send_email(
                 to=message.destination,
                 subject=message.subject,
@@ -775,19 +805,45 @@ def send_message(self: Task, message_id: int) -> None:
             exc_info=exc,
         )
         raise
+    except SmsRateLimitedError as exc:
+        # Quiet unless this is the last attempt: autoretry_for's wrapper
+        # gives up outside this function, so a burst that outlasts the
+        # whole retry window would otherwise leave the Message stuck at
+        # QUEUED forever with no record of why (see AGENTS.md).
+        if self.request.retries >= self.max_retries:
+            message.status = Message.Status.FAILED
+            message.error = str(exc)
+            message.tries += 1
+            message.save(update_fields=["status", "error", "tries"])
+            logger.error(
+                "message send failed - sns rate limit never cleared within retry budget",
+                message=message.uuid,
+                subject=message.subject,
+                tries=message.tries,
+                exc_info=exc,
+            )
+            raise
+        logger.debug(
+            "message send deferred by sns rate limit",
+            message=message.uuid,
+            attempt=self.request.retries + 1,
+            exc_info=exc,
+        )
+        raise
     except Exception as exc:
         message.status = Message.Status.FAILED
         message.error = str(exc)
         message.tries += 1
         message.save(update_fields=["status", "error", "tries"])
         logger.warning(
-            "message send failed",
+            "message send failed, will retry",
             message=message.uuid,
             subject=message.subject,
             tries=message.tries,
+            attempt=self.request.retries + 1,
             exc_info=exc,
         )
-        raise self.retry(exc=exc) from exc
+        raise
 
     message.status = Message.Status.SENT
     message.sent_at = timezone.now()

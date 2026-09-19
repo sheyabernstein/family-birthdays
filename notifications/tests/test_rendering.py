@@ -9,7 +9,8 @@ from django.utils import timezone
 
 from accounts.models import Account
 from family.models import Person, Union
-from notifications.models import Broadcast, Channel, EventType, Occurrence
+from notifications.enums import ChannelEnum
+from notifications.models import Broadcast, EventType, Occurrence
 from notifications.services import absolute_url, send_email, send_sms, static_absolute_url
 from notifications.tasks import (
     SMS_CHAR_BUDGET,
@@ -82,7 +83,7 @@ def _union_occurrence_for(family, code, *, days_ago=0, days_ahead=0):
 def test_occurrence_email_renders_the_persons_own_template_with_an_icon(family, code):
     occurrence = _occurrence_for(family, code)
 
-    subject, body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert "Sari Rokach" in subject
     assert "Sari Rokach" in html
@@ -104,7 +105,7 @@ def test_occurrence_email_renders_the_persons_own_template_with_an_icon(family, 
 def test_occurrence_email_renders_a_union_occurrence_with_both_spouses(family, code):
     occurrence = _union_occurrence_for(family, code)
 
-    _subject, body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    _subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert "Sari Rokach" in html and "Moshe Rokach" in html
     assert "Sari Rokach" in body and "Moshe Rokach" in body
@@ -123,7 +124,7 @@ def test_occurrence_email_shows_the_subjects_hebrew_first_name(family):
         send_date=timezone.localdate(),
     )
 
-    _subject, _body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert "(בלומא)" in html
 
@@ -140,7 +141,7 @@ def test_occurrence_email_shows_the_parents_label_even_without_a_naming_collisio
         send_date=timezone.localdate(),
     )
 
-    _subject, _body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert "Shloime&#x27;s Blimi" in html or "Shloime's Blimi" in html
 
@@ -156,7 +157,7 @@ def test_occurrence_email_omits_the_parents_label_without_a_living_tracked_paren
         send_date=timezone.localdate(),
     )
 
-    _subject, _body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert "'s Blimi" not in html
 
@@ -171,7 +172,7 @@ def test_occurrence_email_falls_back_to_the_default_template_for_a_familys_own_c
         send_date=timezone.localdate(),
     )
 
-    _subject, body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    _subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert "Graduation" in html
     assert "Sari Rokach" in body
@@ -180,7 +181,7 @@ def test_occurrence_email_falls_back_to_the_default_template_for_a_familys_own_c
 def test_occurrence_email_plain_text_body_has_no_html_tags(family):
     occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY)
 
-    _subject, body, _html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert "<" not in body
 
@@ -201,7 +202,7 @@ def test_occurrence_email_plain_text_body_has_no_html_tags(family):
 def test_occurrence_sms_renders_the_persons_own_short_plain_text(family, code):
     occurrence = _occurrence_for(family, code)
 
-    subject, body, html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
 
     assert subject == ""
     assert html == ""
@@ -218,7 +219,7 @@ def test_occurrence_sms_renders_the_persons_own_short_plain_text(family, code):
 def test_occurrence_sms_renders_a_union_occurrence_with_both_spouses(family, code):
     occurrence = _union_occurrence_for(family, code)
 
-    subject, body, html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
 
     assert subject == ""
     assert html == ""
@@ -240,7 +241,7 @@ def test_occurrence_sms_shows_the_subjects_hebrew_first_name(family):
         send_date=timezone.localdate(),
     )
 
-    _subject, body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
 
     assert "(בלומא)" in body
 
@@ -260,7 +261,7 @@ def test_occurrence_sms_shows_the_parents_label_even_without_a_naming_collision(
         send_date=timezone.localdate(),
     )
 
-    _subject, body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
 
     assert "Shloime's Blimi" in body
 
@@ -285,7 +286,7 @@ def test_occurrence_sms_does_not_html_escape_an_ampersand_in_the_parents_label(f
         send_date=timezone.localdate(),
     )
 
-    _subject, body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
 
     assert "Shloime & Bruchele's Blimi" in body
     assert "&amp;" not in body
@@ -302,7 +303,7 @@ def test_occurrence_sms_falls_back_to_the_default_template(family):
         send_date=timezone.localdate(),
     )
 
-    _subject, body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
 
     assert "Graduation" in body
 
@@ -336,12 +337,12 @@ def test_occurrence_sms_falls_back_to_the_default_template(family):
 )
 def test_person_occurrence_email_wording_by_lateness(family, code, today_phrase, late_phrase):
     on_time = _occurrence_for(family, code, days_ago=0)
-    _subject, _body, html = _render_occurrence_message(on_time, channel=Channel.EMAIL)
+    _subject, _body, html = _render_occurrence_message(on_time, channel=ChannelEnum.EMAIL)
     assert today_phrase in html
     assert late_phrase not in html
 
     late = _occurrence_for(family, code, days_ago=3)
-    _subject, _body, html = _render_occurrence_message(late, channel=Channel.EMAIL)
+    _subject, _body, html = _render_occurrence_message(late, channel=ChannelEnum.EMAIL)
     assert late_phrase in html
     assert today_phrase not in html
 
@@ -356,12 +357,12 @@ def test_person_occurrence_email_wording_by_lateness(family, code, today_phrase,
 )
 def test_union_occurrence_email_wording_by_lateness(family, code, on_time_phrase, late_phrase):
     on_time = _union_occurrence_for(family, code, days_ago=0)
-    _subject, _body, html = _render_occurrence_message(on_time, channel=Channel.EMAIL)
+    _subject, _body, html = _render_occurrence_message(on_time, channel=ChannelEnum.EMAIL)
     assert on_time_phrase in html
     assert late_phrase not in html
 
     late = _union_occurrence_for(family, code, days_ago=3)
-    _subject, _body, html = _render_occurrence_message(late, channel=Channel.EMAIL)
+    _subject, _body, html = _render_occurrence_message(late, channel=ChannelEnum.EMAIL)
     assert late_phrase in html
     assert on_time_phrase not in html
 
@@ -377,7 +378,7 @@ def test_default_template_wording_by_lateness_for_a_person(family):
         occurrence_date=timezone.localdate(),
         send_date=timezone.localdate(),
     )
-    _subject, _body, html = _render_occurrence_message(on_time, channel=Channel.EMAIL)
+    _subject, _body, html = _render_occurrence_message(on_time, channel=ChannelEnum.EMAIL)
     assert "Graduation is today" in html
 
     late = Occurrence.objects.create(
@@ -387,7 +388,7 @@ def test_default_template_wording_by_lateness_for_a_person(family):
         occurrence_date=timezone.localdate() - dt.timedelta(days=3),
         send_date=timezone.localdate() - dt.timedelta(days=3),
     )
-    _subject, _body, html = _render_occurrence_message(late, channel=Channel.EMAIL)
+    _subject, _body, html = _render_occurrence_message(late, channel=ChannelEnum.EMAIL)
     assert "Graduation was" in html
     assert "Graduation is today" not in html
 
@@ -395,7 +396,7 @@ def test_default_template_wording_by_lateness_for_a_person(family):
 def test_sms_wording_switches_for_a_late_birthday(family):
     late = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ago=3)
 
-    _subject, body, _html = _render_occurrence_message(late, channel=Channel.SMS)
+    _subject, body, _html = _render_occurrence_message(late, channel=ChannelEnum.SMS)
 
     assert "birthday was" in body
     assert "is today" not in body
@@ -404,7 +405,7 @@ def test_sms_wording_switches_for_a_late_birthday(family):
 def test_sms_still_says_today_when_not_late(family):
     on_time = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ago=0)
 
-    _subject, body, _html = _render_occurrence_message(on_time, channel=Channel.SMS)
+    _subject, body, _html = _render_occurrence_message(on_time, channel=ChannelEnum.SMS)
 
     assert "is today" in body
     assert "was" not in body
@@ -423,7 +424,7 @@ def test_shabbat_shift_ahead_of_occurrence_date_is_not_treated_as_late(family):
     # _occurrence_subject) that a body-only test would never catch.
     occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ahead=1)
 
-    subject, _body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert "birthday is tomorrow" in html
     assert "is today" not in html
@@ -448,13 +449,13 @@ def test_person_occurrence_says_tomorrow_when_shifted_a_single_day_early(family,
     # hardcode "Today is ..." in all of them.
     occurrence = _occurrence_for(family, code, days_ahead=1)
 
-    subject, body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
     assert f"{event_name} is tomorrow" in html
     assert "is today" not in html
     assert "is tomorrow" in subject
     assert "today" not in subject
 
-    _subject, sms_body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    _subject, sms_body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
     assert f"{event_name} is tomorrow" in sms_body
     assert "is today" not in sms_body
 
@@ -462,13 +463,13 @@ def test_person_occurrence_says_tomorrow_when_shifted_a_single_day_early(family,
 def test_union_occurrence_says_tomorrow_when_shifted_a_single_day_early(family):
     occurrence = _union_occurrence_for(family, EventType.BuiltinCode.ANNIVERSARY, days_ahead=1)
 
-    subject, body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
     assert "anniversary is tomorrow" in html
     assert "is today" not in html
     assert "is tomorrow" in subject
     assert "today" not in subject
 
-    _subject, sms_body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    _subject, sms_body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
     assert "anniversary is tomorrow" in sms_body
     assert "is today" not in sms_body
 
@@ -485,7 +486,7 @@ def test_default_template_says_tomorrow_when_shifted_a_single_day_early(family):
         shifted_for_shabbat_or_yomtov=True,
     )
 
-    _subject, _body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert "Graduation is tomorrow" in html
     assert "Graduation is today" not in html
@@ -508,11 +509,11 @@ def test_person_occurrence_says_yesterday_when_late_by_exactly_one_day(family, c
     # its own coverage.
     occurrence = _occurrence_for(family, code, days_ago=1)
 
-    subject, body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
     assert f"{event_name} was yesterday" in html
     assert "was yesterday" in subject
 
-    _subject, sms_body, _html = _render_occurrence_message(occurrence, channel=Channel.SMS)
+    _subject, sms_body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
     assert f"{event_name} was yesterday" in sms_body
 
 
@@ -524,7 +525,7 @@ def test_occurrence_falls_back_to_a_formatted_date_when_shifted_multiple_days_ea
     occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ahead=3)
     expected = naturalday(occurrence.occurrence_date)
 
-    subject, _body, html = _render_occurrence_message(occurrence, channel=Channel.EMAIL)
+    subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert f"birthday is {expected}" in html
     assert "is tomorrow" not in html
@@ -537,7 +538,7 @@ def test_subject_line_matches_the_body_wording_when_late(family):
     # would be a confusing mismatch - see _occurrence_subject.
     late = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ago=3)
 
-    subject, _body, _html = _render_occurrence_message(late, channel=Channel.EMAIL)
+    subject, _body, _html = _render_occurrence_message(late, channel=ChannelEnum.EMAIL)
 
     assert "today" not in subject
     assert "was" in subject
@@ -546,7 +547,7 @@ def test_subject_line_matches_the_body_wording_when_late(family):
 def test_subject_line_says_today_when_not_late(family):
     on_time = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ago=0)
 
-    subject, _body, _html = _render_occurrence_message(on_time, channel=Channel.EMAIL)
+    subject, _body, _html = _render_occurrence_message(on_time, channel=ChannelEnum.EMAIL)
 
     assert "today" in subject
 
@@ -556,7 +557,7 @@ def test_wedding_subject_says_coming_up_not_today_even_on_time(family):
     # "today" was never accurate for it even in the on-time case.
     on_time = _union_occurrence_for(family, EventType.BuiltinCode.WEDDING, days_ago=0)
 
-    subject, _body, _html = _render_occurrence_message(on_time, channel=Channel.EMAIL)
+    subject, _body, _html = _render_occurrence_message(on_time, channel=ChannelEnum.EMAIL)
 
     assert "coming up" in subject
     assert "today" not in subject
@@ -565,7 +566,7 @@ def test_wedding_subject_says_coming_up_not_today_even_on_time(family):
 def test_wedding_subject_says_was_on_when_late(family):
     late = _union_occurrence_for(family, EventType.BuiltinCode.WEDDING, days_ago=3)
 
-    subject, _body, _html = _render_occurrence_message(late, channel=Channel.EMAIL)
+    subject, _body, _html = _render_occurrence_message(late, channel=ChannelEnum.EMAIL)
 
     assert "was" in subject
     assert "coming up" not in subject
@@ -581,7 +582,7 @@ def test_broadcast_email_includes_sanitized_text_and_tied_people(family):
         family=family, text="<div>Big <strong>news</strong>!</div>", created_by=owner
     )
 
-    subject, body, html = _render_broadcast_message(broadcast, [person], channel=Channel.EMAIL)
+    subject, body, html = _render_broadcast_message(broadcast, [person], channel=ChannelEnum.EMAIL)
 
     assert "<strong>news</strong>" in html
     assert "Sari Rokach" in html
@@ -593,7 +594,7 @@ def test_broadcast_email_without_tied_people_uses_a_generic_subject(family):
     owner = Account.objects.create_user(email="owner@example.com")
     broadcast = Broadcast.objects.create(family=family, text="Hello", created_by=owner)
 
-    subject, _body, _html = _render_broadcast_message(broadcast, [], channel=Channel.EMAIL)
+    subject, _body, _html = _render_broadcast_message(broadcast, [], channel=ChannelEnum.EMAIL)
 
     assert subject == f"{family.name} update"
 
@@ -603,7 +604,7 @@ def test_broadcast_sms_strips_html_and_stays_within_budget(family):
     long_text = "<div>" + ("word " * 60) + "</div>"
     broadcast = Broadcast.objects.create(family=family, text=long_text, created_by=owner)
 
-    subject, body, html = _render_broadcast_message(broadcast, [], channel=Channel.SMS)
+    subject, body, html = _render_broadcast_message(broadcast, [], channel=ChannelEnum.SMS)
 
     assert subject == ""
     assert html == ""
@@ -620,7 +621,7 @@ def test_broadcast_sms_does_not_html_escape_the_authors_own_text(family):
     owner = Account.objects.create_user(email="owner@example.com")
     broadcast = Broadcast.objects.create(family=family, text="Mazel Tov to John & Jane!", created_by=owner)
 
-    _subject, body, _html = _render_broadcast_message(broadcast, [], channel=Channel.SMS)
+    _subject, body, _html = _render_broadcast_message(broadcast, [], channel=ChannelEnum.SMS)
 
     assert "John & Jane" in body
     assert "&amp;" not in body

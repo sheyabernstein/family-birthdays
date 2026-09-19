@@ -151,6 +151,7 @@ LOGGING_DICT_CONFIG: dict[str, Any] = {
         # here, so these stay quiet regardless of our own LOG_LEVEL. Add
         # another entry here, not a broad LOG_LEVEL bump, the next time a
         # new dependency turns out to be noisy.
+        "botocore": {"level": "ERROR", "handlers": ["console"], "propagate": False},
         "django.request": {"level": "ERROR", "handlers": ["console"], "propagate": False},
         "gunicorn.error": {"level": "WARNING", "handlers": ["console"], "propagate": False},
         "gunicorn.access": {"level": "WARNING", "handlers": ["console"], "propagate": False},

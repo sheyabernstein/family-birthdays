@@ -22,8 +22,17 @@ python manage.py migrate_with_lock
 # _run_with_metrics.sh runs this alongside a dedicated Prometheus metrics
 # server on :9090 - see that script's own comment, and the Dockerfile's
 # tini ENTRYPOINT, for the full reasoning.
+
+# -Q high,normal,low - order matters, not just membership. Combined with
+# CELERY_BROKER_TRANSPORT_OPTIONS' queue_order_strategy="priority"
+# (config/settings.py), this is what actually gives "high" its priority:
+# the worker drains high before ever touching normal/low, no dedicated
+# per-tier consumer process needed. See config.enums.TaskPriority's own
+# docstring for why this replaced Celery/kombu's native per-message Redis
+# priority (a live kombu bug, found the hard way against this exact stack).
 exec /app/docker/entrypoints/_run_with_metrics.sh \
   celery -q -A config worker --beat \
   -l info \
+  -Q high,normal,low \
   --concurrency "${CELERY_CONCURRENCY:-1}" \
   -n "$(uname -n):${BUILD_VERSION}"

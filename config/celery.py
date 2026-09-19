@@ -2,6 +2,7 @@ import os
 
 from celery import Celery
 from celery.signals import setup_logging, worker_process_init
+from django.conf import settings
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
@@ -40,7 +41,7 @@ def _init_observability_per_worker(**_kwargs) -> None:
     init_multiprocess_dir()
     init_tracing()
     register_atexit_mark_dead()
-    set_build_info(os.getenv("BUILD_VERSION", "dev"))
+    set_build_info(settings.BUILD_VERSION)
 
 
 @setup_logging.connect

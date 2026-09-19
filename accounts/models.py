@@ -66,10 +66,6 @@ class Account(AbstractBaseUser, PermissionsMixin):
     of email/phone is on file for the account.
     """
 
-    class Channel(models.TextChoices):
-        EMAIL = "email", "Email"
-        SMS = "sms", "SMS"
-
     # Used in place of the database pk anywhere an account is identified
     # outside this process (magic-link tokens, logs) - same convention as
     # every other model, see Person.uuid's own comment.

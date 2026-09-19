@@ -9,10 +9,12 @@ from hdate import HebrewDate
 from hdate.hebrew_date import Months
 
 from accounts.models import Account
+from config.enums import TaskPriority
 from family.hebrew import gregorian_to_hebrew, resolve_send_date
 from family.models import Person, Union
-from notifications.models import Broadcast, Channel, EventType, Message, NotificationPreference, Occurrence
-from notifications.sms import SmsUnrecoverableError
+from notifications.enums import ChannelEnum
+from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
+from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 from notifications.tasks import (
     compute_occurrences,
     compute_occurrences_for_person,
@@ -26,6 +28,44 @@ from notifications.tests.conftest import member as _member
 from tenants.models import Family, FamilyMembership
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.mark.parametrize(
+    ["task", "expected_queue"],
+    [
+        [compute_occurrences, TaskPriority.LOW],
+        [send_due_notifications, TaskPriority.LOW],
+        [send_due_broadcasts, TaskPriority.LOW],
+        [send_message, TaskPriority.NORMAL],
+    ],
+    ids=[
+        "compute_occurrences is low priority",
+        "send_due_notifications is low priority",
+        "send_due_broadcasts is low priority",
+        "send_message is normal priority",
+    ],
+)
+def test_task_dispatches_on_the_expected_priority_queue(task, expected_queue):
+    """Regression guard for the queue= a task decorator sets - see AGENTS.md's
+    "Task retry backoff, priority, and SNS rate limiting" section for why
+    this is a named Celery queue, not Celery/kombu's own per-message Redis
+    priority. A decorator typo here would silently misroute a task onto
+    the wrong priority tier with no other test catching it."""
+    assert task.queue == expected_queue
+
+
+def test_send_message_has_bounded_retries_with_exponential_backoff():
+    """Regression guard for the actual autoretry_for/retry_backoff wiring,
+    not just its observed effect (covered by test_send_message_retries_a_
+    transient_sms_error above) - a future edit could silently drop
+    retry_backoff or widen max_retries without any behavioral test
+    noticing at eager-mode speed."""
+    assert send_message.autoretry_for == (Exception,)
+    assert send_message.dont_autoretry_for == (SmsUnrecoverableError,)
+    assert send_message.retry_backoff is True
+    assert send_message.retry_backoff_max == 600
+    assert send_message.retry_jitter is True
+    assert send_message.max_retries == 3
 
 
 def _future_anchor() -> tuple[int, int, int]:
@@ -928,7 +968,7 @@ def _sms_message(family) -> Message:
     broadcast = Broadcast.objects.create(family=family, text="Hi", created_by=creator)
     return Message.objects.create(
         broadcast=broadcast,
-        channel=Channel.SMS,
+        channel=ChannelEnum.SMS,
         destination="+15551234567",
         body="Hi",
     )
@@ -972,3 +1012,45 @@ def test_send_message_retries_a_transient_sms_error(monkeypatch, family):
     message.refresh_from_db()
     assert message.status == Message.Status.FAILED
     assert message.tries >= 1
+
+
+def test_send_message_retries_an_sms_rate_limit_error_without_touching_the_message_row(monkeypatch, family):
+    """SmsRateLimitedError (notifications.sms) is transient by
+    construction - the send never happened at all, so unlike a real
+    provider failure, the Message row shouldn't record a failed attempt
+    for it."""
+    message = _sms_message(family)
+
+    def _raise_rate_limited(**kwargs):
+        raise SmsRateLimitedError("10 publishes attempted, limit is 8/s")
+
+    monkeypatch.setattr("notifications.tasks.send_sms", _raise_rate_limited)
+
+    with pytest.raises(SmsRateLimitedError):
+        send_message(message.pk)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.QUEUED
+    assert message.tries == 0
+    assert message.error == ""
+
+
+def test_send_message_marks_the_message_failed_once_rate_limit_retries_are_exhausted(monkeypatch, family):
+    """A burst that outlasts the whole retry window shouldn't leave the
+    Message silently stuck at QUEUED forever - the last allowed attempt
+    needs to record a real failure, since autoretry_for's own wrapper
+    gives up outside this function with no further chance to do so."""
+    message = _sms_message(family)
+
+    def _raise_rate_limited(**kwargs):
+        raise SmsRateLimitedError("10 publishes attempted, limit is 8/s")
+
+    monkeypatch.setattr("notifications.tasks.send_sms", _raise_rate_limited)
+
+    with pytest.raises(SmsRateLimitedError):
+        send_message.apply(args=[message.pk], retries=send_message.max_retries)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.FAILED
+    assert message.tries == 1
+    assert "publishes attempted" in message.error

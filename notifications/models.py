@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from accounts.models import Account
 from family.models import Person, Union
+from notifications.enums import ChannelEnum
 from tenants.models import Family
 
 
@@ -103,11 +104,6 @@ class EventType(models.Model):
         return self.anchor or self.code
 
 
-class Channel(models.TextChoices):
-    EMAIL = "email", "Email"
-    SMS = "sms", "SMS"
-
-
 @reversion.register()
 class NotificationPreference(models.Model):
     """Every way an account can depart from a family's default notification opt-in.
@@ -148,7 +144,7 @@ class NotificationPreference(models.Model):
     union = models.ForeignKey(
         Union, null=True, blank=True, on_delete=models.CASCADE, related_name="notification_preferences"
     )
-    channel = models.CharField(max_length=10, choices=Channel.choices)
+    channel = models.CharField(max_length=10, choices=ChannelEnum.choices())
     state = models.CharField(max_length=25, choices=State.choices)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -360,7 +356,7 @@ class Message(models.Model):
         Broadcast, null=True, blank=True, on_delete=models.CASCADE, related_name="messages"
     )
     account = models.ForeignKey(Account, null=True, on_delete=models.SET_NULL, related_name="messages")
-    channel = models.CharField(max_length=10, choices=Channel.choices)
+    channel = models.CharField(max_length=10, choices=ChannelEnum.choices())
     destination = models.CharField(max_length=255)
 
     subject = models.CharField(max_length=255, blank=True)

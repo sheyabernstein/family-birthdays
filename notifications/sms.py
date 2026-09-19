@@ -8,13 +8,21 @@ SmsBackend here and pointing SMS_BACKEND at it - nothing else needs to
 change.
 """
 
+import time
+
 import boto3
+import redis
 from botocore.exceptions import ClientError
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from config.exceptions import FamilyBirthdaysError
 from config.logging_config import logger
+
+# Module-level, unlike SnsSmsBackend's boto3 client below - redis-py
+# connects lazily on first command, so this doesn't hit the same
+# post-fork hazard; matches accounts/magic_links.py's own client.
+_redis_client = redis.from_url(settings.REDIS_URL)
 
 
 class SmsUnrecoverableError(FamilyBirthdaysError):
@@ -23,6 +31,52 @@ class SmsUnrecoverableError(FamilyBirthdaysError):
     notifications.tasks.send_message catches this separately from a
     transient failure and does not retry it.
     """
+
+
+class SmsRateLimitedError(Exception):
+    """The global SNS Publish budget for this second is used up.
+
+    Deliberately not a FamilyBirthdaysError - that base class means
+    "already handled, don't retry, don't alert," which is exactly wrong
+    here: this is transient by construction (capacity frees up every
+    second) and notifications.tasks.send_message's own autoretry_for
+    picks it up like any other Exception. Celery's own retry() raises a
+    control-flow Retry, not a real failure, so Sentry never hears about
+    this unless it persists through every retry - the one case that
+    actually would be worth knowing about.
+    """
+
+
+def _check_sns_publish_rate_limit() -> None:
+    """Raises SmsRateLimitedError if this second's global SNS Publish budget is already spent.
+
+    A plain Redis INCR per 1-second window - shared by every process that
+    calls this, regardless of worker count or concurrency, which is the
+    whole point: AWS's own Publish throttle (10 req/s) is an account/
+    region-wide limit, not a per-process one, so Celery's own per-worker
+    `rate_limit=` can't enforce it correctly once more than one
+    worker/replica exists. A fixed window has known burst behavior right
+    at the window boundary, but that's an acceptable trade for staying
+    well under the real limit (see settings.SNS_PUBLISH_RATE_LIMIT_PER_
+    SECOND) rather than needing a token-bucket/Lua script for a volume
+    this app doesn't actually see.
+    """
+    window = int(time.time())
+    key = f"sns_publish_rate:{window}"
+    count = _redis_client.incr(key)
+    if count == 1:
+        _redis_client.expire(key, 2)
+    if count > settings.SNS_PUBLISH_RATE_LIMIT_PER_SECOND:
+        logger.warning(
+            "sns publish rate limited",
+            window=window,
+            count=count,
+            limit=settings.SNS_PUBLISH_RATE_LIMIT_PER_SECOND,
+        )
+        raise SmsRateLimitedError(
+            f"{count} publishes attempted in window {window}, "
+            f"limit is {settings.SNS_PUBLISH_RATE_LIMIT_PER_SECOND}/s"
+        )
 
 
 class SmsBackend:
@@ -103,6 +157,8 @@ class SnsSmsBackend(SmsBackend):
         )
 
     def send(self, *, to: str, body: str, sender_id: str) -> dict:
+        _check_sns_publish_rate_limit()
+        logger.debug("sending sms via sns", to=to, sender_id=sender_id)
         try:
             response = self._client.publish(
                 PhoneNumber=to,
