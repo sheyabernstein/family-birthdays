@@ -147,26 +147,28 @@
                 <p class="muted">Add an email or phone number to your account before subscribing to notifications.</p>
             {% elif event_rows %}
                 <p class="muted">Each button shows what's actually in effect and why - click it to add an exception just for {{ person.display_name }}, overriding your usual setting for that event type. Change the usual setting itself on <a href="{% url 'notifications:subscriptions' %}">My Notifications</a>.</p>
-                <table class="subscribe-table">
-                    <thead>
-                        <tr>
-                            <th>Event</th>
-                            {% for channel in event_rows.0.channels %}<th>{{ channel.label }}</th>{% endfor %}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in event_rows %}
+                <div class="table-scroll">
+                    <table class="subscribe-table">
+                        <thead>
                             <tr>
-                                <td><span class="badge badge-{{ row.event_type.badge_class }}">{{ row.event_type.name }}</span></td>
-                                {% for channel in row.channels %}
-                                    <td>
-                                        {% include "notifications/_preference_toggle.html" with event_type=row.event_type channel=channel person_id=person.uuid union_id=None subject=person.display_name %}
-                                    </td>
-                                {% endfor %}
+                                <th>Event</th>
+                                {% for channel in event_rows.0.channels %}<th>{{ channel.label }}</th>{% endfor %}
                             </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {% for row in event_rows %}
+                                <tr>
+                                    <td><span class="badge badge-{{ row.event_type.badge_class }}">{{ row.event_type.name }}</span></td>
+                                    {% for channel in row.channels %}
+                                        <td>
+                                            {% include "notifications/_preference_toggle.html" with event_type=row.event_type channel=channel person_id=person.uuid union_id=None subject=person.display_name %}
+                                        </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             {% else %}
                 <p class="muted">No applicable life-cycle events yet - add a date of birth to enable birthday notifications.</p>
             {% endif %}
@@ -175,76 +177,80 @@
     {% if union_rows and has_any_channel %}
         <div class="card">
             <h2>Anniversaries</h2>
-            <table class="subscribe-table">
-                <thead>
-                    <tr>
-                        <th>With</th>
-                        <th>Event</th>
-                        {% for channel in union_rows.0.channels %}<th>{{ channel.label }}</th>{% endfor %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in union_rows %}
+            <div class="table-scroll">
+                <table class="subscribe-table">
+                    <thead>
                         <tr>
-                            <td>
-                                <a href="{% url 'family:person_detail' row.union.other_person.uuid %}"
-                                   style="color: inherit">{{ row.union.other_person.display_name }}</a>
-                            </td>
-                            <td><span class="badge badge-{{ row.event_type.badge_class }}">{{ row.event_type.name }}</span></td>
-                            {% for channel in row.channels %}
-                                <td>
-                                    {% include "notifications/_preference_toggle.html" with event_type=row.event_type channel=channel person_id=None union_id=row.union.uuid subject=row.union.other_person.display_name %}
-                                </td>
-                            {% endfor %}
+                            <th>With</th>
+                            <th>Event</th>
+                            {% for channel in union_rows.0.channels %}<th>{{ channel.label }}</th>{% endfor %}
                         </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        {% for row in union_rows %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'family:person_detail' row.union.other_person.uuid %}"
+                                       style="color: inherit">{{ row.union.other_person.display_name }}</a>
+                                </td>
+                                <td><span class="badge badge-{{ row.event_type.badge_class }}">{{ row.event_type.name }}</span></td>
+                                {% for channel in row.channels %}
+                                    <td>
+                                        {% include "notifications/_preference_toggle.html" with event_type=row.event_type channel=channel person_id=None union_id=row.union.uuid subject=row.union.other_person.display_name %}
+                                    </td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     {% endif %}
     {% if history_events is not None %}
         <div class="card">
             <h2>History</h2>
             {% if history_events %}
-                <table class="subscribe-table history-table">
-                    <thead>
-                        <tr>
-                            <th>When</th>
-                            <th>Who</th>
-                            <th>On</th>
-                            <th>Field</th>
-                            <th>Change</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for event in history_events %}
-                            {% for change in event.changes %}
-                                <tr>
-                                    {% if forloop.first %}
-                                        <td rowspan="{{ event.changes|length }}">{{ event.when|date:"M j, Y, g:i A" }}</td>
-                                        <td rowspan="{{ event.changes|length }}">
-                                            {% if event.who.display_name %}
-                                                <span title="{{ event.who.email }}">{{ event.who.display_name }}</span>
-                                            {% else %}
-                                                {{ event.who.email }}
-                                            {% endif %}
-                                        </td>
-                                        <td rowspan="{{ event.changes|length }}">{{ event.subject_label }}</td>
-                                    {% endif %}
-                                    {% if change.old_display is None %}
-                                        <td colspan="2" class="diff-label-only">{{ change.label }}</td>
-                                    {% else %}
-                                        <td class="diff-field-name">{{ change.label }}</td>
-                                        <td class="diff-cell">
-                                            {% if change.old_display %}<div class="diff-row diff-row-removed">{{ change.old_display }}</div>{% endif %}
-                                            {% if change.new_display %}<div class="diff-row diff-row-added">{{ change.new_display }}</div>{% endif %}
-                                        </td>
-                                    {% endif %}
-                                </tr>
+                <div class="table-scroll">
+                    <table class="subscribe-table history-table">
+                        <thead>
+                            <tr>
+                                <th>When</th>
+                                <th>Who</th>
+                                <th>On</th>
+                                <th>Field</th>
+                                <th>Change</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for event in history_events %}
+                                {% for change in event.changes %}
+                                    <tr>
+                                        {% if forloop.first %}
+                                            <td rowspan="{{ event.changes|length }}">{{ event.when|date:"M j, Y, g:i A" }}</td>
+                                            <td rowspan="{{ event.changes|length }}">
+                                                {% if event.who.display_name %}
+                                                    <span title="{{ event.who.email }}">{{ event.who.display_name }}</span>
+                                                {% else %}
+                                                    {{ event.who.email }}
+                                                {% endif %}
+                                            </td>
+                                            <td rowspan="{{ event.changes|length }}">{{ event.subject_label }}</td>
+                                        {% endif %}
+                                        {% if change.old_display is None %}
+                                            <td colspan="2" class="diff-label-only">{{ change.label }}</td>
+                                        {% else %}
+                                            <td class="diff-field-name">{{ change.label }}</td>
+                                            <td class="diff-cell">
+                                                {% if change.old_display %}<div class="diff-row diff-row-removed">{{ change.old_display }}</div>{% endif %}
+                                                {% if change.new_display %}<div class="diff-row diff-row-added">{{ change.new_display }}</div>{% endif %}
+                                            </td>
+                                        {% endif %}
+                                    </tr>
+                                {% endfor %}
                             {% endfor %}
-                        {% endfor %}
-                    </tbody>
-                </table>
+                        </tbody>
+                    </table>
+                </div>
                 <small class="help-text muted">Showing the most recent {{ history_events|length }} change{{ history_events|length|pluralize }} to this person and their marriages.</small>
             {% else %}
                 <p class="muted">No recorded changes yet.</p>
