@@ -45,14 +45,14 @@ class RequestMagicLinkView(View):
         ttl_minutes = magic_links.TOKEN_TTL_SECONDS // 60
 
         if account and account.is_active:
-            if not magic_links.is_rate_limited(account.pk):
+            if not magic_links.is_rate_limited(str(account.uuid)):
                 is_email = "@" in identifier
                 channel = Account.Channel.EMAIL if is_email else Account.Channel.SMS
                 destination = account.email if is_email else account.phone
                 family = _sole_family(account)
 
                 token = magic_links.issue_token(
-                    account_id=account.pk, channel=channel, destination=destination
+                    account_uuid=str(account.uuid), channel=channel, destination=destination
                 )
                 # Not request.build_absolute_uri() - that derives the scheme
                 # from request.is_secure(), which is only ever True if
@@ -93,9 +93,9 @@ class RequestMagicLinkView(View):
                         sender_id=family.sms_sender_id if family else "",
                     )
 
-                logger.info("magic link issued", account_id=account.pk, channel=channel)
+                logger.info("magic link issued", account=account.uuid, channel=channel)
             else:
-                logger.warning("magic link rate limited", account_id=account.pk)
+                logger.warning("magic link rate limited", account=account.uuid)
 
         # Same response whether or not the identifier matched a real
         # account - don't leak which emails/phones are registered.
@@ -123,11 +123,11 @@ class VerifyMagicLinkView(View):
             logger.warning("magic link verify failed - invalid or expired token")
             return render(request, "accounts/link_invalid.html", status=400)
 
-        account = Account.objects.filter(pk=payload["account_id"], is_active=True).first()
+        account = Account.objects.filter(uuid=payload["account_uuid"], is_active=True).first()
         if not account:
             logger.warning(
                 "magic link verify failed - no matching active account",
-                account_id=payload["account_id"],
+                account=payload["account_uuid"],
             )
             return render(request, "accounts/link_invalid.html", status=400)
 
@@ -139,7 +139,7 @@ class VerifyMagicLinkView(View):
         if request.user.pk != account.pk:
             account.backend = "django.contrib.auth.backends.ModelBackend"
             login(request, account)
-            logger.info("account logged in", account_id=account.pk)
+            logger.info("account logged in", account=account.uuid)
         return redirect("family:dashboard")
 
 
@@ -147,7 +147,7 @@ class LogoutView(LoginRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request: HttpRequest) -> HttpResponse:
-        logger.info("account logged out", account_id=request.user.pk)
+        logger.info("account logged out", account=request.user.uuid)
         logout(request)
         return redirect("accounts:request_link")
 

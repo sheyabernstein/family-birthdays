@@ -402,7 +402,7 @@ def compute_occurrences_for_person(person: Person) -> None:
     Called right after they're created/edited so their birthday/yahrzeit
     shows up immediately instead of waiting for the nightly sweep.
     """
-    logger.debug("recomputing person occurrences", person_id=person.pk)
+    logger.debug("recomputing person occurrences", person=person.uuid)
     horizon = timezone.localdate() + dt.timedelta(days=OCCURRENCE_HORIZON_DAYS)
     today_hebrew_year = gregorian_to_hebrew(timezone.localdate()).year
     applicable_event_type_ids = set()
@@ -417,14 +417,14 @@ def compute_occurrences_for_person(person: Person) -> None:
     _delete_stale_unsent_occurrences(person=person, keep_event_type_ids=applicable_event_type_ids)
     logger.debug(
         "person occurrences recomputed",
-        person_id=person.pk,
+        person=person.uuid,
         applicable_event_type_count=len(applicable_event_type_ids),
     )
 
 
 def compute_occurrences_for_union(union: Union) -> None:
     """Same as compute_occurrences_for_person, for a marriage."""
-    logger.debug("recomputing union occurrences", union_id=union.pk)
+    logger.debug("recomputing union occurrences", union=union.uuid)
     horizon = timezone.localdate() + dt.timedelta(days=OCCURRENCE_HORIZON_DAYS)
     today_hebrew_year = gregorian_to_hebrew(timezone.localdate()).year
     applicable_event_type_ids = set()
@@ -438,7 +438,7 @@ def compute_occurrences_for_union(union: Union) -> None:
     _delete_stale_unsent_occurrences(union=union, keep_event_type_ids=applicable_event_type_ids)
     logger.debug(
         "union occurrences recomputed",
-        union_id=union.pk,
+        union=union.uuid,
         applicable_event_type_count=len(applicable_event_type_ids),
     )
 
@@ -769,7 +769,7 @@ def send_message(self: Task, message_id: int) -> None:
         message.save(update_fields=["status", "error", "tries"])
         logger.error(
             "message send failed permanently, not retrying",
-            message_id=message.pk,
+            message=message.uuid,
             subject=message.subject,
             tries=message.tries,
             exc_info=exc,
@@ -782,7 +782,7 @@ def send_message(self: Task, message_id: int) -> None:
         message.save(update_fields=["status", "error", "tries"])
         logger.warning(
             "message send failed",
-            message_id=message.pk,
+            message=message.uuid,
             subject=message.subject,
             tries=message.tries,
             exc_info=exc,
@@ -796,7 +796,7 @@ def send_message(self: Task, message_id: int) -> None:
     message.save(update_fields=["status", "sent_at", "tries", "provider_response"])
     logger.info(
         "message sent",
-        message_id=message.pk,
+        message=message.uuid,
         subject=message.subject,
         channel=message.channel,
         status=message.status,
