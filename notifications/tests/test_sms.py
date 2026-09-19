@@ -1,4 +1,3 @@
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -131,12 +130,13 @@ def test_rate_limit_raises_once_the_configured_limit_is_exceeded():
 
 
 @override_settings(SNS_PUBLISH_RATE_LIMIT_PER_SECOND=1)
-def test_rate_limit_resets_in_the_next_second_window():
+def test_rate_limit_resets_in_the_next_second_window(monkeypatch):
+    monkeypatch.setattr("notifications.sms.time.time", lambda: 1_000_000.0)
     _check_sns_publish_rate_limit()
     with pytest.raises(SmsRateLimitedError):
         _check_sns_publish_rate_limit()
 
-    time.sleep(1.1)
+    monkeypatch.setattr("notifications.sms.time.time", lambda: 1_000_001.5)
     _check_sns_publish_rate_limit()
 
 
