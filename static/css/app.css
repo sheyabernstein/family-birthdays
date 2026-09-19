@@ -1080,19 +1080,33 @@ main.full-bleed {
 
 /* --- Auth pages --- */
 
-/* min-height: 100% (not 100vh) - .auth-shell renders inside <main>,
-   which is already flex: 1 inside .shell's own min-height: 100vh flex
-   column. Every page that reaches this while signed in (switch/create
-   workspace, no-family-access) always has the topbar above it too, so a
-   second independent 100vh here stacked a full extra viewport's worth of
-   height on top of the topbar's - the page was taller than the viewport
-   by exactly the topbar's height, which read as dead space below the
-   fold and rubber-band overscroll trying to reach it. main's own flex-
-   grown size is what's actually available, so filling that (100%)
-   rather than the whole viewport again is what keeps this centered
-   without spilling past the bottom of the screen. */
+/* Not min-height: 100vh - .auth-shell renders inside <main>, which is
+   already flex: 1 inside .shell's own min-height: 100vh flex column.
+   Every page that reaches this while signed in (switch/create workspace,
+   no-family-access) always has the topbar above it too, so a second
+   independent 100vh here stacked a full extra viewport's worth of height
+   on top of the topbar's - the page was taller than the viewport by
+   exactly the topbar's height, which read as dead space below the fold
+   and rubber-band overscroll trying to reach it.
+
+   A first attempt fixed that by switching to min-height: 100% instead -
+   wrong, and confirmed wrong live: percentage heights only resolve
+   against an ancestor with a genuinely *specified* height, and main's
+   own size is arrived at via flex-grow (flex: 1 in .shell), not a
+   specified height in the traditional block sense - min-height: 100%
+   here resolved to nothing, so the card collapsed to the top of the
+   page instead of centering. main.auth-main (see the templates that use
+   this - request_link/link_sent/link_invalid/switch_family/
+   create_family/no_family_access) opts main itself into flex layout for
+   just those pages, so .auth-shell's own flex: 1 grows to fill main's
+   already-definite flex-resolved height directly - one level of real
+   flex-grow, not a percentage chained through it. */
+main.auth-main {
+  display: flex;
+}
+
 .auth-shell {
-  min-height: 100%;
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;

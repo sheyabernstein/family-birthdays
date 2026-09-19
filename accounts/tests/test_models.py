@@ -77,3 +77,40 @@ def test_person_in_family_reuses_a_prefetch_instead_of_requerying(family, django
     with django_assert_num_queries(0):
         prefetched.person_in_family(family.id)
         prefetched.person_in_family(family.id)
+
+
+def test_find_by_identifier_matches_email_case_insensitively():
+    account = Account.objects.create_user(email="test@example.com")
+
+    assert Account.find_by_identifier("Test@Example.com") == account
+
+
+@pytest.mark.parametrize(
+    ["typed"],
+    [
+        ["+15551234567"],
+        ["+1 555-123-4567"],
+        ["+1 (555) 123-4567"],
+        ["+1 555 123 4567"],
+        [" +15551234567 "],
+    ],
+    ids=[
+        "already clean E.164",
+        "hyphens",
+        "parens and a hyphen",
+        "spaces",
+        "surrounding whitespace",
+    ],
+)
+def test_find_by_identifier_normalizes_phone_punctuation(typed):
+    account = Account.objects.create_user(phone="+15551234567")
+
+    assert Account.find_by_identifier(typed) == account
+
+
+def test_find_by_identifier_returns_none_for_a_phone_missing_its_country_code():
+    # The stored phone is always E.164 (a leading "+") - normalizing
+    # punctuation doesn't invent a country code that was never typed.
+    Account.objects.create_user(phone="+15551234567")
+
+    assert Account.find_by_identifier("555-123-4567") is None

@@ -191,6 +191,25 @@ def test_request_magic_link_texts_a_sign_in_link_for_a_known_phone(client, monke
     assert "15" in body
 
 
+def test_request_magic_link_texts_a_sign_in_link_for_a_phone_typed_with_punctuation(client, monkeypatch):
+    # find_by_identifier normalizes punctuation before matching - this is
+    # the end-to-end proof that a number typed the way a person would
+    # actually type it (not the bare E.164 the account is stored as)
+    # still finds the account and gets texted.
+    Account.objects.create_user(phone="+15551234567")
+    calls = []
+    monkeypatch.setattr(
+        "accounts.tasks.send_sms",
+        lambda to, body, event_type="", sender_id="": calls.append((to, body)),
+    )
+
+    resp = client.post(reverse("accounts:request_link"), {"identifier": "+1 (555) 123-4567"})
+
+    assert resp.status_code == 200
+    assert len(calls) == 1
+    assert calls[0][0] == "+15551234567"
+
+
 def test_request_magic_link_is_silent_for_an_unknown_identifier(client):
     # Same response whether or not the identifier matched a real account -
     # don't leak which emails/phones are registered.
