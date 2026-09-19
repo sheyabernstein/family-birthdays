@@ -1,3 +1,4 @@
+import re
 import uuid
 from typing import TYPE_CHECKING
 
@@ -141,8 +142,21 @@ class Account(AbstractBaseUser, PermissionsMixin):
 
         Independent of USERNAME_FIELD, since phone-only accounts need to
         be findable too.
+
+        The phone side is matched against a normalized form of whatever
+        was typed - strip everything but a leading "+" and digits - since
+        `phone` is always stored punctuation-free E.164 (see the model
+        field's own help_text), but this field is plain text with no
+        widget enforcing that shape the way PersonForm/AccountContactForm's
+        phone fields do via intl-tel-input. Without this, a perfectly
+        correct, country-coded number like "+1 555-123-4567" would fail
+        to match "+15551234567" on punctuation alone - a silent failure,
+        since the confirmation page is intentionally identical whether or
+        not the identifier matched (see RequestMagicLinkView - no account
+        enumeration).
         """
         identifier = identifier.strip()
         if "@" in identifier:
             return cls.objects.filter(email__iexact=identifier).first()
-        return cls.objects.filter(phone=identifier).first()
+        normalized = re.sub(r"[^\d+]", "", identifier)
+        return cls.objects.filter(phone=normalized).first()

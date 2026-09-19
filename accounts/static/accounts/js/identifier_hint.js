@@ -6,11 +6,11 @@
 // something phone-shaped to begin with. This is deliberately a much
 // lighter heuristic instead - not real validation, just a nudge - since
 // Account.find_by_identifier matches the stored phone exactly (E.164,
-// no normalization), so a number typed without a country code will
-// never match a real account, and the confirmation page is intentionally
-// identical whether or not it did (see accounts.views.
-// RequestMagicLinkView - no account enumeration). Without this hint,
-// that failure is completely silent.
+// modulo punctuation - see that method's own docstring), so a number
+// typed without a country code will never match a real account, and the
+// confirmation page is intentionally identical whether or not it did
+// (see accounts.views.RequestMagicLinkView - no account enumeration).
+// Without this hint, that failure is completely silent.
 function initIdentifierHint(selector) {
   const input = document.querySelector(selector);
   if (!input) {
@@ -19,12 +19,15 @@ function initIdentifierHint(selector) {
 
   let hintEl = null;
 
-  // Not an email (no "@") and doesn't already start with the "+" a
-  // country code needs - deliberately loose, since this only has to
-  // catch the common case (a bare national-format number) without
-  // trying to actually parse phone numbers the way intl-tel-input does.
+  // Digits and common phone punctuation only (spaces, hyphens, dots,
+  // parens), with no leading "+" - deliberately narrow, so this never
+  // fires for a mistyped email (no "@" yet) or other plain text, only
+  // for something that's actually phone-shaped and just missing its
+  // country code.
   function looksLikeAPhoneNumberMissingItsCountryCode(value) {
-    return value !== "" && !value.includes("@") && !value.startsWith("+");
+    return (
+      value !== "" && /^[\d\s().-]+$/.test(value) && !value.startsWith("+")
+    );
   }
 
   function showHint() {
@@ -34,7 +37,7 @@ function initIdentifierHint(selector) {
       input.insertAdjacentElement("afterend", hintEl);
     }
     hintEl.textContent =
-      "Entering a phone number? Include the country code (e.g. +44 for the UK) - without it, it won't be recognized.";
+      "Include the country code, e.g. +44 7700 900123 for a UK mobile - without it, we won't recognize it.";
   }
 
   function clearHint() {
