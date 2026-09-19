@@ -33,7 +33,7 @@ def _recompute_person_occurrences(sender: type[Person], instance: Person, **kwar
         for union in Union.objects.filter(models.Q(person_a=instance) | models.Q(person_b=instance)):
             compute_occurrences_for_union(union)
     except Exception as exc:
-        logger.warning("occurrence recompute failed after person save", person_id=instance.pk, exc_info=exc)
+        logger.warning("occurrence recompute failed after person save", person=instance.uuid, exc_info=exc)
 
 
 @receiver(post_save, sender=Union)
@@ -41,4 +41,4 @@ def _recompute_union_occurrences(sender: type[Union], instance: Union, **kwargs:
     try:
         compute_occurrences_for_union(instance)
     except Exception as exc:
-        logger.warning("occurrence recompute failed after union save", union_id=instance.pk, exc_info=exc)
+        logger.warning("occurrence recompute failed after union save", union=instance.uuid, exc_info=exc)

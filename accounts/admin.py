@@ -11,7 +11,7 @@ from accounts.models import Account
 @admin.register(Account)
 class AccountAdmin(VersionAdmin):
     # No explicit ordering - Account.Meta.ordering already covers this.
-    list_display = ("email", "phone", "linked_person_link", "preferred_channel", "is_staff", "is_active")
+    list_display = ("email", "phone", "linked_person_link", "is_staff", "is_active")
     search_fields = ("email", "phone")
     exclude = ("password",)
 

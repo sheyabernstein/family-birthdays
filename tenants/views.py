@@ -31,7 +31,7 @@ class CreateFamilyView(LoginRequiredMixin, PermissionRequiredMixin, View):
                 account=request.user, family=family, role=FamilyMembership.Role.OWNER
             )
             request.session["family_id"] = family.id
-            logger.info("family created", family_id=family.id, account_id=request.user.pk)
+            logger.info("family created", family=family.uuid, account=request.user.uuid)
             messages.success(request, f"Created {family.name}.")
             return redirect("family:dashboard")
         if not name:

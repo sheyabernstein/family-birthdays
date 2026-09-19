@@ -1,3 +1,4 @@
+import uuid
 from typing import TYPE_CHECKING
 
 import reversion
@@ -69,11 +70,15 @@ class Account(AbstractBaseUser, PermissionsMixin):
         EMAIL = "email", "Email"
         SMS = "sms", "SMS"
 
+    # Used in place of the database pk anywhere an account is identified
+    # outside this process (magic-link tokens, logs) - same convention as
+    # every other model, see Person.uuid's own comment.
+    uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+
     email = models.EmailField(unique=True, null=True, blank=True)
     phone = models.CharField(
         max_length=32, unique=True, null=True, blank=True, help_text="E.164 format, e.g. +15551234567"
     )
-    preferred_channel = models.CharField(max_length=10, choices=Channel.choices, default=Channel.EMAIL)
 
     # Top of the notification preference hierarchy: everyone is subscribed
     # to everything by default (see notifications.audience), and these are
