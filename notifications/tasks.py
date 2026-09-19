@@ -806,11 +806,23 @@ def send_message(self: Task, message_id: int) -> None:
         )
         raise
     except SmsRateLimitedError as exc:
-        # Not a failure worth recording on the Message row at all - the
-        # send never actually happened, and this is expected to resolve
-        # itself within a second or two. autoretry_for picks this up like
-        # any other Exception; logged at debug so it doesn't read as
-        # alarming or reach Sentry.
+        # Quiet unless this is the last attempt: autoretry_for's wrapper
+        # gives up outside this function, so a burst that outlasts the
+        # whole retry window would otherwise leave the Message stuck at
+        # QUEUED forever with no record of why (see AGENTS.md).
+        if self.request.retries >= self.max_retries:
+            message.status = Message.Status.FAILED
+            message.error = str(exc)
+            message.tries += 1
+            message.save(update_fields=["status", "error", "tries"])
+            logger.error(
+                "message send failed - sns rate limit never cleared within retry budget",
+                message=message.uuid,
+                subject=message.subject,
+                tries=message.tries,
+                exc_info=exc,
+            )
+            raise
         logger.debug(
             "message send deferred by sns rate limit",
             message=message.uuid,

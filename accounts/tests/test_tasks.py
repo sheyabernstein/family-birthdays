@@ -108,3 +108,32 @@ def test_send_magic_link_message_retries_a_rate_limit_error(monkeypatch):
             reply_to="",
             sms_sender_id="",
         )
+
+
+def test_send_magic_link_message_stops_retrying_once_rate_limit_retries_are_exhausted(monkeypatch):
+    """See notifications.tasks.send_message's identical exhaustion test -
+    without the retries >= max_retries check, a burst outlasting the
+    whole retry window would just keep retrying forever instead of
+    genuinely giving up."""
+
+    def _raise_rate_limited(**kwargs):
+        raise SmsRateLimitedError("10 publishes attempted, limit is 8/s")
+
+    monkeypatch.setattr("accounts.tasks.send_sms", _raise_rate_limited)
+
+    with pytest.raises(SmsRateLimitedError):
+        send_magic_link_message.apply(
+            kwargs={
+                "account_uuid": "00000000-0000-0000-0000-000000000000",
+                "channel": ChannelEnum.SMS,
+                "destination": "+15551234567",
+                "subject": "",
+                "body": "Your sign-in link",
+                "html": "",
+                "from_name": "",
+                "from_email": "",
+                "reply_to": "",
+                "sms_sender_id": "",
+            },
+            retries=send_magic_link_message.max_retries,
+        )

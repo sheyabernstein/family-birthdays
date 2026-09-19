@@ -19,6 +19,9 @@ from django.core.exceptions import ImproperlyConfigured
 from config.exceptions import FamilyBirthdaysError
 from config.logging_config import logger
 
+# Module-level, unlike SnsSmsBackend's boto3 client below - redis-py
+# connects lazily on first command, so this doesn't hit the same
+# post-fork hazard; matches accounts/magic_links.py's own client.
 _redis_client = redis.from_url(settings.REDIS_URL)
 
 

@@ -1033,3 +1033,24 @@ def test_send_message_retries_an_sms_rate_limit_error_without_touching_the_messa
     assert message.status == Message.Status.QUEUED
     assert message.tries == 0
     assert message.error == ""
+
+
+def test_send_message_marks_the_message_failed_once_rate_limit_retries_are_exhausted(monkeypatch, family):
+    """A burst that outlasts the whole retry window shouldn't leave the
+    Message silently stuck at QUEUED forever - the last allowed attempt
+    needs to record a real failure, since autoretry_for's own wrapper
+    gives up outside this function with no further chance to do so."""
+    message = _sms_message(family)
+
+    def _raise_rate_limited(**kwargs):
+        raise SmsRateLimitedError("10 publishes attempted, limit is 8/s")
+
+    monkeypatch.setattr("notifications.tasks.send_sms", _raise_rate_limited)
+
+    with pytest.raises(SmsRateLimitedError):
+        send_message.apply(args=[message.pk], retries=send_message.max_retries)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.FAILED
+    assert message.tries == 1
+    assert "publishes attempted" in message.error

@@ -77,8 +77,16 @@ def send_magic_link_message(
         )
         raise
     except SmsRateLimitedError as exc:
-        # Expected to resolve within a second or two - see
-        # notifications.tasks.send_message's own identical branch.
+        # See notifications.tasks.send_message's identical branch for why
+        # the last attempt needs its own check here.
+        if self.request.retries >= self.max_retries:
+            logger.error(
+                "magic link send failed - sns rate limit never cleared within retry budget",
+                account=account_uuid,
+                channel=channel,
+                exc_info=exc,
+            )
+            raise
         logger.debug(
             "magic link send deferred by sns rate limit",
             account=account_uuid,
