@@ -10,9 +10,11 @@ from accounts import magic_links
 from accounts.forms import AccountContactForm
 from accounts.helpers import validate_email_address
 from accounts.models import Account
+from accounts.tasks import send_magic_link_message
 from config.logging_config import logger
+from notifications.enums import ChannelEnum
 from notifications.helpers import html_to_plain_text
-from notifications.services import absolute_url, send_email, send_sms
+from notifications.services import absolute_url
 from tenants.mixins import FamilyRequiredMixin
 from tenants.models import Family
 
@@ -44,10 +46,17 @@ class RequestMagicLinkView(View):
         # itself, regardless of whether a link was actually issued below.
         ttl_minutes = magic_links.TOKEN_TTL_SECONDS // 60
 
-        if account and account.is_active:
+        if not account or not account.is_active:
+            logger.info(
+                "ignoring magic link request",
+                identifier=identifier,
+                account=account.uuid if account else None,
+                is_active=account.is_active if account else None,
+            )
+        else:
             if not magic_links.is_rate_limited(str(account.uuid)):
                 is_email = "@" in identifier
-                channel = Account.Channel.EMAIL if is_email else Account.Channel.SMS
+                channel = ChannelEnum.EMAIL if is_email else ChannelEnum.SMS
                 destination = account.email if is_email else account.phone
                 family = _sole_family(account)
 
@@ -66,7 +75,7 @@ class RequestMagicLinkView(View):
                 # notifications.services._site_base_url).
                 url = absolute_url("accounts:verify", token)
 
-                if channel == Account.Channel.EMAIL:
+                if channel == ChannelEnum.EMAIL:
                     html = render_to_string(
                         "accounts/email/sign_in.html",
                         {
@@ -75,27 +84,37 @@ class RequestMagicLinkView(View):
                             "family_name": family.name if family else None,
                         },
                     )
-                    send_email(
-                        to=destination,
-                        subject="Your sign-in link",
-                        body=html_to_plain_text(html),
-                        html=html,
-                        event_type="magic_link",
-                        from_name=family.name if family else "",
-                        from_email=family.sender_email if family else "",
-                        reply_to=family.reply_to_email if family else "",
-                    )
+                    subject, body = "Your sign-in link", html_to_plain_text(html)
                 else:
-                    send_sms(
-                        to=destination,
-                        body=f"Your sign-in link (valid {ttl_minutes} min): {url}",
-                        event_type="magic_link",
-                        sender_id=family.sms_sender_id if family else "",
-                    )
+                    html = ""
+                    subject, body = "", f"Your sign-in link (valid {ttl_minutes} min): {url}"
 
-                logger.info("magic link issued", account=account.uuid, channel=channel)
+                # Dispatched, not sent inline - see accounts.tasks.
+                # send_magic_link_message's own docstring for why this
+                # still always runs at TaskPriority.HIGH regardless of
+                # whatever else is queued.
+                task = send_magic_link_message.delay(
+                    account_uuid=str(account.uuid),
+                    channel=channel,
+                    destination=destination,
+                    subject=subject,
+                    body=body,
+                    html=html,
+                    from_name=family.name if family else "",
+                    from_email=family.sender_email if family else "",
+                    reply_to=family.reply_to_email if family else "",
+                    sms_sender_id=family.sms_sender_id if family else "",
+                )
+
+                logger.info(
+                    "magic link issued",
+                    account=account.uuid,
+                    identifier=identifier,
+                    channel=channel,
+                    task_id=task.id,
+                )
             else:
-                logger.warning("magic link rate limited", account=account.uuid)
+                logger.warning("magic link rate limited", account=account.uuid, identifier=identifier)
 
         # Same response whether or not the identifier matched a real
         # account - don't leak which emails/phones are registered.

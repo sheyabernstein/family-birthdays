@@ -1482,6 +1482,90 @@ switching workspaces.
   is a fine trade for storage this stateless local stack already treats
   as disposable.
 
+## Task retry backoff, priority, and SNS rate limiting
+
+- **`notifications.tasks.send_message` retries with exponential backoff
+  via Celery's own `autoretry_for`/`retry_backoff`, not a manual
+  `self.retry(exc=exc)` on a flat delay.** `autoretry_for=(Exception,)`
+  covers a generic provider failure and `SmsRateLimitedError` (below)
+  alike; `dont_autoretry_for=(SmsUnrecoverableError,)` excludes the one
+  failure retrying can never fix - a bad phone number will fail
+  identically on every attempt, so it fails the `Message` immediately
+  instead. `retry_backoff=True`/`retry_backoff_max=600`/`retry_jitter=True`
+  give up to 3 attempts with jitmax capped at 10 minutes, rather than the
+  previous flat 5-minute delay every time - a real provider outage
+  recovers faster with a short first retry, and jitter avoids every
+  queued message retrying in lockstep.
+- **`config.enums.TaskPriority` is a 3-tier enum of Celery *queue names*
+  (`HIGH="high"`/`NORMAL="normal"`/`LOW="low"`), passed as `queue=` on
+  every `@shared_task`, not Celery/kombu's own per-message Redis
+  priority (`Task.apply_async`'s `priority=` kwarg /
+  `broker_transport_options["priority_steps"]`).** `HIGH` is the
+  magic-link sign-in task (`accounts.tasks.send_magic_link_message` - a
+  human is watching the sign-in page right now, both email and SMS),
+  `NORMAL` is an actual notification send (`notifications.tasks.
+  send_message`), `LOW` is scheduled/background sweeps
+  (`compute_occurrences`/`send_due_notifications`/`send_due_broadcasts`).
+  Lives in `config/enums.py`, not `notifications/enums.py` - it's not a
+  notifications-specific concept, `accounts` needs it too.
+  **The per-message Redis priority approach was tried first and hit a
+  live kombu 5.6.2 bug, found by testing this for real against a running
+  docker stack, not by reasoning about it in the abstract**: the moment
+  any task actually carried a non-zero priority, the worker's own pidbox
+  control-command replies (mingle/heartbeat traffic, always priority 0)
+  started throwing `ValueError: not enough values to unpack` from
+  kombu's exchange lookup - and worse than just a logged error, the
+  worker silently stopped consuming the priority-suffixed queue
+  afterward, needing a restart to drain the backlog. Reproduced directly:
+  queued a real magic-link task, watched it sit unconsumed in Redis
+  (`LRANGE`/`LLEN` on the raw `celery:1` list) until the worker
+  restarted. The fix is three genuinely separate Celery queues consumed
+  by the single worker process, in a fixed order, via
+  `queue_order_strategy: "priority"` in `CELERY_BROKER_TRANSPORT_OPTIONS`
+  (`config/settings.py`) - kombu's own docs describe this mode plainly:
+  "Consume from queues in original order, so that if the first queue
+  always contains messages, the rest of the queues in the list will
+  never be consumed from." That's real, deterministic priority ordering
+  that never sets a per-message Redis priority at all, so it never
+  touches the buggy code path above - confirmed after the fix by
+  stopping the worker, queuing 5 LOW tasks then 1 HIGH task, and
+  restarting: the HIGH task was received and completed before any of the
+  5 LOW ones, with zero control-command errors across the run.
+  `docker/entrypoints/worker.sh`'s `celery worker -Q high,normal,low`
+  is what actually declares the consumption order - order matters there,
+  not just membership. `CELERY_TASK_DEFAULT_QUEUE = TaskPriority.NORMAL`
+  covers anything dispatched with no explicit `queue=` (Celery's own
+  built-in `backend_cleanup` periodic task, notably) so it still lands
+  somewhere the worker is listening. `CELERY_WORKER_PREFETCH_MULTIPLIER=1`
+  is still required regardless of this change: otherwise the worker
+  prefetches a batch of low-priority tasks before a high-priority one
+  ever gets a chance to jump the line, silently defeating the whole
+  point of separate queues.
+- **AWS SNS's real 10 req/s account-wide `Publish` limit is enforced with
+  a Redis-backed global counter checked inside `SnsSmsBackend.send()`
+  (`notifications/sms.py`'s `_check_sns_publish_rate_limit`), not
+  Celery's own per-worker `rate_limit=`.** Celery's `rate_limit` is
+  strictly per-worker-process - confirmed against Celery's own docs and
+  a related upstream issue - so it can't enforce an account-wide AWS
+  limit correctly once more than one worker/replica exists; the only way
+  to get a true global limit natively is one queue with exactly one
+  pinned consumer, which this app deliberately doesn't do (that's a
+  standing infra cost for a genuinely small volume). A plain `INCR`+
+  `EXPIRE` fixed-window counter, keyed by the current second and shared
+  across every process, is a much simpler fit. `SNS_PUBLISH_RATE_LIMIT_
+  PER_SECOND` (`config/settings.py`, default `8` - a safety margin under
+  the real `10`) is the budget; going over it raises `SmsRateLimitedError`
+  before the real `publish()` call ever happens. **This exception is a
+  plain `Exception`, deliberately not a `FamilyBirthdaysError`** -
+  unlike `SmsUnrecoverableError`, it's transient by construction (budget
+  frees up every second), so `send_message`'s `autoretry_for=(Exception,)`
+  picks it up like any other retryable failure, and it's logged at a
+  quiet level rather than raised as an alarming error - a Celery
+  intermediate retry never fires `task_failure` in the first place (only
+  the attempt after `max_retries` exhausted does), so this only ever
+  becomes Sentry-visible if it persists through every retry, which is the
+  one case actually worth knowing about.
+
 ## Where to look next
 
 Read the Django app docstrings and model comments for the actual mechanics

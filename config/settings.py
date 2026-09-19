@@ -6,6 +6,7 @@ from pathlib import Path
 from celery.schedules import crontab
 from dotenv import load_dotenv
 
+from config.enums import TaskPriority
 from config.helpers import (
     check_email_security_settings,
     get_env_bool,
@@ -17,6 +18,8 @@ from config.helpers import (
 BASE_DIR = Path(__file__).resolve().parent.parent
 if (env_path := BASE_DIR / ".env").exists():
     load_dotenv(env_path)
+
+BUILD_VERSION = os.getenv("BUILD_VERSION", "dev")
 
 # Imported after load_dotenv() so its module-level logging setup reads
 # LOG_LEVEL/etc from .env.
@@ -89,6 +92,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "config.context_processors.config",
             ],
         },
     },
@@ -214,6 +218,14 @@ AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 AWS_SNS_REGION = os.getenv("AWS_SNS_REGION", "")
 
+# AWS's own Publish API throttle is a hard 10 req/s per account/region -
+# an account-wide limit, not per-process, so a per-Celery-worker rate_limit
+# can't enforce it correctly once more than one worker/replica exists (see
+# notifications.sms's own Redis-backed counter, which checks this against
+# every process regardless of how many are running). Kept below the real
+# limit for headroom, not set to 10 itself.
+SNS_PUBLISH_RATE_LIMIT_PER_SECOND = get_env_int("SNS_PUBLISH_RATE_LIMIT_PER_SECOND", 8)
+
 # --- Redis --- (shared by Celery and the magic-link token store)
 # Built from discrete env vars rather than accepting a REDIS_URL directly -
 # same reasoning as DATABASES above, mirroring the POSTGRES_* pattern.
@@ -257,6 +269,32 @@ CELERY_TASK_RESULT_EXPIRES = get_env_int("CELERY_TASK_RESULT_EXPIRES", 60 * 60 *
 # is all this needs.
 CELERY_BEAT_SCHEDULER = "redbeat.RedBeatScheduler"
 REDBEAT_REDIS_URL = REDIS_URL
+
+# Task priority is three real Celery queues (high/normal/low - see
+# config.enums.TaskPriority), consumed by the single worker process in
+# that fixed order, not kombu's own per-message Redis "priority" emulation
+# (Task.apply_async's priority= kwarg / broker_transport_options'
+# priority_steps). That emulation was tried first and hit a live kombu
+# 5.6.2 bug: the moment any task actually carried a non-zero priority, the
+# worker's own pidbox control-command replies (always priority 0) started
+# throwing inside kombu's exchange lookup, and the worker silently stopped
+# consuming the priority-suffixed queue afterward until restarted -
+# reproduced directly against a real docker stack. queue_order_strategy=
+# "priority" never touches that code path at all - kombu's own docs
+# describe it plainly: "Consume from queues in original order, so that if
+# the first queue always contains messages, the rest of the queues in the
+# list will never be consumed from." See config.enums.TaskPriority's own
+# docstring and docker/entrypoints/worker.sh's `-Q high,normal,low` (order
+# matters - it's what actually gives high its priority here).
+# worker_prefetch_multiplier=1 is still required: otherwise the worker
+# prefetches a batch of low-priority tasks before a high-priority one
+# (e.g. a magic-link send) ever gets a chance to jump the line, silently
+# defeating the whole point of separate queues.
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "queue_order_strategy": "priority",
+}
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_DEFAULT_QUEUE = TaskPriority.NORMAL
 
 CELERY_BEAT_SCHEDULE = {
     "compute-occurrences-nightly": {

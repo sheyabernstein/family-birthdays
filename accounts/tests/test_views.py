@@ -6,6 +6,7 @@ from django.urls import reverse
 from accounts import magic_links
 from accounts.helpers import EmailValidationResult
 from accounts.models import Account
+from notifications.enums import ChannelEnum
 from tenants.models import Family, FamilyMembership
 
 pytestmark = pytest.mark.django_db
@@ -176,7 +177,7 @@ def test_request_magic_link_texts_a_sign_in_link_for_a_known_phone(client, monke
     Account.objects.create_user(phone="+15551234567")
     calls = []
     monkeypatch.setattr(
-        "accounts.views.send_sms",
+        "accounts.tasks.send_sms",
         lambda to, body, event_type="", sender_id="": calls.append((to, body)),
     )
 
@@ -252,7 +253,7 @@ def test_request_magic_link_stops_sending_once_rate_limited(client):
 def test_verify_magic_link_logs_in_with_a_valid_token(client):
     account = Account.objects.create_user(email="verify@example.com")
     token = magic_links.issue_token(
-        account_uuid=str(account.uuid), channel=Account.Channel.EMAIL, destination=account.email
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
     resp = client.get(reverse("accounts:verify", args=[token]))
@@ -265,7 +266,7 @@ def test_verify_magic_link_logs_in_with_a_valid_token(client):
 def test_verify_magic_link_token_is_single_use(client):
     account = Account.objects.create_user(email="onceonly@example.com")
     token = magic_links.issue_token(
-        account_uuid=str(account.uuid), channel=Account.Channel.EMAIL, destination=account.email
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
     client.get(reverse("accounts:verify", args=[token]))
     client.logout()
@@ -284,7 +285,7 @@ def test_verify_magic_link_rejects_an_unknown_token(client):
 def test_verify_magic_link_rejects_a_token_for_a_deactivated_account(client):
     account = Account.objects.create_user(email="deactivated@example.com")
     token = magic_links.issue_token(
-        account_uuid=str(account.uuid), channel=Account.Channel.EMAIL, destination=account.email
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
     account.is_active = False
     account.save(update_fields=["is_active"])
@@ -300,7 +301,7 @@ def test_verify_magic_link_redirects_an_already_authenticated_user_for_a_spent_t
     # visit already signed this session in.
     account = Account.objects.create_user(email="already-in@example.com")
     token = magic_links.issue_token(
-        account_uuid=str(account.uuid), channel=Account.Channel.EMAIL, destination=account.email
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
     client.get(reverse("accounts:verify", args=[token]))
 
@@ -319,7 +320,7 @@ def test_verify_magic_link_switches_account_even_when_already_authenticated(clie
     client.force_login(other_account)
     account = Account.objects.create_user(email="target@example.com")
     token = magic_links.issue_token(
-        account_uuid=str(account.uuid), channel=Account.Channel.EMAIL, destination=account.email
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
     resp = client.get(reverse("accounts:verify", args=[token]))

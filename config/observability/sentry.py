@@ -13,8 +13,6 @@ deployment case (OTel only, Sentry only, both). Ported from a FastAPI
 service (prom-gateway) built with the identical pattern.
 """
 
-import os
-
 import sentry_sdk
 from django.conf import settings
 from opentelemetry import trace as otel_trace
@@ -61,7 +59,7 @@ def init_sentry() -> None:
         logger.debug("sentry is not enabled, skipping init")
         return
 
-    build_version = os.getenv("BUILD_VERSION", "dev")
+    build_version = settings.BUILD_VERSION
 
     logger.info(
         "enabling sentry",

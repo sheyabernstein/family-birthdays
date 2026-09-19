@@ -8,6 +8,7 @@ import pytest
 
 from accounts import magic_links
 from accounts.models import Account
+from notifications import sms
 from tenants.management.commands import migrate_with_lock
 from tenants.models import Family, FamilyMembership
 
@@ -15,12 +16,13 @@ from tenants.models import Family, FamilyMembership
 @pytest.fixture(autouse=True)
 def _fake_redis(monkeypatch):
     """Every test gets its own in-process fake Redis, so the suite never
-    needs a real Redis server - see accounts/magic_links.py and
-    tenants/management/commands/migrate_with_lock.py, the two modules that
-    talk to Redis directly (separate fake instances - nothing relies on
-    them sharing keyspace)."""
+    needs a real Redis server - see accounts/magic_links.py,
+    tenants/management/commands/migrate_with_lock.py, and
+    notifications/sms.py, the modules that talk to Redis directly
+    (separate fake instances - nothing relies on them sharing keyspace)."""
     monkeypatch.setattr(magic_links, "_redis_client", fakeredis.FakeStrictRedis())
     monkeypatch.setattr(migrate_with_lock, "_redis_client", fakeredis.FakeStrictRedis())
+    monkeypatch.setattr(sms, "_redis_client", fakeredis.FakeStrictRedis())
 
 
 @pytest.fixture

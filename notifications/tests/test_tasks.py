@@ -11,8 +11,9 @@ from hdate.hebrew_date import Months
 from accounts.models import Account
 from family.hebrew import gregorian_to_hebrew, resolve_send_date
 from family.models import Person, Union
-from notifications.models import Broadcast, Channel, EventType, Message, NotificationPreference, Occurrence
-from notifications.sms import SmsUnrecoverableError
+from notifications.enums import ChannelEnum
+from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
+from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 from notifications.tasks import (
     compute_occurrences,
     compute_occurrences_for_person,
@@ -928,7 +929,7 @@ def _sms_message(family) -> Message:
     broadcast = Broadcast.objects.create(family=family, text="Hi", created_by=creator)
     return Message.objects.create(
         broadcast=broadcast,
-        channel=Channel.SMS,
+        channel=ChannelEnum.SMS,
         destination="+15551234567",
         body="Hi",
     )
@@ -972,3 +973,24 @@ def test_send_message_retries_a_transient_sms_error(monkeypatch, family):
     message.refresh_from_db()
     assert message.status == Message.Status.FAILED
     assert message.tries >= 1
+
+
+def test_send_message_retries_an_sms_rate_limit_error_without_touching_the_message_row(monkeypatch, family):
+    """SmsRateLimitedError (notifications.sms) is transient by
+    construction - the send never happened at all, so unlike a real
+    provider failure, the Message row shouldn't record a failed attempt
+    for it."""
+    message = _sms_message(family)
+
+    def _raise_rate_limited(**kwargs):
+        raise SmsRateLimitedError("10 publishes attempted, limit is 8/s")
+
+    monkeypatch.setattr("notifications.tasks.send_sms", _raise_rate_limited)
+
+    with pytest.raises(SmsRateLimitedError):
+        send_message(message.pk)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.QUEUED
+    assert message.tries == 0
+    assert message.error == ""

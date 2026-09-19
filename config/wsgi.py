@@ -8,6 +8,7 @@ https://docs.djangoproject.com/en/5.2/howto/deployment/wsgi/
 
 import os
 
+from django.conf import settings
 from django.core.wsgi import get_wsgi_application
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
@@ -38,4 +39,4 @@ application = get_wsgi_application()
 # found for real, the first time this dashboard was actually opened.
 from config.observability.metrics import set_build_info  # noqa: E402
 
-set_build_info(os.getenv("BUILD_VERSION", "dev"))
+set_build_info(settings.BUILD_VERSION)

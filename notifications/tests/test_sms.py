@@ -1,3 +1,4 @@
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -5,7 +6,13 @@ from botocore.exceptions import ClientError
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
-from notifications.sms import ConsoleSmsBackend, SmsUnrecoverableError, SnsSmsBackend
+from notifications.sms import (
+    ConsoleSmsBackend,
+    SmsRateLimitedError,
+    SmsUnrecoverableError,
+    SnsSmsBackend,
+    _check_sns_publish_rate_limit,
+)
 
 
 def test_console_backend_logs_and_returns_status():
@@ -106,3 +113,41 @@ def test_sns_backend_reraises_client_error_for_unrecognized_codes(mock_boto_clie
 
     with pytest.raises(ClientError):
         SnsSmsBackend().send(to="+15551234567", body="Hi", sender_id="RokachFam")
+
+
+@override_settings(SNS_PUBLISH_RATE_LIMIT_PER_SECOND=2)
+def test_rate_limit_allows_up_to_the_configured_limit_in_one_window():
+    _check_sns_publish_rate_limit()
+    _check_sns_publish_rate_limit()
+
+
+@override_settings(SNS_PUBLISH_RATE_LIMIT_PER_SECOND=2)
+def test_rate_limit_raises_once_the_configured_limit_is_exceeded():
+    _check_sns_publish_rate_limit()
+    _check_sns_publish_rate_limit()
+
+    with pytest.raises(SmsRateLimitedError):
+        _check_sns_publish_rate_limit()
+
+
+@override_settings(SNS_PUBLISH_RATE_LIMIT_PER_SECOND=1)
+def test_rate_limit_resets_in_the_next_second_window():
+    _check_sns_publish_rate_limit()
+    with pytest.raises(SmsRateLimitedError):
+        _check_sns_publish_rate_limit()
+
+    time.sleep(1.1)
+    _check_sns_publish_rate_limit()
+
+
+@override_settings(AWS_ACCESS_KEY_ID="key", AWS_SECRET_ACCESS_KEY="secret", AWS_SNS_REGION="us-east-1")
+@override_settings(SNS_PUBLISH_RATE_LIMIT_PER_SECOND=0)
+@patch("notifications.sms.boto3.client")
+def test_sns_backend_checks_the_rate_limit_before_publishing(mock_boto_client):
+    mock_client = MagicMock()
+    mock_boto_client.return_value = mock_client
+
+    with pytest.raises(SmsRateLimitedError):
+        SnsSmsBackend().send(to="+15551234567", body="Hi", sender_id="RokachFam")
+
+    mock_client.publish.assert_not_called()
