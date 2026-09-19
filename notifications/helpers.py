@@ -80,7 +80,7 @@ def channel_rows(
         rows.append(
             {
                 "code": code,
-                "label": ChannelEnum[code],
+                "label": ChannelEnum(code).label,
                 "subscribed": status.subscribed,
                 "reason": status.reason,
             }

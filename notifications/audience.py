@@ -23,12 +23,13 @@ from django.db import models
 
 from accounts.models import Account
 from family.models import Person, Union
-from notifications.models import Channel, EventType, NotificationPreference
+from notifications.enums import ChannelEnum
+from notifications.models import EventType, NotificationPreference
 from tenants.models import Family
 
 _CHANNEL_SPECS = [
-    (Channel.EMAIL, "email_notifications_enabled", lambda account: account.email),
-    (Channel.SMS, "sms_notifications_enabled", lambda account: account.phone),
+    (ChannelEnum.EMAIL, "email_notifications_enabled", lambda account: account.email),
+    (ChannelEnum.SMS, "sms_notifications_enabled", lambda account: account.phone),
 ]
 
 
