@@ -46,6 +46,9 @@ class RequestMagicLinkView(View):
         # itself, regardless of whether a link was actually issued below.
         ttl_minutes = magic_links.TOKEN_TTL_SECONDS // 60
 
+        is_email = "@" in identifier
+        channel = ChannelEnum.EMAIL if is_email else ChannelEnum.SMS
+
         if not account or not account.is_active:
             logger.info(
                 "ignoring magic link request",
@@ -55,8 +58,6 @@ class RequestMagicLinkView(View):
             )
         else:
             if not magic_links.is_rate_limited(str(account.uuid)):
-                is_email = "@" in identifier
-                channel = ChannelEnum.EMAIL if is_email else ChannelEnum.SMS
                 destination = account.email if is_email else account.phone
                 family = _sole_family(account)
 
@@ -114,7 +115,9 @@ class RequestMagicLinkView(View):
                     task_id=task.id,
                 )
             else:
-                logger.warning("magic link rate limited", account=account.uuid, identifier=identifier)
+                logger.warning(
+                    "magic link rate limited", account=account.uuid, channel=channel, identifier=identifier
+                )
 
         # Same response whether or not the identifier matched a real
         # account - don't leak which emails/phones are registered.
