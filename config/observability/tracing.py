@@ -48,12 +48,18 @@ _PROVIDER: TracerProvider | None = None
 
 
 def _normalized_headers() -> dict[str, str]:
-    """Parses `k=v,k2=v2` header pairs (settings.OTEL_EXPORTER_OTLP_HEADERS) into a dict for the OTLP exporter."""
-    headers: dict[str, str] = {}
+    """Parse OTLP header pairs into a normalized dictionary."""
+    headers = {}
+
     for pair in settings.OTEL_EXPORTER_OTLP_HEADERS:
-        key, _, value = pair.partition("=")
-        if key:
-            headers[key.strip()] = value.strip()
+        key, separator, value = pair.partition("=")
+        if not separator:
+            continue
+
+        key, value = key.strip(), value.strip()
+        if key and value:
+            headers[key.lower()] = value
+
     return headers
 
 

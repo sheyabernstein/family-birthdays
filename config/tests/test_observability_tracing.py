@@ -9,17 +9,19 @@ from config.observability.tracing import _normalized_headers, flush_tracing
     ["header_pairs", "expected"],
     [
         [[], {}],
-        [["k=v"], {"k": "v"}],
+        [["Key=Value"], {"key": "Value"}],
         [["k=v", "k2=v2"], {"k": "v", "k2": "v2"}],
         [[" k = v "], {"k": "v"}],
-        [["novalue="], {"novalue": ""}],
+        [["=value"], {}],
+        [["novalue="], {}],
     ],
     ids=[
         "empty list produces an empty dict",
-        "a single pair",
+        "keys are lowercase, values retain case" "a single pair",
         "several pairs",
         "surrounding whitespace is stripped",
-        "an empty value is kept, not dropped",
+        "empty key is kept",
+        "empty value is kept",
     ],
 )
 def test_normalized_headers_parses_key_value_pairs(header_pairs, expected):
