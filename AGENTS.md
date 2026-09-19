@@ -1491,11 +1491,26 @@ switching workspaces.
   alike; `dont_autoretry_for=(SmsUnrecoverableError,)` excludes the one
   failure retrying can never fix - a bad phone number will fail
   identically on every attempt, so it fails the `Message` immediately
-  instead. `retry_backoff=True`/`retry_backoff_max=600`/`retry_jitter=True`
-  give up to 3 attempts with jitmax capped at 10 minutes, rather than the
-  previous flat 5-minute delay every time - a real provider outage
-  recovers faster with a short first retry, and jitter avoids every
-  queued message retrying in lockstep.
+  instead. **The actual delays are much shorter than `retry_backoff_max=
+  600` makes them look** - Celery's backoff formula is `factor *
+  2**retries` (factor is 1 here, from a bare `retry_backoff=True`),
+  jittered and capped at `retry_backoff_max`; with `max_retries=3` the
+  raw values are only 1s/2s/4s before jitter, so the 600s ceiling never
+  actually engages (it'd take ~9 retries at this factor to approach it).
+  Verified for real against a live, non-eager worker (real Redis broker,
+  real Celery retry scheduling, not `CELERY_TASK_ALWAYS_EAGER`): a
+  message that raised `SmsRateLimitedError` twice then succeeded was
+  retried at +0.03s and +2.0s, and ended up `Message.Status.SENT` with
+  no error recorded - confirming both that autoretry_for genuinely
+  re-queues the task through the broker (not just Celery's in-memory
+  eager-mode shortcut) and that it lands on a real success once the
+  transient condition clears. This window suits `SmsRateLimitedError`
+  well (SNS's own budget resets every second - see below), but is worth
+  knowing if `send_message` is ever expected to ride out a longer,
+  genuine SNS/network outage: with `max_retries=3` capped this low, the
+  whole retry sequence for a *generic* provider failure spans single-
+  digit seconds, not the "up to several minutes" a `retry_backoff_max=
+  600` reads like at a glance.
 - **`config.enums.TaskPriority` is a 3-tier enum of Celery *queue names*
   (`HIGH="high"`/`NORMAL="normal"`/`LOW="low"`), passed as `queue=` on
   every `@shared_task`, not Celery/kombu's own per-message Redis

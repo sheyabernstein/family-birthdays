@@ -1,8 +1,25 @@
 import pytest
 
 from accounts.tasks import send_magic_link_message
+from config.enums import TaskPriority
 from notifications.enums import ChannelEnum
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
+
+
+def test_send_magic_link_message_dispatches_on_the_high_priority_queue():
+    """Regression guard for the queue= this task decorator sets - a human
+    is waiting on this specifically, so a typo here silently demoting it
+    to normal/low priority wouldn't be caught by anything else."""
+    assert send_magic_link_message.queue == TaskPriority.HIGH
+
+
+def test_send_magic_link_message_has_bounded_retries_with_exponential_backoff():
+    assert send_magic_link_message.autoretry_for == (Exception,)
+    assert send_magic_link_message.dont_autoretry_for == (SmsUnrecoverableError,)
+    assert send_magic_link_message.retry_backoff is True
+    assert send_magic_link_message.retry_backoff_max == 60
+    assert send_magic_link_message.retry_jitter is True
+    assert send_magic_link_message.max_retries == 5
 
 
 def test_send_magic_link_message_sends_email(monkeypatch):

@@ -9,6 +9,7 @@ from hdate import HebrewDate
 from hdate.hebrew_date import Months
 
 from accounts.models import Account
+from config.enums import TaskPriority
 from family.hebrew import gregorian_to_hebrew, resolve_send_date
 from family.models import Person, Union
 from notifications.enums import ChannelEnum
@@ -27,6 +28,44 @@ from notifications.tests.conftest import member as _member
 from tenants.models import Family, FamilyMembership
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.mark.parametrize(
+    ["task", "expected_queue"],
+    [
+        [compute_occurrences, TaskPriority.LOW],
+        [send_due_notifications, TaskPriority.LOW],
+        [send_due_broadcasts, TaskPriority.LOW],
+        [send_message, TaskPriority.NORMAL],
+    ],
+    ids=[
+        "compute_occurrences is low priority",
+        "send_due_notifications is low priority",
+        "send_due_broadcasts is low priority",
+        "send_message is normal priority",
+    ],
+)
+def test_task_dispatches_on_the_expected_priority_queue(task, expected_queue):
+    """Regression guard for the queue= a task decorator sets - see AGENTS.md's
+    "Task retry backoff, priority, and SNS rate limiting" section for why
+    this is a named Celery queue, not Celery/kombu's own per-message Redis
+    priority. A decorator typo here would silently misroute a task onto
+    the wrong priority tier with no other test catching it."""
+    assert task.queue == expected_queue
+
+
+def test_send_message_has_bounded_retries_with_exponential_backoff():
+    """Regression guard for the actual autoretry_for/retry_backoff wiring,
+    not just its observed effect (covered by test_send_message_retries_a_
+    transient_sms_error above) - a future edit could silently drop
+    retry_backoff or widen max_retries without any behavioral test
+    noticing at eager-mode speed."""
+    assert send_message.autoretry_for == (Exception,)
+    assert send_message.dont_autoretry_for == (SmsUnrecoverableError,)
+    assert send_message.retry_backoff is True
+    assert send_message.retry_backoff_max == 600
+    assert send_message.retry_jitter is True
+    assert send_message.max_retries == 3
 
 
 def _future_anchor() -> tuple[int, int, int]:
