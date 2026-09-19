@@ -86,10 +86,15 @@
         <div class="card form-section">
             <h2>Contact &amp; sign-in</h2>
             <div class="form-row">
-                <div class="form-field">{% field_label form.email %}{{ form.email }}{{ form.email.errors }}</div>
-                <div class="form-field">{% field_label form.phone %}{{ form.phone }}{{ form.phone.errors }}</div>
+                <div class="form-field">
+                    {% field_label form.email %}{{ form.email }}{{ form.email.errors }}
+                    <p class="help-text">{{ form.email.help_text }}</p>
+                </div>
+                <div class="form-field">
+                    {% field_label form.phone %}{{ form.phone }}{{ form.phone.errors }}
+                    <p class="help-text">{{ form.phone.help_text }}</p>
+                </div>
             </div>
-            <p class="help-text">{{ form.email.help_text }}</p>
             <div class="form-row">
                 <div class="form-field">{% field_label form.family_role %}{{ form.family_role }}{{ form.family_role.errors }}</div>
             </div>
