@@ -251,7 +251,7 @@
                         </tbody>
                     </table>
                 </div>
-                <small class="help-text muted">Showing the most recent {{ history_events|length }} change{{ history_events|length|pluralize }} to this person and their marriages.</small>
+                <small class="help-text muted">Showing the most recent {{ history_events|length }} change{{ history_events|length|pluralize }} to this person{% if unions %} and their marriages{% endif %}.</small>
             {% else %}
                 <p class="muted">No recorded changes yet.</p>
             {% endif %}
