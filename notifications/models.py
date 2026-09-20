@@ -291,8 +291,14 @@ class Occurrence(models.Model):
 
     @property
     def shifted_for_shabbat_or_yomtov(self) -> bool:
-        """Whether send_date landed before occurrence_date at all, for any reason."""
-        return bool(self.shift_reasons)
+        """Whether send_date landed before occurrence_date because of Shabbos and/or Yom Tov.
+
+        Explicit membership check, not bool(self.shift_reasons) - the
+        two happen to coincide today (ShiftReason has exactly these two
+        members), but this property's own name is a specific claim about
+        *why* it shifted, not just *whether* shift_reasons is non-empty.
+        """
+        return ShiftReason.SHABBOS in self.shift_reasons or ShiftReason.YOM_TOV in self.shift_reasons
 
     @property
     def shift_reason_labels(self) -> list[str]:
