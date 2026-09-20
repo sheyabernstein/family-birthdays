@@ -7,9 +7,9 @@
 {% block icon_alt %}Birthday{% endblock %}
 {% block body %}
     {% if is_late %}
-        <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s birthday was {{ occurrence.occurrence_date|weekday_naturalday }}.</p>
+        <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s birthday was {{ occurrence.occurrence_date|weekday_naturalday:today }}.</p>
     {% else %}
-        <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s birthday is {{ occurrence.occurrence_date|weekday_naturalday }}!</p>
+        <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s birthday is {{ occurrence.occurrence_date|weekday_naturalday:today }}!</p>
     {% endif %}
     {% include "notifications/email/_parents.html" with person=occurrence.person %}
     <p class="muted" style="font-size: 14px;">

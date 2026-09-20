@@ -6,6 +6,7 @@ from notifications.views import (
     BroadcastDeleteView,
     BroadcastListView,
     BroadcastUpdateView,
+    OccurrencePreviewView,
     ScheduledTasksView,
     SubscriptionsView,
     TogglePersonPreferenceView,
@@ -27,6 +28,7 @@ urlpatterns = [
         name="update_event_type_preference",
     ),
     path("notifications/toggle/", TogglePersonPreferenceView.as_view(), name="toggle_preference"),
+    path("occurrences/<uuid:uuid>/preview/", OccurrencePreviewView.as_view(), name="occurrence_preview"),
     # UpdateAccountSettingsView's model (Account) lives in accounts, but the
     # URL stays under this same "notifications/" prefix as the rest of My
     # Notifications - see AGENTS.md.

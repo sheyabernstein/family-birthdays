@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load family_extras %}
+{% load family_extras static %}
 {% block title %}Upcoming - {{ block.super }}{% endblock %}
 {% block content %}
     <div class="page-header">
@@ -36,6 +36,12 @@
                                                href="{% url 'family:person_detail' occurrence.union.person_b.uuid %}">{{ occurrence.union.person_b.display_name }}</a>
                                         </span>
                                     {% endif %}
+                                    {% if request.family_permissions.can_edit %}
+                                        <button type="button"
+                                                class="btn btn-outline btn-sm occurrence-preview-trigger"
+                                                data-preview-url="{% url 'notifications:occurrence_preview' occurrence.uuid %}"
+                                                title="Preview the email/SMS that will be sent for this">Preview</button>
+                                    {% endif %}
                                 </div>
                             {% endfor %}
                         </div>
@@ -43,6 +49,19 @@
                 {% endwith %}
             {% endfor %}
         </ul>
+        {% if request.family_permissions.can_edit %}
+            <dialog id="occurrence-preview-dialog" class="occurrence-preview-dialog">
+                <button type="button"
+                        class="occurrence-preview-close"
+                        aria-label="Close preview"
+                        onclick="this.closest('dialog').close()">×</button>
+                <div class="occurrence-preview-body">
+                    <p class="muted">Loading preview…</p>
+                </div>
+            </dialog>
+            <script src="{% static 'notifications/js/occurrence_preview.js' %}"></script>
+            <script>initOccurrencePreview();</script>
+        {% endif %}
     {% else %}
         <div class="empty-state">
             <p>Nothing coming up yet.</p>

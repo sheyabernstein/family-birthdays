@@ -498,22 +498,7 @@ def send_due_notifications() -> None:
             continue
         claimed_count += 1
 
-        # person/union_a/union_b's own father/mother are chained in too -
-        # Person.parents_label (rendered into every occurrence email via
-        # notifications/templates/notifications/email/_parents.html) reads
-        # both, and without this each occurrence's email render cost 4
-        # extra un-batched Person queries (2 parents x up to 2 people for a
-        # union-anchored event) - see AGENTS.md's note on this.
-        occurrence = Occurrence.objects.select_related(
-            "person__father",
-            "person__mother",
-            "union",
-            "union__person_a__father",
-            "union__person_a__mother",
-            "union__person_b__father",
-            "union__person_b__mother",
-            "event_type",
-        ).get(pk=occurrence_id)
+        occurrence = Occurrence.objects.with_related().get(pk=occurrence_id)
 
         if occurrence.occurrence_date < today - dt.timedelta(days=MAX_CATCHUP_DAYS_LATE):
             logger.info(
@@ -568,8 +553,9 @@ def _truncate_for_sms(text: str, budget: int = SMS_CHAR_BUDGET) -> str:
     return text[: budget - 1].rstrip() + "…"
 
 
-def _occurrence_template_context(occurrence: Occurrence) -> dict:
+def _occurrence_template_context(occurrence: Occurrence, *, as_of: dt.date | None = None) -> dict:
     family = occurrence.person.family if occurrence.person else occurrence.union.person_a.family
+    today = as_of or timezone.localdate()
     # occurrence_date < today only when this send is genuinely late (a
     # missed run, an outage - see send_due_notifications' own docstring),
     # not when it's early for Shabbat/Yom Tov (occurrence_date > today,
@@ -587,14 +573,22 @@ def _occurrence_template_context(occurrence: Occurrence) -> dict:
     # full formatted date beyond that - so the same filter covers the
     # on-time case and the shifted-early case without a separate flag
     # for it.
+    #
+    # "today" is also passed into the context (rather than templates
+    # calling weekday_naturalday with no argument, defaulting to the
+    # real one themselves) so a preview can render as of the occurrence's
+    # own send_date instead of whenever the preview happens to be
+    # requested - see OccurrencePreviewView and weekday_naturalday's own
+    # docstring for why that's an explicit as_of, not a mocked clock.
     return {
         "occurrence": occurrence,
         "family_name": family.name,
-        "is_late": occurrence.occurrence_date < timezone.localdate(),
+        "is_late": occurrence.occurrence_date < today,
+        "today": today,
     }
 
 
-def _occurrence_subject(occurrence: Occurrence, *, is_late: bool) -> str:
+def _occurrence_subject(occurrence: Occurrence, *, is_late: bool, today: dt.date) -> str:
     """Builds the email subject line for one occurrence.
 
     Mirrors the body templates' own on-time/late/coming-up wording (see
@@ -609,13 +603,15 @@ def _occurrence_subject(occurrence: Occurrence, *, is_late: bool) -> str:
     name = getattr(subject_obj, "display_name", str(subject_obj))
     event_name = occurrence.event_type.name
     if is_late:
-        return f"{name} - {event_name} was {weekday_naturalday(occurrence.occurrence_date)}"
+        return f"{name} - {event_name} was {weekday_naturalday(occurrence.occurrence_date, today)}"
     if occurrence.event_type.code == EventType.BuiltinCode.WEDDING:
         return f"{name} - {event_name} coming up"
-    return f"{name} - {event_name} is {weekday_naturalday(occurrence.occurrence_date)}"
+    return f"{name} - {event_name} is {weekday_naturalday(occurrence.occurrence_date, today)}"
 
 
-def _render_occurrence_message(occurrence: Occurrence, *, channel: str) -> tuple[str, str, str]:
+def _render_occurrence_message(
+    occurrence: Occurrence, *, channel: str, as_of: dt.date | None = None
+) -> tuple[str, str, str]:
     """Renders (subject, body, html_body) for one occurrence on one channel.
 
     Each event type gets its own template per channel (falling back to
@@ -632,15 +628,24 @@ def _render_occurrence_message(occurrence: Occurrence, *, channel: str) -> tuple
     subject and is rendered from its own short, plain-text template,
     truncated defensively to SMS_CHAR_BUDGET in case an unusually long
     name pushes it over.
+
+    Args:
+        occurrence: The occurrence to render a message for.
+        channel: Which ChannelEnum to render for.
+        as_of: The date to treat as "today" - the real send_date for an
+            actual send (the default, real timezone.localdate()), or an
+            occurrence's own send_date for a preview rendered ahead of
+            time (see OccurrencePreviewView).
     """
-    context = _occurrence_template_context(occurrence)
+    context = _occurrence_template_context(occurrence, as_of=as_of)
     if channel == ChannelEnum.EMAIL:
         html = render_to_string(
             [f"notifications/email/{occurrence.event_type.code}.html", "notifications/email/_default.html"],
             context,
         )
         body = html_to_plain_text(html)
-        return _occurrence_subject(occurrence, is_late=context["is_late"]), body, html
+        subject = _occurrence_subject(occurrence, is_late=context["is_late"], today=context["today"])
+        return subject, body, html
 
     text = render_to_string(
         [f"notifications/sms/{occurrence.event_type.code}.txt", "notifications/sms/_default.txt"], context

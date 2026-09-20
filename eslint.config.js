@@ -30,6 +30,7 @@ module.exports = [
         window: "readonly",
         fetch: "readonly",
         console: "readonly",
+        AbortController: "readonly",
         TomSelect: "readonly",
       },
     },

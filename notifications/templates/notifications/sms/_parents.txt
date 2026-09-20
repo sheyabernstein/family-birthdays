@@ -1,2 +1,3 @@
-{% autoescape off %}{% if person.parents_label %}
-{{ person.parents_label }}{% endif %}{% endautoescape %}
+{% autoescape off %}
+    {% if person.parents_label %}
+        ({{ person.parents_label }}){% endif %}{% endautoescape %}
