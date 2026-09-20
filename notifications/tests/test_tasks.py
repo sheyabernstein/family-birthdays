@@ -12,7 +12,7 @@ from accounts.models import Account
 from config.enums import TaskPriority
 from family.hebrew import gregorian_to_hebrew, resolve_send_date
 from family.models import Person, Union
-from notifications.enums import ChannelEnum
+from notifications.enums import ChannelEnum, ShiftReason
 from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 from notifications.tasks import (
@@ -814,7 +814,7 @@ def test_compute_occurrences_for_union_deletes_an_unsent_occurrence_even_with_a_
         hebrew_year=5787,
         occurrence_date=timezone.localdate(),
         send_date=timezone.localdate() - dt.timedelta(days=1),
-        shifted_for_shabbat_or_yomtov=True,
+        shift_reasons=[ShiftReason.SHABBOS],
     )
 
     person_b.notifications_enabled = False

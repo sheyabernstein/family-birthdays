@@ -10,6 +10,7 @@ from family.hebrew import (
     resolve_hebrew_anniversary,
     resolve_send_date,
 )
+from notifications.enums import ShiftReason
 
 
 def test_format_hebrew_date_omits_the_thousands_digit():
@@ -90,20 +91,34 @@ def test_30_cheshvan_observance(target_year, day30_observance, expected_month, e
 
 
 @pytest.mark.parametrize(
-    ["occurrence_date", "expected_send_date", "expected_shifted"],
+    ["occurrence_date", "expected_send_date", "expected_reasons"],
     [
-        [dt.date(2025, 9, 23), dt.date(2025, 9, 22), True],
-        [dt.date(2026, 6, 9), dt.date(2026, 6, 9), False],
+        [dt.date(2025, 9, 23), dt.date(2025, 9, 22), [ShiftReason.YOM_TOV]],
+        [dt.date(2026, 6, 9), dt.date(2026, 6, 9), []],
     ],
     ids=[
         "yom tov shifts the send date a day earlier",
         "an ordinary weekday is unchanged",
     ],
 )
-def test_resolve_send_date(occurrence_date, expected_send_date, expected_shifted):
-    send_date, shifted = resolve_send_date(occurrence_date)
-    assert shifted is expected_shifted
+def test_resolve_send_date(occurrence_date, expected_send_date, expected_reasons):
+    send_date, reasons = resolve_send_date(occurrence_date)
+    assert reasons == expected_reasons
     assert send_date == expected_send_date
+
+
+def test_resolve_send_date_names_both_reasons_for_a_multi_day_chain():
+    # 2 Tishrei 5787 (Rosh Hashanah day 2) - 1 Tishrei that year happens
+    # to fall on Shabbos too, so walking back from day 2 crosses a day
+    # that's both Shabbos and Yom Tov before reaching an ordinary Friday -
+    # both reasons should be named, Shabbos first (sorted, not whichever
+    # day the walk happened to hit first).
+    occurrence_date = dt.date(2026, 9, 13)
+
+    send_date, reasons = resolve_send_date(occurrence_date)
+
+    assert send_date == dt.date(2026, 9, 11)
+    assert reasons == [ShiftReason.SHABBOS, ShiftReason.YOM_TOV]
 
 
 def test_gregorian_hebrew_round_trip():

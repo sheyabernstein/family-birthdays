@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from accounts.models import Account
 from family.models import Person, Union
+from notifications.enums import ShiftReason
 from notifications.models import Broadcast, EventType, NotificationPreference, Occurrence
 from tenants.models import FamilyMembership
 
@@ -605,7 +606,7 @@ def test_broadcast_create_re_renders_the_list_page_with_errors_when_invalid(clie
     assert not Broadcast.objects.filter(text="").exists()
 
 
-def _preview_occurrence(person, code, *, occurrence_date, send_date, shifted_for_shabbat_or_yomtov=False):
+def _preview_occurrence(person, code, *, occurrence_date, send_date, shift_reasons=()):
     event_type = EventType.objects.get(family=None, code=code)
     return Occurrence.objects.create(
         person=person,
@@ -613,7 +614,7 @@ def _preview_occurrence(person, code, *, occurrence_date, send_date, shifted_for
         hebrew_year=5786,
         occurrence_date=occurrence_date,
         send_date=send_date,
-        shifted_for_shabbat_or_yomtov=shifted_for_shabbat_or_yomtov,
+        shift_reasons=list(shift_reasons),
     )
 
 
@@ -713,6 +714,11 @@ def test_occurrence_preview_shows_one_stamp_when_not_shifted(client, family):
 
 
 def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
+    # The preview reads shift_reasons straight off the stored occurrence
+    # (see OccurrencePreviewView) rather than recomputing it, so this
+    # doesn't need occurrence_date/send_date to be a real Shabbos/Yom Tov
+    # pair - family.tests.test_hebrew covers resolve_send_date's own
+    # calendar math directly.
     editor = _member(family, FamilyMembership.Role.EDITOR)
     _login_as(client, editor, family)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
@@ -721,7 +727,7 @@ def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
         EventType.BuiltinCode.BIRTHDAY,
         occurrence_date=timezone.localdate() + dt.timedelta(days=3),
         send_date=timezone.localdate(),
-        shifted_for_shabbat_or_yomtov=True,
+        shift_reasons=[ShiftReason.SHABBOS, ShiftReason.YOM_TOV],
     )
 
     resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
@@ -729,7 +735,7 @@ def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
 
     assert "Event date" in content
     assert "Notification sends" in content
-    assert "Moved up for Shabbos/Yom Tov" in content
+    assert "Moved up for Shabbos and Yom Tov" in content
 
 
 def test_occurrence_preview_shows_both_stamps_without_a_shift_note_for_a_fixed_lead_time(client, family):
@@ -749,7 +755,6 @@ def test_occurrence_preview_shows_both_stamps_without_a_shift_note_for_a_fixed_l
         hebrew_year=5786,
         occurrence_date=timezone.localdate() + dt.timedelta(days=3),
         send_date=timezone.localdate(),
-        shifted_for_shabbat_or_yomtov=False,
     )
 
     resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")

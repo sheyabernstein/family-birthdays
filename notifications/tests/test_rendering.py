@@ -11,7 +11,7 @@ from django.utils import timezone
 from accounts.models import Account
 from family.models import Person, Union
 from family.templatetags.family_extras import hebrew_str
-from notifications.enums import ChannelEnum
+from notifications.enums import ChannelEnum, ShiftReason
 from notifications.models import Broadcast, EventType, Occurrence
 from notifications.services import absolute_url, send_email, send_sms, static_absolute_url
 from notifications.tasks import (
@@ -43,7 +43,7 @@ def _occurrence_for(family, code, *, days_ago=0, days_ahead=0):
         hebrew_year=5786,
         occurrence_date=occurrence_date,
         send_date=send_date,
-        shifted_for_shabbat_or_yomtov=bool(days_ahead),
+        shift_reasons=[ShiftReason.SHABBOS] if days_ahead else [],
     )
 
 
@@ -65,7 +65,7 @@ def _union_occurrence_for(family, code, *, days_ago=0, days_ahead=0):
         hebrew_year=5786,
         occurrence_date=occurrence_date,
         send_date=send_date,
-        shifted_for_shabbat_or_yomtov=bool(days_ahead),
+        shift_reasons=[ShiftReason.SHABBOS] if days_ahead else [],
     )
 
 
@@ -508,7 +508,7 @@ def test_default_template_says_tomorrow_when_shifted_a_single_day_early(family):
         hebrew_year=5786,
         occurrence_date=timezone.localdate() + dt.timedelta(days=1),
         send_date=timezone.localdate(),
-        shifted_for_shabbat_or_yomtov=True,
+        shift_reasons=[ShiftReason.SHABBOS],
     )
 
     _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)

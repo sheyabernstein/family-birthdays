@@ -242,9 +242,19 @@ class Occurrence(models.Model):
     send_date = models.DateField(
         help_text="The date the notification actually goes out (shifted for Shabbos/Yom Tov)"
     )
-    shifted_for_shabbat_or_yomtov = models.BooleanField(
-        default=False, verbose_name="shifted for Shabbos/Yom Tov"
-    )
+    # Which of ShiftReason.SHABBOS/YOM_TOV actually caused send_date to
+    # land before occurrence_date - see family.hebrew.resolve_send_date,
+    # which produces exactly this list. Stored as plain JSON (a list of
+    # already-display-ready strings, e.g. ["Shabbos", "Yom Tov"] - see
+    # ShiftReason's own docstring for why there's no separate label to
+    # map back from) rather than a boolean, so a later admin edit to
+    # EventType.notify_days_before can never retroactively make the
+    # *reason* for an already-computed occurrence unrecoverable - only
+    # re-deriving it from the live, possibly-changed EventType could do
+    # that (see the real bug this replaced: OccurrencePreviewView used
+    # to replay resolve_send_date from event_type.notify_days_before at
+    # preview time).
+    shift_reasons = models.JSONField(default=list, blank=True)
 
     is_sent = models.BooleanField(default=False)
     computed_at = models.DateTimeField(auto_now_add=True)
@@ -279,6 +289,11 @@ class Occurrence(models.Model):
     def __str__(self) -> str:
         subject = self.person or self.union
         return f"{subject} - {self.event_type} {self.hebrew_year}"
+
+    @property
+    def shifted_for_shabbat_or_yomtov(self) -> bool:
+        """Whether send_date landed before occurrence_date at all, for any reason."""
+        return bool(self.shift_reasons)
 
 
 # The tags/attributes Trix's default toolbar can actually produce (bold,

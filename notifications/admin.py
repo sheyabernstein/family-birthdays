@@ -41,7 +41,13 @@ class OccurrenceAdmin(admin.ModelAdmin):
     )
     # __str__ touches person, union, and event_type - see Occurrence.__str__.
     list_select_related = ("person", "union", "event_type")
-    list_filter = ("event_type", "is_sent", "shifted_for_shabbat_or_yomtov")
+    # shifted_for_shabbat_or_yomtov is a plain @property now (derived from
+    # shift_reasons, a JSONField) - list_display still shows it fine (as
+    # plain True/False text rather than the checkmark icon a real
+    # BooleanField gets), but list_filter needs an actual queryable
+    # field/a custom SimpleListFilter, which a property/JSONField can't
+    # provide out of the box - dropped rather than faked.
+    list_filter = ("event_type", "is_sent")
     date_hierarchy = "send_date"
 
 
