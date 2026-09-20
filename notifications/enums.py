@@ -8,19 +8,29 @@ class ChannelEnum(StrEnum):
     anywhere (including accounts, which notifications.models itself
     depends on) with no risk of a circular import - the reason this
     isn't a models.TextChoices living on a model instead.
+
+    The value *is* the display text ("Email"/"SMS", not "email"/"sms") -
+    this app's convention is that an enum's value is always the friendly
+    text, not a separate machine code, unless something genuinely needs
+    a stable identifier decoupled from what's shown to a user (see
+    accounts.magic_links, which deliberately serializes .name.lower()
+    rather than a ChannelEnum member into its own long-lived Redis
+    payload, for exactly that reason - anything serialized outside the
+    request/response cycle shouldn't be coupled to display text that
+    could change). Everywhere else - NotificationPreference.channel/
+    Message.channel's own choices=, every POST'd "channel" form field,
+    every equality check against ChannelEnum.EMAIL/SMS - reads/writes
+    this same friendly value directly; there's deliberately no longer a
+    separate label to keep in sync with it.
     """
 
-    EMAIL = "email"
-    SMS = "sms"
-
-    @property
-    def label(self) -> str:
-        return {ChannelEnum.EMAIL: "Email", ChannelEnum.SMS: "SMS"}[self]
+    EMAIL = "Email"
+    SMS = "SMS"
 
     @classmethod
     def choices(cls) -> list[tuple[str, str]]:
-        """(value, label) pairs, in the shape a CharField's choices= expects."""
-        return [(member.value, member.label) for member in cls]
+        """(value, value) pairs, in the shape a CharField's choices= expects - the value already is the label."""
+        return [(member.value, member.value) for member in cls]
 
 
 class ShiftReason(StrEnum):
@@ -30,13 +40,7 @@ class ShiftReason(StrEnum):
     ChannelEnum above - family.hebrew (which computes this) can't import
     from notifications.models without inverting this app's usual
     dependency direction, but a Django-free enum carries no such risk
-    either way.
-
-    Unlike ChannelEnum, the value *is* the display text (no separate
-    label) - this is only ever stored (Occurrence.shift_reasons, a
-    JSONField) and displayed, never compared against as a machine code
-    the way ChannelEnum's values are throughout the rest of this app, so
-    there's nothing a second, human-readable label would add.
+    either way. Same value-is-the-label convention as ChannelEnum too.
     """
 
     SHABBOS = "Shabbos"

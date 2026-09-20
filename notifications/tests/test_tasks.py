@@ -297,7 +297,7 @@ def test_send_due_notifications_respects_a_mute(family, birthday_event_type, mut
         account=account,
         event_type=birthday_event_type,
         person=person if mute_scoped_to_person else None,
-        channel="email",
+        channel="Email",
         state=NotificationPreference.State.MUTED,
     )
 
@@ -477,7 +477,7 @@ def test_send_due_notifications_uses_the_familys_sms_sender_id(family, birthday_
 
     send_due_notifications()
 
-    message = Message.objects.get(channel="sms")
+    message = Message.objects.get(channel="SMS")
     assert message.provider_response["sender_id"] == "RokachFam"
 
 
@@ -497,7 +497,7 @@ def test_send_due_notifications_falls_back_to_the_default_sms_sender_id_when_bla
 
     send_due_notifications()
 
-    message = Message.objects.get(channel="sms")
+    message = Message.objects.get(channel="SMS")
     assert message.provider_response["sender_id"] == "FamilyTree"
 
 
@@ -945,7 +945,7 @@ def test_send_due_broadcasts_respects_a_whole_type_mute(family):
     NotificationPreference.objects.create(
         account=account,
         event_type=broadcast_event_type,
-        channel="email",
+        channel="Email",
         state=NotificationPreference.State.MUTED,
     )
     Broadcast.objects.create(family=family, text="Hi", created_by=creator, send_at=timezone.now())
@@ -962,7 +962,7 @@ def test_send_due_broadcasts_unions_audience_across_tied_people(family):
     NotificationPreference.objects.create(
         account=account,
         event_type=broadcast_event_type,
-        channel="email",
+        channel="Email",
         state=NotificationPreference.State.IMMEDIATE_FAMILY_ONLY,
     )
     viewer_person = Person.objects.create(family=family, first_name_en="Viewer", last_name_en="Person")

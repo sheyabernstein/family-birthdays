@@ -39,7 +39,7 @@ def test_broadcast_mute_allows_a_whole_type_mute(family):
     preference = NotificationPreference(
         account=account,
         event_type=_broadcast_event_type(),
-        channel="email",
+        channel="Email",
         state=NotificationPreference.State.MUTED,
     )
     preference.full_clean()  # does not raise
@@ -52,7 +52,7 @@ def test_broadcast_mute_rejects_a_person_specific_override(family):
         account=account,
         event_type=_broadcast_event_type(),
         person=person,
-        channel="email",
+        channel="Email",
         state=NotificationPreference.State.MUTED,
     )
     with pytest.raises(ValidationError):
@@ -152,7 +152,7 @@ def test_occurrence_rejects_both_person_and_union(family):
 def test_message_rejects_neither_occurrence_nor_broadcast(family):
     with pytest.raises(IntegrityError), transaction.atomic():
         Message.objects.create(
-            occurrence=None, broadcast=None, channel="email", destination="a@example.com", body="x"
+            occurrence=None, broadcast=None, channel="Email", destination="a@example.com", body="x"
         )
 
 
@@ -173,7 +173,7 @@ def test_message_rejects_both_occurrence_and_broadcast(family):
         Message.objects.create(
             occurrence=occurrence,
             broadcast=broadcast,
-            channel="email",
+            channel="Email",
             destination="a@example.com",
             body="x",
         )
@@ -189,7 +189,7 @@ def test_message_family_resolves_from_a_person_occurrence(family):
         occurrence_date=timezone.localdate(),
         send_date=timezone.localdate(),
     )
-    message = Message(occurrence=occurrence, channel="email", destination="a@example.com", body="x")
+    message = Message(occurrence=occurrence, channel="Email", destination="a@example.com", body="x")
 
     assert message.family == family
 
@@ -206,7 +206,7 @@ def test_message_family_resolves_from_a_union_occurrence(family):
         occurrence_date=timezone.localdate(),
         send_date=timezone.localdate(),
     )
-    message = Message(occurrence=occurrence, channel="email", destination="a@example.com", body="x")
+    message = Message(occurrence=occurrence, channel="Email", destination="a@example.com", body="x")
 
     assert message.family == family
 
@@ -214,6 +214,6 @@ def test_message_family_resolves_from_a_union_occurrence(family):
 def test_message_family_resolves_from_a_broadcast(family):
     account = Account.objects.create_user(email="a@example.com")
     broadcast = Broadcast.objects.create(family=family, text="Hi", created_by=account)
-    message = Message(broadcast=broadcast, channel="sms", destination="+15551234567", body="Hi")
+    message = Message(broadcast=broadcast, channel="SMS", destination="+15551234567", body="Hi")
 
     assert message.family == family

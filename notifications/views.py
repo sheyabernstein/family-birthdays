@@ -84,7 +84,7 @@ class SubscriptionsView(FamilyRequiredMixin, TemplateView):
                 channels_info.append(
                     {
                         "code": code,
-                        "label": ChannelEnum(code).label,
+                        "label": ChannelEnum(code).value,
                         "state": state,
                         "is_override": override is not None,
                     }

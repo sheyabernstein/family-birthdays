@@ -61,7 +61,7 @@ def test_toggle_mute_rejects_a_person_outside_your_family(client, two_families):
 
     resp = client.post(
         "/notifications/toggle/",
-        {"person_id": person_b.uuid, "event_type_id": event_type.uuid, "channel": "email"},
+        {"person_id": person_b.uuid, "event_type_id": event_type.uuid, "channel": "Email"},
     )
 
     assert resp.status_code == 404
@@ -78,7 +78,7 @@ def test_toggle_mute_rejects_the_broadcast_event_type(client, family):
 
     resp = client.post(
         "/notifications/toggle/",
-        {"person_id": person.uuid, "event_type_id": event_type.uuid, "channel": "email"},
+        {"person_id": person.uuid, "event_type_id": event_type.uuid, "channel": "Email"},
     )
 
     assert resp.status_code == 404
@@ -100,7 +100,7 @@ def test_toggle_mute_rejects_both_a_person_and_a_union(client, family, birthday_
             "person_id": person.uuid,
             "union_id": union.uuid,
             "event_type_id": birthday_event_type.uuid,
-            "channel": "email",
+            "channel": "Email",
         },
     )
 
@@ -114,12 +114,12 @@ def test_toggle_mute_creates_a_person_override_when_none_exists(client, family, 
 
     resp = client.post(
         "/notifications/toggle/",
-        {"person_id": person.uuid, "event_type_id": birthday_event_type.uuid, "channel": "email"},
+        {"person_id": person.uuid, "event_type_id": birthday_event_type.uuid, "channel": "Email"},
     )
 
     assert resp.status_code == 302
     preference = NotificationPreference.objects.get(
-        account=owner, person=person, event_type=birthday_event_type, channel="email"
+        account=owner, person=person, event_type=birthday_event_type, channel="Email"
     )
     # Subscribed by default (EventType.default_opt_in), so toggling flips
     # it to an explicit mute for just this person.
@@ -133,14 +133,14 @@ def test_toggle_mute_removes_an_existing_override(client, family, birthday_event
         account=owner,
         person=person,
         event_type=birthday_event_type,
-        channel="email",
+        channel="Email",
         state=NotificationPreference.State.MUTED,
     )
     _login_as(client, owner, family)
 
     resp = client.post(
         "/notifications/toggle/",
-        {"person_id": person.uuid, "event_type_id": birthday_event_type.uuid, "channel": "email"},
+        {"person_id": person.uuid, "event_type_id": birthday_event_type.uuid, "channel": "Email"},
     )
 
     assert resp.status_code == 302
@@ -157,12 +157,12 @@ def test_toggle_mute_creates_a_union_override(client, family):
 
     resp = client.post(
         "/notifications/toggle/",
-        {"union_id": union.uuid, "event_type_id": anniversary.uuid, "channel": "email"},
+        {"union_id": union.uuid, "event_type_id": anniversary.uuid, "channel": "Email"},
     )
 
     assert resp.status_code == 302
     assert NotificationPreference.objects.filter(
-        account=owner, union=union, event_type=anniversary, channel="email"
+        account=owner, union=union, event_type=anniversary, channel="Email"
     ).exists()
 
 
@@ -173,7 +173,7 @@ def test_toggle_mute_redirects_to_dashboard_by_default(client, family, birthday_
 
     resp = client.post(
         "/notifications/toggle/",
-        {"person_id": person.uuid, "event_type_id": birthday_event_type.uuid, "channel": "email"},
+        {"person_id": person.uuid, "event_type_id": birthday_event_type.uuid, "channel": "Email"},
     )
 
     assert resp.url == "/"
@@ -499,13 +499,13 @@ def test_subscriptions_page_reflects_a_whole_type_override(client, family, birth
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)
     NotificationPreference.objects.create(
-        account=owner, event_type=birthday_event_type, channel="email", state="muted"
+        account=owner, event_type=birthday_event_type, channel="Email", state="muted"
     )
 
     resp = client.get("/notifications/")
 
     row = next(r for r in resp.context["event_type_rows"] if r["event_type"] == birthday_event_type)
-    email_channel = next(c for c in row["channels"] if c["code"] == "email")
+    email_channel = next(c for c in row["channels"] if c["code"] == "Email")
     assert email_channel["state"] == "muted"
     assert email_channel["is_override"] is True
 
@@ -515,7 +515,7 @@ def test_subscriptions_page_lists_a_person_specific_override(client, family, bir
     _login_as(client, owner, family)
     person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
     NotificationPreference.objects.create(
-        account=owner, event_type=birthday_event_type, person=person, channel="email", state="muted"
+        account=owner, event_type=birthday_event_type, person=person, channel="Email", state="muted"
     )
 
     resp = client.get("/notifications/")
@@ -531,14 +531,14 @@ def test_update_event_type_preference_sets_a_whole_type_override(client, family,
 
     resp = client.post(
         "/notifications/event-type/",
-        {"event_type_id": birthday_event_type.uuid, "channel": "email", "state": "immediate_family_only"},
+        {"event_type_id": birthday_event_type.uuid, "channel": "Email", "state": "immediate_family_only"},
     )
 
     assert resp.status_code == 302
     preference = NotificationPreference.objects.get(
         account=owner,
         event_type=birthday_event_type,
-        channel="email",
+        channel="Email",
         person__isnull=True,
         union__isnull=True,
     )
@@ -549,17 +549,17 @@ def test_update_event_type_preference_reset_removes_the_override(client, family,
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)
     NotificationPreference.objects.create(
-        account=owner, event_type=birthday_event_type, channel="email", state="muted"
+        account=owner, event_type=birthday_event_type, channel="Email", state="muted"
     )
 
     resp = client.post(
         "/notifications/event-type/",
-        {"event_type_id": birthday_event_type.uuid, "channel": "email", "action": "reset"},
+        {"event_type_id": birthday_event_type.uuid, "channel": "Email", "action": "reset"},
     )
 
     assert resp.status_code == 302
     assert not NotificationPreference.objects.filter(
-        account=owner, event_type=birthday_event_type, channel="email"
+        account=owner, event_type=birthday_event_type, channel="Email"
     ).exists()
 
 
@@ -569,7 +569,7 @@ def test_update_event_type_preference_rejects_an_invalid_state(client, family, b
 
     resp = client.post(
         "/notifications/event-type/",
-        {"event_type_id": birthday_event_type.uuid, "channel": "email", "state": "not-a-real-state"},
+        {"event_type_id": birthday_event_type.uuid, "channel": "Email", "state": "not-a-real-state"},
     )
 
     assert resp.status_code == 404
@@ -583,7 +583,7 @@ def test_update_event_type_preference_redirects_to_next_when_given(client, famil
         "/notifications/event-type/",
         {
             "event_type_id": birthday_event_type.uuid,
-            "channel": "email",
+            "channel": "Email",
             "state": "muted",
             "next": "/people/",
         },

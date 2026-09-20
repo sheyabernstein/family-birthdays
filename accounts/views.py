@@ -61,8 +61,14 @@ class RequestMagicLinkView(View):
                 destination = account.email if is_email else account.phone
                 family = _sole_family(account)
 
+                # channel.name.lower() ("email"/"sms"), not channel itself
+                # (ChannelEnum's own friendly "Email"/"SMS" value) - this
+                # token can sit in Redis, live in a clicked URL, for up
+                # to TOKEN_TTL_SECONDS, so what's stored here shouldn't be
+                # coupled to display text that could change. See
+                # ChannelEnum's own docstring.
                 token = magic_links.issue_token(
-                    account_uuid=str(account.uuid), channel=channel, destination=destination
+                    account_uuid=str(account.uuid), channel=channel.name.lower(), destination=destination
                 )
                 # Not request.build_absolute_uri() - that derives the scheme
                 # from request.is_secure(), which is only ever True if

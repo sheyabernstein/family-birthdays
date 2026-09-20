@@ -17,7 +17,7 @@ from tenants.models import Family
 pytestmark = pytest.mark.django_db
 
 
-def _preference(account, event_type, state, *, person=None, union=None, channel="email"):
+def _preference(account, event_type, state, *, person=None, union=None, channel="Email"):
     return NotificationPreference.objects.create(
         account=account, event_type=event_type, person=person, union=union, channel=channel, state=state
     )
@@ -27,11 +27,11 @@ def test_default_is_subscribed_when_nothing_is_set(family, birthday_event_type):
     person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
     account = _member(family)
 
-    status = preference_status(account, birthday_event_type, person=person, channel="email")
+    status = preference_status(account, birthday_event_type, person=person, channel="Email")
 
     assert status.subscribed is True
     assert status.reason == "default"
-    assert channels_for_account(account, birthday_event_type, person=person) == [("email", account.email)]
+    assert channels_for_account(account, birthday_event_type, person=person) == [("Email", account.email)]
 
 
 def test_default_follows_event_type_default_opt_in(family):
@@ -41,7 +41,7 @@ def test_default_follows_event_type_default_opt_in(family):
         family=family, code="opt-in-thing", name="Opt In Thing", default_opt_in=False
     )
 
-    status = preference_status(account, event_type, person=person, channel="email")
+    status = preference_status(account, event_type, person=person, channel="Email")
 
     assert status.subscribed is False
     assert status.reason == "default"
@@ -52,14 +52,14 @@ def test_specific_mute_wins_over_default(family, birthday_event_type):
     account = _member(family)
     _preference(account, birthday_event_type, NotificationPreference.State.MUTED, person=person)
 
-    status = preference_status(account, birthday_event_type, person=person, channel="email")
+    status = preference_status(account, birthday_event_type, person=person, channel="Email")
 
     assert status.subscribed is False
     assert status.reason == "specific_muted"
 
     other_person = Person.objects.create(family=family, first_name_en="Other", last_name_en="Person")
     assert (
-        preference_status(account, birthday_event_type, person=other_person, channel="email").subscribed
+        preference_status(account, birthday_event_type, person=other_person, channel="Email").subscribed
         is True
     )
 
@@ -70,11 +70,11 @@ def test_whole_type_mute_applies_to_everyone(family, birthday_event_type):
     _preference(account, birthday_event_type, NotificationPreference.State.MUTED)
 
     assert (
-        preference_status(account, birthday_event_type, person=person, channel="email").reason == "type_muted"
+        preference_status(account, birthday_event_type, person=person, channel="Email").reason == "type_muted"
     )
     other_person = Person.objects.create(family=family, first_name_en="Other", last_name_en="Person")
     assert (
-        preference_status(account, birthday_event_type, person=other_person, channel="email").subscribed
+        preference_status(account, birthday_event_type, person=other_person, channel="Email").subscribed
         is False
     )
 
@@ -86,7 +86,7 @@ def test_specific_subscribe_overrides_a_whole_type_mute(family, birthday_event_t
     _preference(account, birthday_event_type, NotificationPreference.State.MUTED)
     _preference(account, birthday_event_type, NotificationPreference.State.SUBSCRIBED, person=person)
 
-    status = preference_status(account, birthday_event_type, person=person, channel="email")
+    status = preference_status(account, birthday_event_type, person=person, channel="Email")
 
     assert status.subscribed is True
     assert status.reason == "specific_subscribed"
@@ -100,7 +100,7 @@ def test_specific_mute_overrides_default_opt_in_false(family):
     )
     _preference(account, event_type, NotificationPreference.State.SUBSCRIBED, person=person)
 
-    assert preference_status(account, event_type, person=person, channel="email").subscribed is True
+    assert preference_status(account, event_type, person=person, channel="Email").subscribed is True
 
 
 def test_parent_and_child_are_immediate_family(family):
@@ -186,8 +186,8 @@ def test_immediate_family_only_includes_immediate_and_excludes_others(family):
     birthday_event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
     _preference(account, birthday_event_type, NotificationPreference.State.IMMEDIATE_FAMILY_ONLY)
 
-    sibling_status = preference_status(account, birthday_event_type, person=sibling, channel="email")
-    cousin_status = preference_status(account, birthday_event_type, person=cousin, channel="email")
+    sibling_status = preference_status(account, birthday_event_type, person=sibling, channel="Email")
+    cousin_status = preference_status(account, birthday_event_type, person=cousin, channel="Email")
 
     assert sibling_status.subscribed is True
     assert sibling_status.reason == "type_immediate_only"
@@ -206,7 +206,7 @@ def test_immediate_family_only_can_still_be_overridden_per_person(family):
     _preference(account, birthday_event_type, NotificationPreference.State.IMMEDIATE_FAMILY_ONLY)
     _preference(account, birthday_event_type, NotificationPreference.State.SUBSCRIBED, person=cousin)
 
-    status = preference_status(account, birthday_event_type, person=cousin, channel="email")
+    status = preference_status(account, birthday_event_type, person=cousin, channel="Email")
 
     assert status.subscribed is True
     assert status.reason == "specific_subscribed"
@@ -219,7 +219,7 @@ def test_immediate_family_only_fails_closed_without_a_viewer_person(family, birt
     person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
     _preference(account, birthday_event_type, NotificationPreference.State.IMMEDIATE_FAMILY_ONLY)
 
-    status = preference_status(account, birthday_event_type, person=person, channel="email")
+    status = preference_status(account, birthday_event_type, person=person, channel="Email")
 
     assert status.subscribed is False
 
@@ -236,7 +236,7 @@ def test_broadcast_audience_is_everyone_in_the_family_by_default_with_no_tied_pe
 
     audience = resolve_broadcast_audience(event_type=broadcast_event_type, family=family, people=[])
 
-    assert (account, "email", account.email) in audience
+    assert (account, "Email", account.email) in audience
 
 
 def test_broadcast_audience_excludes_accounts_outside_the_family(family, broadcast_event_type):
@@ -281,7 +281,7 @@ def test_broadcast_audience_immediate_family_only_includes_an_account_related_to
         event_type=broadcast_event_type, family=family, people=[cousin, sibling]
     )
 
-    assert (account, "email", account.email) in audience
+    assert (account, "Email", account.email) in audience
 
 
 def test_broadcast_audience_immediate_family_only_excludes_when_no_tied_person_qualifies(
@@ -309,7 +309,7 @@ def test_broadcast_audience_deduplicates_across_multiple_tied_people(family, bro
         event_type=broadcast_event_type, family=family, people=[person_a, person_b]
     )
 
-    assert audience.count((account, "email", account.email)) == 1
+    assert audience.count((account, "Email", account.email)) == 1
 
 
 def test_resolve_audience_query_count_does_not_scale_with_account_count(family, birthday_event_type):
