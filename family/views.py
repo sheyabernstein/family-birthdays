@@ -132,11 +132,20 @@ class DashboardView(FamilyRequiredMixin, TemplateView):
         # so "upcoming" is just this family's occurrences, minus whatever
         # this account has muted. Pull a generous batch before trimming to
         # 20, since the mute check happens in Python per row.
-        # Ordered explicitly by (send_date, occurrence_date, event_type
+        # Ordered explicitly by (occurrence_date, send_date, event_type
         # name) rather than relying on Occurrence.Meta's own default
-        # ordering - the third key keeps multiple event types sharing a
-        # timeline point (below) in a stable, predictable order instead
-        # of whatever incidental order the DB happens to return them in.
+        # ordering - occurrence_date, the real date the event falls on,
+        # is what's actually displayed (see dashboard.html), so it has
+        # to be the primary sort key too, not send_date. Wedding's own
+        # notify_days_before=3 makes this a real, not just theoretical,
+        # divergence: its send_date always lands ~3 days before its
+        # occurrence_date, so sorting by send_date alone could show a
+        # Wedding "3 days from now" ahead of a Birthday "tomorrow" in
+        # the list, reading as out of chronological order even though
+        # the dates shown are correct on their own. The third key keeps
+        # multiple event types sharing a timeline point (below) in a
+        # stable, predictable order instead of whatever incidental order
+        # the DB happens to return them in.
         # send_date__gte=today OR is_sent=False, not send_date__gte alone -
         # matches send_due_notifications' own self-healing philosophy
         # (send_date can legitimately land in the past: a missed run, or a
@@ -151,7 +160,7 @@ class DashboardView(FamilyRequiredMixin, TemplateView):
                 | models.Q(union__person_b__family=request.family)
             )
             .select_related("person", "union", "union__person_a", "union__person_b", "event_type")
-            .order_by("send_date", "occurrence_date", "event_type__name")[:100]
+            .order_by("occurrence_date", "send_date", "event_type__name")[:100]
         )
 
         # One preference/immediate-family batch load for this account across
@@ -179,15 +188,18 @@ class DashboardView(FamilyRequiredMixin, TemplateView):
             if len(upcoming) >= 20:
                 break
 
-        # Grouped by (send_date, occurrence_date) - not send_date alone -
-        # for the timeline's one-point-per-date display: two different
-        # people's occurrences can share a send_date by coincidence (e.g.
-        # independent Shabbat/Yom Tov shifts landing on the same day)
-        # without sharing an occurrence_date, and grouping on send_date
-        # alone would show one of them under the wrong Hebrew date. Safe
-        # to group adjacent-only (itertools.groupby, not a sort+group) -
-        # Occurrence.Meta.ordering is already ["send_date",
-        # "occurrence_date"], so equal keys are already contiguous.
+        # Grouped by (send_date, occurrence_date) - not occurrence_date
+        # alone - for the timeline's one-point-per-date display: two
+        # different people's occurrences can share an occurrence_date
+        # without sharing a send_date (Wedding's own notify_days_before=3
+        # vs. every other type's 0, for one), and grouping on
+        # occurrence_date alone would lump a "coming up" Wedding in with
+        # an "is today" Birthday landing on the very date it's about.
+        # Safe to group adjacent-only (itertools.groupby, not a
+        # sort+group) - the queryset above is already ordered by
+        # (occurrence_date, send_date, ...), so rows sharing both are
+        # already contiguous regardless of the order the two are named in
+        # this key tuple.
         context["upcoming_groups"] = [
             {"send_date": send_date, "occurrence_date": occurrence_date, "occurrences": list(group)}
             for (send_date, occurrence_date), group in itertools.groupby(

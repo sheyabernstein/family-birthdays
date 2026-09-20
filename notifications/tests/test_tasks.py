@@ -16,6 +16,7 @@ from notifications.enums import ChannelEnum
 from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 from notifications.tasks import (
+    MAX_CATCHUP_DAYS_LATE,
     compute_occurrences,
     compute_occurrences_for_person,
     compute_occurrences_for_union,
@@ -404,6 +405,44 @@ def test_send_due_notifications_sends_an_overdue_occurrence(family, birthday_eve
     send_due_notifications()
 
     assert Message.objects.count() == 1
+
+
+def test_send_due_notifications_still_sends_within_the_catchup_window(family, birthday_event_type):
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    _member(family, email="test@example.com")
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=birthday_event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate() - dt.timedelta(days=MAX_CATCHUP_DAYS_LATE),
+        send_date=timezone.localdate() - dt.timedelta(days=MAX_CATCHUP_DAYS_LATE),
+    )
+
+    send_due_notifications()
+
+    assert Message.objects.count() == 1
+    occurrence.refresh_from_db()
+    assert occurrence.is_sent is True
+
+
+def test_send_due_notifications_discards_an_occurrence_beyond_the_catchup_window(family, birthday_event_type):
+    # A worker outage lasting longer than MAX_CATCHUP_DAYS_LATE shouldn't
+    # dump a pile of stale "was on <date>" notifications on a family once
+    # it comes back - the row is discarded outright instead.
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    _member(family, email="test@example.com")
+    Occurrence.objects.create(
+        person=person,
+        event_type=birthday_event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate() - dt.timedelta(days=MAX_CATCHUP_DAYS_LATE + 1),
+        send_date=timezone.localdate() - dt.timedelta(days=MAX_CATCHUP_DAYS_LATE + 1),
+    )
+
+    send_due_notifications()
+
+    assert Message.objects.count() == 0
+    assert Occurrence.objects.count() == 0
 
 
 def test_send_due_notifications_does_not_send_a_future_occurrence(family, birthday_event_type):

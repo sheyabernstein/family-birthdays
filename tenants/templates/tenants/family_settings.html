@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load form_extras %}
+{% load form_extras humanize %}
 {% block title %}{{ request.family.name }} settings - Family Tree{% endblock %}
 {% block content %}
     <div class="page-header">
@@ -61,8 +61,8 @@
                             <td>{{ membership.account.email|default:"-" }}</td>
                             <td>{{ membership.account.phone|default:"-" }}</td>
                             <td>{{ membership.get_role_display }}</td>
-                            <td>{{ membership.joined_at|date:"M j, Y" }}</td>
-                            <td>{{ membership.account.last_login|date:"M j, Y"|default:"Never" }}</td>
+                            <td><span title="{{ membership.joined_at|date }}">{{ membership.joined_at|naturalday }}</span></td>
+                            <td><span title="{{ membership.account.last_login|date }}">{{ membership.account.last_login|naturalday|default:"-" }}</span></td>
                         </tr>
                     {% endfor %}
                 </tbody>

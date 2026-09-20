@@ -21,7 +21,6 @@
     {% include "notifications/email/_parents.html" with person=occurrence.union.person_a %}
     {% include "notifications/email/_parents.html" with person=occurrence.union.person_b %}
     <p class="muted" style="font-size: 14px;">
-        {{ occurrence.occurrence_date|hebrew_str }} · {{ occurrence.send_date|date:"l, F j, Y" }}
-        {% if occurrence.shifted_for_shabbat_or_yomtov %}(moved up for Shabbat/Yom Tov){% endif %}
+        {{ occurrence.occurrence_date|hebrew_str }} · {{ occurrence.occurrence_date|date:"l, F j, Y" }}
     </p>
 {% endblock %}

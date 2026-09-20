@@ -2,6 +2,7 @@ import datetime as dt
 
 import pytest
 from django.db import connection
+from django.template.defaultfilters import date as date_filter
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -915,6 +916,31 @@ def test_dashboard_still_shows_an_unsent_occurrence_with_a_past_send_date(client
     assert len(resp.context["upcoming_groups"]) == 1
 
 
+def test_dashboard_shows_the_occurrence_date_not_the_send_date(client, family):
+    # The timeline's date column used to show send_date next to the
+    # Hebrew occurrence_date - when a notification is shifted early for
+    # Shabbat/Yom Tov those disagree, and it read as if the event itself
+    # had moved. It should show the Gregorian half of occurrence_date.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    occurrence_date = timezone.localdate() + dt.timedelta(days=3)
+    send_date = timezone.localdate()
+    _occurrence(
+        person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=occurrence_date,
+        send_date=send_date,
+    )
+
+    resp = client.get("/")
+    content = resp.content.decode()
+
+    assert date_filter(occurrence_date, "l, F j, Y") in content
+    assert date_filter(send_date, "l, F j, Y") not in content
+    assert "moved up for Shabbat" not in content
+
+
 def test_dashboard_orders_grouped_occurrences_by_event_type_name(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)
@@ -930,6 +956,40 @@ def test_dashboard_orders_grouped_occurrences_by_event_type_name(client, family)
 
     names = [o.event_type.name for o in resp.context["upcoming_groups"][0]["occurrences"]]
     assert names == sorted(names)
+
+
+def test_dashboard_orders_groups_by_occurrence_date_not_send_date(client, family):
+    # Wedding's own notify_days_before=3 means its send_date always lands
+    # ~3 days before its occurrence_date - sorting by send_date alone
+    # would show a Wedding "3 days from now" ahead of a Birthday
+    # "tomorrow", reading as out of chronological order even though each
+    # individual date shown (occurrence_date, per the dashboard's own
+    # date stamp) is correct on its own.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+    person_a = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    person_b = Person.objects.create(family=family, first_name_en="Moshe", last_name_en="Rokach")
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+    wedding_event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.WEDDING)
+    Occurrence.objects.create(
+        union=union,
+        event_type=wedding_event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+    birthday_person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach")
+    _occurrence(
+        birthday_person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=1),
+        send_date=timezone.localdate() + dt.timedelta(days=1),
+    )
+
+    resp = client.get("/")
+
+    groups = resp.context["upcoming_groups"]
+    assert [g["occurrence_date"] for g in groups] == sorted(g["occurrence_date"] for g in groups)
 
 
 def test_dashboard_query_count_does_not_scale_with_candidate_count(client, family):
