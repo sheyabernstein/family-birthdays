@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load family_extras %}
+{% load humanize family_extras %}
 {% block title %}{{ person.display_name }} - {{ block.super }}{% endblock %}
 {% block content %}
     <div class="person-header">
@@ -226,7 +226,7 @@
                                 {% for change in event.changes %}
                                     <tr>
                                         {% if forloop.first %}
-                                            <td rowspan="{{ event.changes|length }}">{{ event.when|date:"M j, Y, g:i A" }}</td>
+                                            <td rowspan="{{ event.changes|length }}"><span title="{{ event.when }}">{{ event.when|naturaltime }}</span></td>
                                             <td rowspan="{{ event.changes|length }}">
                                                 {% if event.who.display_name %}
                                                     <span title="{{ event.who.email }}">{{ event.who.display_name }}</span>
