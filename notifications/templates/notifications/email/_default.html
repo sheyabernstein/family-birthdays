@@ -9,18 +9,18 @@
     <p>
         {% if occurrence.person %}
             {% if is_late %}
-                <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} was {{ occurrence.occurrence_date|weekday_naturalday }}.
+                <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} was {{ occurrence.occurrence_date|weekday_naturalday:today }}.
             {% else %}
-                <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} is {{ occurrence.occurrence_date|weekday_naturalday }}.
+                <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} is {{ occurrence.occurrence_date|weekday_naturalday:today }}.
             {% endif %}
         {% elif is_late %}
             <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
             <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} was
-            {{ occurrence.occurrence_date|weekday_naturalday }}.
+            {{ occurrence.occurrence_date|weekday_naturalday:today }}.
         {% else %}
             <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
             <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} is
-            {{ occurrence.occurrence_date|weekday_naturalday }}.
+            {{ occurrence.occurrence_date|weekday_naturalday:today }}.
         {% endif %}
     </p>
     {% if occurrence.person %}

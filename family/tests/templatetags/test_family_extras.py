@@ -62,3 +62,23 @@ def test_weekday_naturalday_falls_back_to_a_formatted_date_beyond_a_week():
     with freeze_time("2026-09-20"):
         date = dt.date(2026, 9, 20) + dt.timedelta(days=7)
         assert weekday_naturalday(date) == "Sept. 27, 2026"
+
+
+@pytest.mark.parametrize(
+    ["real_today", "as_of", "date", "expected"],
+    [
+        ["2026-09-01", "2026-09-24", dt.date(2026, 9, 25), "tomorrow"],
+        ["2026-09-01", "2026-09-24", dt.date(2026, 9, 27), "on Sunday"],
+    ],
+    ids=[
+        "as_of overrides real today for the tomorrow branch",
+        "as_of overrides real today for the weekday branch",
+    ],
+)
+def test_weekday_naturalday_as_of_overrides_the_real_today(real_today, as_of, date, expected):
+    # OccurrencePreviewView renders as if "today" were the occurrence's
+    # own send_date, which is almost always well before the real date
+    # this test actually runs on - as_of has to win over the real clock
+    # for the preview to be meaningful, not just a formality.
+    with freeze_time(real_today):
+        assert weekday_naturalday(date, dt.date.fromisoformat(as_of)) == expected

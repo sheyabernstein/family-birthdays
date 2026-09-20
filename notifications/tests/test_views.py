@@ -1,11 +1,13 @@
 import datetime as dt
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from accounts.models import Account
 from family.models import Person, Union
-from notifications.models import Broadcast, EventType, NotificationPreference
+from notifications.models import Broadcast, EventType, NotificationPreference, Occurrence
 from tenants.models import FamilyMembership
 
 pytestmark = pytest.mark.django_db
@@ -601,3 +603,126 @@ def test_broadcast_create_re_renders_the_list_page_with_errors_when_invalid(clie
     assert resp.context["form"].errors
     assert list(resp.context["broadcasts"]) == [existing]
     assert not Broadcast.objects.filter(text="").exists()
+
+
+def _preview_occurrence(person, code, *, occurrence_date, send_date):
+    event_type = EventType.objects.get(family=None, code=code)
+    return Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5786,
+        occurrence_date=occurrence_date,
+        send_date=send_date,
+    )
+
+
+def test_occurrence_preview_requires_editor_role(client, family, birthday_event_type):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    _login_as(client, member, family)
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    occurrence = _preview_occurrence(
+        person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+
+    assert resp.status_code == 403
+
+
+def test_occurrence_preview_renders_email_and_sms_for_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    occurrence = _preview_occurrence(
+        person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+
+    assert resp.status_code == 200
+    assert b"Sari Rokach" in resp.content
+    assert b"birthday" in resp.content.lower()
+
+
+def test_occurrence_preview_404s_for_an_occurrence_in_another_family(client, two_families):
+    family_a, family_b, account_a, _account_b = two_families
+    _login_as(client, account_a, family_a)
+    other_person = Person.objects.create(family=family_b, first_name_en="Other", last_name_en="Family")
+    occurrence = _preview_occurrence(
+        other_person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+
+    assert resp.status_code == 404
+
+
+def test_occurrence_preview_renders_as_of_its_own_send_date_not_today(client, family):
+    # The whole point of the preview is to show what a recipient will
+    # actually see once this really sends - not what it'd say if
+    # rendered right now, which for an occurrence computed weeks ahead
+    # would otherwise be the far-future date fallback instead of the
+    # near-term "is on <weekday>"/"is today" wording it'll really carry.
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    # occurrence_date is 10 days out from real "today" (well past
+    # weekday_naturalday's own week-out cutoff), but send_date - what
+    # the preview should treat as "today" - is only 3 days before it.
+    occurrence = _preview_occurrence(
+        person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=10),
+        send_date=timezone.localdate() + dt.timedelta(days=7),
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+
+    assert resp.status_code == 200
+    expected_weekday = f"on {occurrence.occurrence_date:%A}"
+    assert expected_weekday.encode() in resp.content
+
+
+def test_occurrence_preview_does_not_query_parents_per_request(client, family):
+    # Regression guard for the select_related chain (notifications.
+    # models.OccurrenceManager.with_related) - without it, parents_label
+    # (rendered for the subject and both parents) costs extra un-batched
+    # Person queries per parent.
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+
+    childless = Person.objects.create(family=family, first_name_en="Solo", last_name_en="Person")
+    childless_occurrence = _preview_occurrence(
+        childless,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+    with CaptureQueriesContext(connection) as no_parents:
+        client.get(f"/occurrences/{childless_occurrence.uuid}/preview/")
+
+    father = Person.objects.create(family=family, first_name_en="Dad", last_name_en="Person")
+    mother = Person.objects.create(family=family, first_name_en="Mom", last_name_en="Person")
+    with_parents = Person.objects.create(
+        family=family, first_name_en="Kid", last_name_en="Person", father=father, mother=mother
+    )
+    with_parents_occurrence = _preview_occurrence(
+        with_parents,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+    with CaptureQueriesContext(connection) as with_parents_ctx:
+        resp = client.get(f"/occurrences/{with_parents_occurrence.uuid}/preview/")
+
+    assert len(with_parents_ctx.captured_queries) == len(no_parents.captured_queries)
+    assert b"Dad &amp; Mom" in resp.content or b"Dad & Mom" in resp.content

@@ -197,9 +197,36 @@ class NotificationPreference(models.Model):
                 )
 
 
+class OccurrenceManager(models.Manager):
+    def with_related(self) -> models.QuerySet["Occurrence"]:
+        """Joins everything _render_occurrence_message needs to render one occurrence.
+
+        person/union_a/union_b's own father/mother are chained in too -
+        Person.parents_label (rendered into every occurrence email via
+        notifications/templates/notifications/email/_parents.html) reads
+        both, and without this each occurrence's email render cost 4
+        extra un-batched Person queries (2 parents x up to 2 people for a
+        union-anchored event) - see AGENTS.md's note on this. Shared by
+        notifications.tasks.send_due_notifications and
+        notifications.views.OccurrencePreviewView, both of which render a
+        full occurrence message from just a pk/uuid.
+        """
+        return self.get_queryset().select_related(
+            "person__father",
+            "person__mother",
+            "union",
+            "union__person_a__father",
+            "union__person_a__mother",
+            "union__person_b__father",
+            "union__person_b__mother",
+            "event_type",
+        )
+
+
 class Occurrence(models.Model):
-    # Not currently referenced over HTTP anywhere, but every model gets one
-    # regardless (see EventType.uuid).
+    # Looked up by notifications.views.OccurrencePreviewView - every model
+    # gets one regardless of whether a view happens to need it yet (see
+    # EventType.uuid).
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
 
     person = models.ForeignKey(
@@ -221,6 +248,8 @@ class Occurrence(models.Model):
 
     is_sent = models.BooleanField(default=False)
     computed_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OccurrenceManager()
 
     class Meta:
         constraints = [

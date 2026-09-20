@@ -11,14 +11,15 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.views import View
-from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
 from family.access import person_is_visible, union_is_visible
 from family.models import Person, Union
 from notifications.audience import available_channels, preference_status
 from notifications.enums import ChannelEnum
 from notifications.forms import BroadcastForm
-from notifications.models import Broadcast, EventType, NotificationPreference
+from notifications.models import Broadcast, EventType, NotificationPreference, Occurrence
+from notifications.tasks import SMS_CHAR_BUDGET, _render_occurrence_message
 from tenants.mixins import FamilyEditorRequiredMixin, FamilyRequiredMixin, FamilyScopedMixin
 
 
@@ -232,6 +233,53 @@ class TogglePersonPreferenceView(FamilyRequiredMixin, View):
 
         next_url = request.POST.get("next") or "family:dashboard"
         return redirect(next_url)
+
+
+class OccurrencePreviewView(FamilyEditorRequiredMixin, FamilyScopedMixin, DetailView):
+    """Renders the email/SMS one occurrence will actually produce, for an owner/editor to check.
+
+    Read-only - never creates a Message row or touches is_sent, unlike
+    the real send path. Rendered as of the occurrence's own send_date
+    (see notifications.tasks._render_occurrence_message's as_of), not
+    whenever the preview happens to be requested - an occurrence
+    computed weeks ahead would otherwise show the far-future date
+    fallback ("was on Sept. 27, 2026") instead of the near-term wording
+    ("is on Monday"/"is today") a recipient will actually see once it's
+    really sent.
+
+    family_lookup mirrors family.views.DashboardView's own candidate
+    filter (person__family, or either side of a union) - the exact set
+    of occurrences an owner/editor can already see on Upcoming for their
+    own family, nothing broader. Ordinary GET, not POST - this changes
+    nothing, so there's no CSRF-relevant state to protect.
+    """
+
+    model = Occurrence
+    queryset = Occurrence.objects.with_related()
+    template_name = "notifications/occurrence_preview.html"
+    context_object_name = "occurrence"
+    slug_field = "uuid"
+    slug_url_kwarg = "uuid"
+    family_lookup = ["person__family", "union__person_a__family", "union__person_b__family"]
+
+    def get_context_data(self, **kwargs) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        occurrence = self.object
+        as_of = occurrence.send_date
+        subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL, as_of=as_of)
+        _subject, sms_text, _html = _render_occurrence_message(
+            occurrence, channel=ChannelEnum.SMS, as_of=as_of
+        )
+        context.update(
+            {
+                "preview_as_of": as_of,
+                "email_subject": subject,
+                "email_html": html,
+                "sms_text": sms_text,
+                "sms_char_budget": SMS_CHAR_BUDGET,
+            }
+        )
+        return context
 
 
 def _own_or_sent_q(request: HttpRequest) -> models.Q:

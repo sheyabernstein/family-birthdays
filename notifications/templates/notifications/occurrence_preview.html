@@ -1,0 +1,40 @@
+{% load family_extras %}
+{% comment %}
+Fragment fetched by notifications/static/notifications/js/occurrence_preview.js
+and injected into dashboard.html's own shared #occurrence-preview-dialog - not
+a full page, deliberately no {% extends %}.
+{% endcomment %}
+<h2>
+    {{ occurrence.event_type.name }}
+    {% if occurrence.person %}
+        · {{ occurrence.person.display_name }}
+    {% elif occurrence.union %}
+        · {{ occurrence.union.person_a.display_name }} &amp; {{ occurrence.union.person_b.display_name }}
+    {% endif %}
+</h2>
+<p class="muted occurrence-preview-note">
+    Shown as it will read on its scheduled send date, {{ preview_as_of|hebrew_str }} · {{ preview_as_of|date:"l, F j, Y" }} - not as of right now.
+</p>
+<div class="occurrence-preview-section">
+    <h3>Email</h3>
+    <p class="occurrence-preview-subject"><strong>Subject:</strong> {{ email_subject }}</p>
+    {% comment %}
+    render_to_string() marks its output safe, so interpolating email_html
+    plain here would skip autoescaping entirely and let the email's own
+    real quote marks close this attribute early - force_escape escapes
+    regardless of that safe flag. (Note: this comment itself can't
+    contain a literal {{ variable }} reference - {# #} single-line
+    comments don't span multiple lines, so an earlier version of this
+    comment written that way leaked its own example straight into the
+    page instead of being stripped.)
+    {% endcomment %}
+    <iframe class="occurrence-preview-email-frame"
+            srcdoc="{{ email_html|force_escape }}"
+            sandbox=""
+            title="Email preview"></iframe>
+</div>
+<div class="occurrence-preview-section">
+    <h3>SMS</h3>
+    <pre class="occurrence-preview-sms">{{ sms_text }}</pre>
+    <p class="muted occurrence-preview-char-count">{{ sms_text|length }} / {{ sms_char_budget }} characters</p>
+</div>

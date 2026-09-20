@@ -468,6 +468,7 @@ main {
    Mitzvah" vs "Birthday") - text-length-dependent alignment was the
    actual problem with an earlier version of this. */
 .timeline-who {
+  position: relative;
   display: grid;
   grid-template-columns: 6.75rem 1fr;
   align-items: center;
@@ -476,6 +477,22 @@ main {
 
 .timeline-who .badge {
   justify-self: start;
+}
+
+/* Owner/editor-only "Preview" button (occurrence_preview.js) - absolutely
+   positioned over the row's own far right rather than given its own grid
+   column, so it never disturbs the badge/name column widths above. The
+   name column still reserves room for it (:has, not a fixed layout
+   change for everyone) so a long display name can't run underneath it. */
+.timeline-who:has(.occurrence-preview-trigger) {
+  padding-right: 4.5rem;
+}
+
+.occurrence-preview-trigger {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
 }
 
 .timeline-who + .timeline-who {
@@ -509,6 +526,87 @@ main {
 
 .timeline-broadcast-foot .spacer {
   flex: 1;
+}
+
+/* Upcoming's own "Preview" popover - a native <dialog>, one shared
+   instance reused across every row (see occurrence_preview.js), not a
+   styled tooltip/modal component - matches this app's existing bias
+   toward native browser features (see the plain title= tooltips
+   elsewhere) over adding a JS widget for something this small. */
+.occurrence-preview-dialog {
+  width: min(640px, 92vw);
+  max-height: 85vh;
+  padding: 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper-raised);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.occurrence-preview-dialog::backdrop {
+  background: rgb(34 31 26 / 45%);
+}
+
+.occurrence-preview-close {
+  float: right;
+  border: none;
+  background: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.occurrence-preview-close:hover {
+  color: var(--ink);
+}
+
+.occurrence-preview-note {
+  margin-top: -0.25rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.occurrence-preview-section {
+  margin-bottom: 1.25rem;
+}
+
+.occurrence-preview-section h3 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  margin-bottom: 0.5rem;
+}
+
+.occurrence-preview-subject {
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.occurrence-preview-email-frame {
+  width: 100%;
+  height: 360px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.occurrence-preview-sms {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  margin: 0 0 0.35rem;
+}
+
+.occurrence-preview-char-count {
+  font-size: 0.78rem;
+  margin: 0;
 }
 
 /* --- Cards / sections --- */

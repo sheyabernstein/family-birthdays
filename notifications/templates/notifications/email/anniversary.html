@@ -10,12 +10,12 @@
         <p>
             <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
             <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s anniversary was
-            {{ occurrence.occurrence_date|weekday_naturalday }}.
+            {{ occurrence.occurrence_date|weekday_naturalday:today }}.
         </p>
     {% else %}
         <p>
             <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
-            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s anniversary is {{ occurrence.occurrence_date|weekday_naturalday }}!
+            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s anniversary is {{ occurrence.occurrence_date|weekday_naturalday:today }}!
         </p>
     {% endif %}
     {% include "notifications/email/_parents.html" with person=occurrence.union.person_a %}
