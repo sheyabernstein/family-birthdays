@@ -605,7 +605,7 @@ def test_broadcast_create_re_renders_the_list_page_with_errors_when_invalid(clie
     assert not Broadcast.objects.filter(text="").exists()
 
 
-def _preview_occurrence(person, code, *, occurrence_date, send_date):
+def _preview_occurrence(person, code, *, occurrence_date, send_date, shifted_for_shabbat_or_yomtov=False):
     event_type = EventType.objects.get(family=None, code=code)
     return Occurrence.objects.create(
         person=person,
@@ -613,6 +613,7 @@ def _preview_occurrence(person, code, *, occurrence_date, send_date):
         hebrew_year=5786,
         occurrence_date=occurrence_date,
         send_date=send_date,
+        shifted_for_shabbat_or_yomtov=shifted_for_shabbat_or_yomtov,
     )
 
 
@@ -690,6 +691,73 @@ def test_occurrence_preview_renders_as_of_its_own_send_date_not_today(client, fa
     assert resp.status_code == 200
     expected_weekday = f"on {occurrence.occurrence_date:%A}"
     assert expected_weekday.encode() in resp.content
+
+
+def test_occurrence_preview_shows_one_stamp_when_not_shifted(client, family):
+    # The common case (birthday/yahrzeit/anniversary, sent same-day) has
+    # nothing to explain - showing a second, identical "Notification
+    # sends" stamp next to "Event date" would just be clutter.
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    same_date = timezone.localdate() + dt.timedelta(days=3)
+    occurrence = _preview_occurrence(
+        person, EventType.BuiltinCode.BIRTHDAY, occurrence_date=same_date, send_date=same_date
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+    content = resp.content.decode()
+
+    assert "Event date" in content
+    assert "Notification sends" not in content
+
+
+def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    occurrence = _preview_occurrence(
+        person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+        shifted_for_shabbat_or_yomtov=True,
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+    content = resp.content.decode()
+
+    assert "Event date" in content
+    assert "Notification sends" in content
+    assert "Moved up for Shabbat/Yom Tov" in content
+
+
+def test_occurrence_preview_shows_both_stamps_without_a_shift_note_for_a_fixed_lead_time(client, family):
+    # Wedding's own notify_days_before=3 makes send_date differ from
+    # occurrence_date on its own, with no Shabbat/Yom Tov involved - the
+    # two stamps say enough on their own; the shift-specific note would
+    # be misleading here.
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    person_a = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    person_b = Person.objects.create(family=family, first_name_en="Moshe", last_name_en="Rokach")
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+    wedding = EventType.objects.get(family=None, code=EventType.BuiltinCode.WEDDING)
+    occurrence = Occurrence.objects.create(
+        union=union,
+        event_type=wedding,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+        shifted_for_shabbat_or_yomtov=False,
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+    content = resp.content.decode()
+
+    assert "Event date" in content
+    assert "Notification sends" in content
+    assert "Moved up for Shabbat/Yom Tov" not in content
 
 
 def test_occurrence_preview_does_not_query_parents_per_request(client, family):
