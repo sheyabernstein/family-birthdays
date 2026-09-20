@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from accounts.models import Account
 from family.models import Person, Union
+from family.templatetags.family_extras import hebrew_str
 from notifications.enums import ChannelEnum
 from notifications.models import Broadcast, EventType, Occurrence
 from notifications.services import absolute_url, send_email, send_sms, static_absolute_url
@@ -245,6 +246,28 @@ def test_occurrence_sms_shows_the_subjects_hebrew_first_name(family):
     _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
 
     assert "(בלומא)" in body
+
+
+def test_occurrence_sms_includes_the_hebrew_date_without_a_year(family):
+    occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY)
+
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
+
+    assert hebrew_str(occurrence.occurrence_date, False) in body
+    # Confirms the year really is dropped, not just present alongside a
+    # coincidentally-matching month/day string - hebrew_str's own
+    # thousands-digit-dropping year (e.g. "תשפ"ז") still has its own
+    # distinct suffix that a year-less render never produces.
+    assert hebrew_str(occurrence.occurrence_date) not in body
+
+
+def test_wedding_sms_includes_the_hebrew_date_without_a_year(family):
+    occurrence = _union_occurrence_for(family, EventType.BuiltinCode.WEDDING)
+
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
+
+    assert hebrew_str(occurrence.occurrence_date, False) in body
+    assert hebrew_str(occurrence.occurrence_date) not in body
 
 
 def test_occurrence_sms_shows_the_parents_label_even_without_a_naming_collision(family):
