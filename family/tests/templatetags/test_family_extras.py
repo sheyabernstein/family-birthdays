@@ -1,6 +1,8 @@
 import datetime as dt
 
 import pytest
+from django.template.defaultfilters import date as date_filter
+from django.utils import dateformat
 from freezegun import freeze_time
 
 from family.models import Person
@@ -44,7 +46,7 @@ def test_with_hebrew_first_name_handles_none():
         [0, "today"],
         [1, "tomorrow"],
         [2, "on Tuesday"],
-        [6, "on Saturday"],
+        [6, "on Shabbos"],
         [-6, "on Monday"],
     ],
     ids=[
@@ -52,7 +54,7 @@ def test_with_hebrew_first_name_handles_none():
         "today still uses naturalday's own word",
         "tomorrow still uses naturalday's own word",
         "two days ahead names the weekday",
-        "six days ahead names the weekday",
+        "six days ahead lands on Shabbos",
         "six days ago names the weekday",
     ],
 )
@@ -60,6 +62,29 @@ def test_weekday_naturalday_names_the_weekday_within_a_week(delta_days, expected
     with freeze_time("2026-09-20"):  # a Sunday
         date = dt.date(2026, 9, 20) + dt.timedelta(days=delta_days)
         assert weekday_naturalday(date) == expected
+
+
+def test_djangos_own_date_filter_renders_saturday_as_shabbos():
+    # family.apps.FamilyConfig.ready() patches Django's own WEEKDAYS dict
+    # (index 5 = Saturday) at process startup - covers every |date:"l"/"D"
+    # call site in the app (ledger-stamp displays throughout) with no
+    # per-template edits, but only for code that actually goes through
+    # Django's date formatting.
+    saturday = dt.date(2026, 9, 26)
+    assert date_filter(saturday, "l") == "Shabbos"
+    assert date_filter(saturday, "D") == "Shabbos"
+
+
+def test_raw_strftime_still_says_saturday_not_shabbos():
+    # The other half of the same regression guard: strftime reads the OS
+    # locale tables, not Django's patched WEEKDAYS dict, so it was never
+    # going to pick up "Shabbos" - this is exactly why weekday_naturalday
+    # (and every other weekday-rendering call site) must go through
+    # dateformat.format/the |date filter instead, never strftime/%A. See
+    # AGENTS.md's "Dates" section.
+    saturday = dt.date(2026, 9, 26)
+    assert saturday.strftime("%A") == "Saturday"
+    assert dateformat.format(saturday, "l") == "Shabbos"
 
 
 def test_weekday_naturalday_falls_back_to_a_formatted_date_beyond_a_week():

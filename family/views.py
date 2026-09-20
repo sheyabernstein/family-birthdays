@@ -149,7 +149,7 @@ class DashboardView(FamilyRequiredMixin, TemplateView):
         # send_date__gte=today OR is_sent=False, not send_date__gte alone -
         # matches send_due_notifications' own self-healing philosophy
         # (send_date can legitimately land in the past: a missed run, or a
-        # same-day Shabbat/Yom Tov shift). An occurrence stuck unsent with a
+        # same-day Shabbos/Yom Tov shift). An occurrence stuck unsent with a
         # past send_date is still real and about to send - it shouldn't
         # silently vanish from "Upcoming".
         candidates = list(

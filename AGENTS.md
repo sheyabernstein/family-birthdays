@@ -16,7 +16,7 @@ the Hebrew date as the thing that actually drives scheduling: every person's
 birth/death, and every marriage, is recorded in both calendars, and the
 recurring anniversary is recomputed against the Hebrew calendar every year
 (handling leap-year Adar splits and short-month edge cases along the way).
-Notifications that would otherwise land on Shabbat or Yom Tov go out the day
+Notifications that would otherwise land on Shabbos or Yom Tov go out the day
 before instead, since nobody's checking their phone that day.
 
 ## Who uses it
@@ -146,7 +146,7 @@ switching workspaces.
   moment the row is created, and every consumer of it has to treat that
   as normal, not a bug to work around by excluding it.**
   `family.hebrew.resolve_send_date` walks a notification backward across
-  Shabbat/Yom Tov (never forward - "day before," never "day after," so
+  Shabbos/Yom Tov (never forward - "day before," never "day after," so
   nobody's expected to check their phone on the day itself). That's
   fine when an occurrence is computed well ahead of time (the nightly
   `compute_occurrences` sweep, 400 days out), but
@@ -401,7 +401,7 @@ switching workspaces.
   `family.views.DashboardView` groups occurrences landing on the *same*
   `(send_date, occurrence_date)` pair - deliberately not `send_date`
   alone, since two different people's occurrences can share a send_date
-  by coincidence (independent Shabbat/Yom Tov shifts landing on the same
+  by coincidence (independent Shabbos/Yom Tov shifts landing on the same
   day) without sharing the same underlying Hebrew date, and grouping on
   send_date alone would show one of them under the wrong Hebrew-date
   stamp - and orders the underlying queryset explicitly by `(send_date,
@@ -430,7 +430,7 @@ switching workspaces.
   audit-trail reasoning as before this template rewrite, just backed by
   real templates instead of f-strings now.
   - **A late send says so, in both the subject and the body - and an
-    early one (shifted for Shabbat/Yom Tov) says *when*, not just
+    early one (shifted for Shabbos/Yom Tov) says *when*, not just
     "today".** Because `send_date` can land before "today" (see the
     bullet above) and `send_due_notifications` deliberately catches up
     on it rather than dropping it, a `Message` can genuinely be rendered
@@ -1615,7 +1615,7 @@ signature worth documenting:
 
 ```python
 def resolve_send_date(anchor_date: date, *, notify_days_before: int) -> tuple[date, bool]:
-    """Walks a notification date backward across Shabbat/Yom Tov.
+    """Walks a notification date backward across Shabbos/Yom Tov.
 
     Only ever shifts earlier, never later - nobody's expected to check
     their phone on the day itself once it's already begun. See
@@ -1704,6 +1704,20 @@ adding any real information, so reach for a concrete type first:
   (e.g. `structlog.typing.WrappedLogger`), use that alias instead of a
   bare `Any` - same runtime meaning, but it names *why* it's dynamic
   instead of just giving up on the type.
+
+## Dates
+
+Every weekday name in this app must render through Django's own date
+formatting (`django.utils.dateformat.format(date, "l"/"D")`, or
+equivalently the `|date:"l"`/`|date:"D"` template filter) - never Python's
+own `strftime`/`%A`/`%a`. `family.apps.FamilyConfig.ready()` patches
+Django's `dateformat.WEEKDAYS`/`WEEKDAYS_ABBR` dicts (index 5) so every
+Saturday reads "Shabbos" app-wide, all tenants, no abbreviation - but only
+Django's own formatting machinery reads that patched dict. `strftime`
+reads the OS locale tables instead and would silently still say
+"Saturday" (see `family.templatetags.family_extras.weekday_naturalday`,
+the one place this was caught for real, and its own test coverage in
+`family/tests/templatetags/test_family_extras.py`).
 
 ## Test layout
 

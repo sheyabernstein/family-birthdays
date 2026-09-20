@@ -29,7 +29,7 @@ def _occurrence_for(family, code, *, days_ago=0, days_ahead=0):
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
     today = timezone.localdate()
     if days_ahead:
-        # Mirrors the real Shabbat/Yom Tov shift (family.hebrew.
+        # Mirrors the real Shabbos/Yom Tov shift (family.hebrew.
         # resolve_send_date): the notification goes out ahead of the
         # actual anchor date, not on it.
         occurrence_date = today + dt.timedelta(days=days_ahead)
@@ -338,7 +338,7 @@ def test_occurrence_sms_falls_back_to_the_default_template(family):
 # sent, e.g. after a worker outage) must not still claim "is today ..."
 # for an event that already happened. is_late is False whenever
 # occurrence_date == today - including the normal case where send_date
-# lands *earlier* than occurrence_date for a Shabbat/Yom Tov shift -
+# lands *earlier* than occurrence_date for a Shabbos/Yom Tov shift -
 # since the event itself hasn't passed. Wording is built with
 # occurrence_date|weekday_naturalday (see _occurrence_template_context's
 # own docstring for the real production bug that drove this - a
@@ -437,7 +437,7 @@ def test_sms_still_says_today_when_not_late(family):
 
 
 def test_shabbat_shift_ahead_of_occurrence_date_is_not_treated_as_late(family):
-    # send_date earlier than occurrence_date (the normal Shabbat/Yom Tov
+    # send_date earlier than occurrence_date (the normal Shabbos/Yom Tov
     # shift - see family.hebrew.resolve_send_date) is not "lateness" -
     # the event itself is still ahead, only the notification went out a
     # day early. This is the exact shape of a real bug that shipped to
@@ -543,7 +543,7 @@ def test_person_occurrence_says_yesterday_when_late_by_exactly_one_day(family, c
 
 
 def test_occurrence_names_the_weekday_when_shifted_multiple_days_early(family):
-    # A 2-day Diaspora Yom Tov immediately followed by Shabbat can shift
+    # A 2-day Diaspora Yom Tov immediately followed by Shabbos can shift
     # send_date up to family.hebrew.MAX_SHIFT_DAYS (4) days ahead of
     # occurrence_date - naturalday only has words for a 1-day gap, and a
     # full formatted date ("is September 28") reads worse than naming
@@ -562,7 +562,7 @@ def test_occurrence_names_the_weekday_when_shifted_multiple_days_early(family):
 
 def test_occurrence_falls_back_to_a_formatted_date_beyond_a_week_late(family):
     # Only a genuinely late catch-up send (a worker outage, not a
-    # Shabbat/Yom Tov shift - those are capped at MAX_SHIFT_DAYS) can
+    # Shabbos/Yom Tov shift - those are capped at MAX_SHIFT_DAYS) can
     # produce a gap this large. A bare weekday name would be ambiguous
     # about which week, so this should still fall back to a full date.
     occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ago=9)
@@ -577,7 +577,7 @@ def test_occurrence_falls_back_to_a_formatted_date_beyond_a_week_late(family):
 def test_date_stamp_shows_the_occurrence_date_not_the_send_date(family):
     # The small-print date stamp used to pair the Hebrew occurrence_date
     # with the Gregorian send_date - when a notification goes out early
-    # for Shabbat/Yom Tov those disagree, and the stamp read as if the
+    # for Shabbos/Yom Tov those disagree, and the stamp read as if the
     # event itself had moved. It should show the Gregorian half of the
     # same occurrence_date the Hebrew half and the naturalday headline
     # above it already commit to.
@@ -588,7 +588,7 @@ def test_date_stamp_shows_the_occurrence_date_not_the_send_date(family):
 
     assert date_filter(occurrence.occurrence_date, "l, F j, Y") in html
     assert date_filter(occurrence.send_date, "l, F j, Y") not in html
-    assert "moved up for Shabbat" not in html
+    assert "moved up for Shabbos" not in html
 
 
 def test_subject_line_matches_the_body_wording_when_late(family):

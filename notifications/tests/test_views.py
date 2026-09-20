@@ -729,12 +729,12 @@ def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
 
     assert "Event date" in content
     assert "Notification sends" in content
-    assert "Moved up for Shabbat/Yom Tov" in content
+    assert "Moved up for Shabbos/Yom Tov" in content
 
 
 def test_occurrence_preview_shows_both_stamps_without_a_shift_note_for_a_fixed_lead_time(client, family):
     # Wedding's own notify_days_before=3 makes send_date differ from
-    # occurrence_date on its own, with no Shabbat/Yom Tov involved - the
+    # occurrence_date on its own, with no Shabbos/Yom Tov involved - the
     # two stamps say enough on their own; the shift-specific note would
     # be misleading here.
     editor = _member(family, FamilyMembership.Role.EDITOR)
@@ -757,7 +757,7 @@ def test_occurrence_preview_shows_both_stamps_without_a_shift_note_for_a_fixed_l
 
     assert "Event date" in content
     assert "Notification sends" in content
-    assert "Moved up for Shabbat/Yom Tov" not in content
+    assert "Moved up for Shabbos/Yom Tov" not in content
 
 
 def test_occurrence_preview_does_not_query_parents_per_request(client, family):

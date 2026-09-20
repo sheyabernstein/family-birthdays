@@ -45,7 +45,7 @@ OCCURRENCE_HORIZON_DAYS = 400
 # <date>" stops reading as a timely nudge and starts reading as stale
 # noise nobody asked for, so the occurrence is discarded (deleted, no
 # message ever queued) rather than sent late. Deliberately smaller than
-# family.hebrew.MAX_SHIFT_DAYS (4) - a Shabbat/Yom Tov shift is never
+# family.hebrew.MAX_SHIFT_DAYS (4) - a Shabbos/Yom Tov shift is never
 # "late" in the first place (occurrence_date hasn't passed yet), so the
 # two constants aren't meant to line up.
 MAX_CATCHUP_DAYS_LATE = 3
@@ -393,7 +393,7 @@ def _delete_stale_unsent_occurrences(
     the only condition that matters here, deliberately not also
     send_date__gte=today (a previous version of this filter used that,
     and it was a real bug, not a refinement): resolve_send_date walks a
-    notification backward across Shabbat/Yom Tov, so an occurrence
+    notification backward across Shabbos/Yom Tov, so an occurrence
     computed on the anchor date itself, when that date is Yom Tov, gets a
     send_date already in the past the moment it's created - excluding
     "the past" here made exactly that row permanently un-cleanable, the
@@ -465,7 +465,7 @@ def send_due_notifications() -> None:
     Filters send_date__lte, not send_date=, so a day this didn't run (an
     outage, a worker crash) or a row whose send_date landed in the past the
     moment it was computed - resolve_send_date walks notify_days_before
-    backward across Shabbat/Yom Tov, and an immediate single-subject
+    backward across Shabbos/Yom Tov, and an immediate single-subject
     recompute (compute_occurrences_for_person/_union, triggered by an
     edit made that same day) can land exactly on the anchor date while
     that date is itself Yom Tov, shifting send_date to before "today" on
@@ -558,7 +558,7 @@ def _occurrence_template_context(occurrence: Occurrence, *, as_of: dt.date | Non
     today = as_of or timezone.localdate()
     # occurrence_date < today only when this send is genuinely late (a
     # missed run, an outage - see send_due_notifications' own docstring),
-    # not when it's early for Shabbat/Yom Tov (occurrence_date > today,
+    # not when it's early for Shabbos/Yom Tov (occurrence_date > today,
     # already called out separately via shifted_for_shabbat_or_yomtov) -
     # templates use this to pick "was"/"is" tense, then say *when* via
     # the occurrence_date|weekday_naturalday filter rather than
@@ -569,7 +569,7 @@ def _occurrence_template_context(occurrence: Occurrence, *, as_of: dt.date | Non
     # unconditionally claimed "Today is ..." anyway. weekday_naturalday
     # reads "today"/"tomorrow"/"yesterday" for a 1-day gap either
     # direction, a weekday name ("Monday") for the 2-6 day gap a
-    # Shabbat/Yom Tov shift can actually produce, and falls back to a
+    # Shabbos/Yom Tov shift can actually produce, and falls back to a
     # full formatted date beyond that - so the same filter covers the
     # on-time case and the shifted-early case without a separate flag
     # for it.
