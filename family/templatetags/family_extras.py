@@ -13,11 +13,19 @@ register = template.Library()
 
 
 @register.filter
-def hebrew_str(date: dt.date | None) -> str:
-    """Render a Gregorian date as its Hebrew-calendar equivalent, e.g. י״ד אדר תשפ״ז."""
+def hebrew_str(date: dt.date | None, include_year: bool = True) -> str:
+    """Render a Gregorian date as its Hebrew-calendar equivalent, e.g. י״ד אדר תשפ״ז.
+
+    include_year=False drops the year entirely (e.g. י״ד אדר) - used for
+    the SMS body's own inline date, where every extra character costs
+    real budget (see notifications.tasks.SMS_CHAR_BUDGET) and the year
+    is exactly the kind of thing this app already treats as noise (see
+    format_hebrew_date's own docstring on why the thousands digit is
+    dropped even when the year *is* shown).
+    """
     if date is None:
         return ""
-    return format_hebrew_date(gregorian_to_hebrew(date))
+    return format_hebrew_date(gregorian_to_hebrew(date), include_year=include_year)
 
 
 @register.filter

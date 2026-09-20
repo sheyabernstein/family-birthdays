@@ -17,6 +17,10 @@ def test_hebrew_str_handles_none():
     assert hebrew_str(None) == ""
 
 
+def test_hebrew_str_drops_the_year_entirely_when_asked():
+    assert hebrew_str(dt.date(2026, 3, 4), False) == 'ט"ו אדר'
+
+
 def test_with_hebrew_first_name_renders_a_trailing_parenthetical(family):
     person = Person.objects.create(
         family=family, first_name_en="Blimi", last_name_en="Rokach", first_name_he="בלומא"
