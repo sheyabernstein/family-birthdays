@@ -118,19 +118,27 @@ def resolve_hebrew_anniversary(
     return HebrewDate(next_year, next_month, 1)
 
 
-def resolve_send_date(occurrence_date: dt.date, diaspora: bool = True) -> tuple[dt.date, bool]:
+def resolve_send_date(occurrence_date: dt.date, diaspora: bool = True) -> tuple[dt.date, list[str]]:
     """Walk backward from a halachic occurrence date while it lands on Shabbos or Yom Tov.
 
     Returns:
-        A tuple of the resolved send date and whether it was actually
-        shifted from occurrence_date.
+        A tuple of the resolved send date, and which of "Shabbos"/"Yom
+        Tov" actually applied on the day(s) walked past (empty if it
+        wasn't shifted at all) - a Diaspora three-day yontif can involve
+        both, always reported "Shabbos" first (sorted() - "Shabbos" <
+        "Yom Tov" - rather than whichever day the walk happened to hit
+        first, so the same pair of dates always reads the same way).
+        `bool(reasons)` is exactly the old "was this shifted" check.
     """
     date = occurrence_date
-    shifted = False
+    reasons: set[str] = set()
     for _ in range(MAX_SHIFT_DAYS):
         info = HDateInfo(date, diaspora=diaspora)
         if not (info.is_shabbat or info.is_yom_tov):
             break
+        if info.is_shabbat:
+            reasons.add("Shabbos")
+        if info.is_yom_tov:
+            reasons.add("Yom Tov")
         date -= dt.timedelta(days=1)
-        shifted = True
-    return date, shifted
+    return date, sorted(reasons)

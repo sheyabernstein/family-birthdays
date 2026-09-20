@@ -328,7 +328,7 @@ def _compute_for_subject(
             continue
 
         notify_from = occurrence_date - dt.timedelta(days=event_type.notify_days_before)
-        send_date, shifted = resolve_send_date(notify_from)
+        send_date, shift_reasons = resolve_send_date(notify_from)
 
         effective_event_type = event_type
         if is_person and event_type.code == EventType.BuiltinCode.BIRTHDAY:
@@ -344,7 +344,7 @@ def _compute_for_subject(
             defaults={
                 "occurrence_date": occurrence_date,
                 "send_date": send_date,
-                "shifted_for_shabbat_or_yomtov": shifted,
+                "shifted_for_shabbat_or_yomtov": bool(shift_reasons),
             },
         )
         written += 1

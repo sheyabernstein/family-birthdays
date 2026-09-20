@@ -36,11 +36,11 @@ even a date *of* just reads as noise for a split second.
     {% if occurrence.send_date != occurrence.occurrence_date %}
         <div>
             <span class="dates-label">Notification sends</span>
-            <div class="stamp {% if occurrence.shifted_for_shabbat_or_yomtov %}stamp-shifted{% endif %}">
+            <div class="stamp {% if shift_reason %}stamp-shifted{% endif %}">
                 <span class="hebrew-date">{{ occurrence.send_date|hebrew_str }}</span>
                 <span class="gregorian-date">{{ occurrence.send_date|date:"l, F j, Y" }}</span>
-                {% if occurrence.shifted_for_shabbat_or_yomtov %}
-                    <span class="stamp-note">Moved up for Shabbos/Yom Tov</span>
+                {% if shift_reason %}
+                    <span class="stamp-note">Moved up for {{ shift_reason }}</span>
                 {% endif %}
             </div>
         </div>

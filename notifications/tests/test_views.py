@@ -713,14 +713,20 @@ def test_occurrence_preview_shows_one_stamp_when_not_shifted(client, family):
 
 
 def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
+    # The shift reason is recomputed from the real calendar (see
+    # OccurrencePreviewView), not read off the stored boolean, so this
+    # needs occurrence_date/send_date that are actually real - 2 Tishrei
+    # 5787 (Rosh Hashanah day 2), where 1 Tishrei that year happens to
+    # fall on Shabbos too - see family.tests.test_hebrew's own coverage
+    # of this exact date pair for resolve_send_date directly.
     editor = _member(family, FamilyMembership.Role.EDITOR)
     _login_as(client, editor, family)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
     occurrence = _preview_occurrence(
         person,
         EventType.BuiltinCode.BIRTHDAY,
-        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
-        send_date=timezone.localdate(),
+        occurrence_date=dt.date(2026, 9, 13),
+        send_date=dt.date(2026, 9, 11),
         shifted_for_shabbat_or_yomtov=True,
     )
 
@@ -729,7 +735,7 @@ def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
 
     assert "Event date" in content
     assert "Notification sends" in content
-    assert "Moved up for Shabbos/Yom Tov" in content
+    assert "Moved up for Shabbos and Yom Tov" in content
 
 
 def test_occurrence_preview_shows_both_stamps_without_a_shift_note_for_a_fixed_lead_time(client, family):
