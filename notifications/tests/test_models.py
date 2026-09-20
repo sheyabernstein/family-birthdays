@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from accounts.models import Account
 from family.models import Person, Union
+from notifications.enums import ShiftReason
 from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
 from tenants.models import Family
 
@@ -147,6 +148,29 @@ def test_occurrence_rejects_both_person_and_union(family):
             occurrence_date=timezone.localdate(),
             send_date=timezone.localdate(),
         )
+
+
+def test_occurrence_shift_reasons_stores_stable_values_not_labels(family):
+    # ShiftReason.value (persisted here) is deliberately not the same
+    # string as .label (only ever shown to a user) - see AGENTS.md's
+    # "Enums" section. shift_reason_labels is the one property that maps
+    # the stored stable values back to display text.
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    birthday = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=birthday,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+        shift_reasons=[ShiftReason.SHABBOS, ShiftReason.YOM_TOV],
+    )
+
+    occurrence.refresh_from_db()
+
+    assert occurrence.shift_reasons == ["shabbos", "yom_tov"]
+    assert occurrence.shift_reason_labels == ["Shabbos", "Yom Tov"]
+    assert occurrence.shifted_for_shabbat_or_yomtov is True
 
 
 def test_message_rejects_neither_occurrence_nor_broadcast(family):

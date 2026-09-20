@@ -1719,6 +1719,37 @@ reads the OS locale tables instead and would silently still say
 the one place this was caught for real, and its own test coverage in
 `family/tests/templatetags/test_family_extras.py`).
 
+## Enums
+
+Every enum backing something persisted (a model field, a JSON-stored
+value) uses `django.db.models.TextChoices`, always `NAME = "stable_value",
+"Friendly Label"` - a lowercase, stable value distinct from the label
+shown to a user, never the same string doing both jobs. `Role`
+(`tenants.models.FamilyMembership`), `Union.Status`, `EventType.Anchor`/
+`BuiltinCode`, `NotificationPreference.State`, `Message.Status`,
+`notifications.enums.ChannelEnum`/`ShiftReason` all follow this shape -
+`ChannelEnum`/`ShiftReason` are the two standalone ones (not nested inside
+a Model), needed elsewhere without inverting this app's usual dependency
+direction (`family.hebrew` needs `ShiftReason`; `accounts` needs
+`ChannelEnum`), but they're still real `models.TextChoices` - a plain
+`django.db.models` import carries no circular-import risk on its own,
+only importing from another app's actual `models.py` does. A
+`TextChoices` member's own `.label` (Django-generated from the second
+tuple element, not hand-maintained) is what a template ever shows a user;
+`.value` is what's actually written to the database or serialized - e.g.
+`Occurrence.shift_reasons` (a `JSONField`) stores `["shabbos", "yom_tov"]`,
+never `["Shabbos", "Yom Tov"]`, so a later wording tweak to the label
+never needs a data migration to go with it.
+
+A `TextChoices` member's own `str()` is exactly its `.value` (a plain,
+documented Django behavior), so a member can be interpolated/serialized
+directly with no explicit `.value` needed - `accounts.magic_links.
+issue_token`'s `f"{account_uuid}:{channel}:{destination}"` payload (which
+sits in Redis, embedded in a clicked URL, for up to 15 minutes) is exactly
+this: it gets the stable `"email"`/`"sms"` for free, never coupled to
+`.label`, without the call site having to know or care that `channel` is
+an enum member rather than a plain string.
+
 ## Test layout
 
 Tests live next to the code they test, one `tests/` package per Django

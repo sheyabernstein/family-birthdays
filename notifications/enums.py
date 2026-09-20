@@ -1,43 +1,32 @@
-from enum import StrEnum
+from django.db import models
 
 
-class ChannelEnum(StrEnum):
+class ChannelEnum(models.TextChoices):
     """The single definition of a notification channel - email or SMS.
 
-    A plain enum with no Django import, so it's safely importable from
-    anywhere (including accounts, which notifications.models itself
-    depends on) with no risk of a circular import - the reason this
-    isn't a models.TextChoices living on a model instead.
+    A standalone models.TextChoices, not nested inside a Model the way
+    Role/Union.Status/EventType.Anchor/etc. are - accounts needs to
+    import this, and nesting it inside notifications.models would
+    invert this app's usual dependency direction. django.db.models
+    itself carries no such risk either way - it's a framework import,
+    not a dependency on this app's own models - so this is still a real
+    models.TextChoices, same NAME = "value", "Label" shape and free
+    .label/.choices as every other enum in this app. See AGENTS.md's
+    "Enums" section.
     """
 
-    EMAIL = "email"
-    SMS = "sms"
-
-    @property
-    def label(self) -> str:
-        return {ChannelEnum.EMAIL: "Email", ChannelEnum.SMS: "SMS"}[self]
-
-    @classmethod
-    def choices(cls) -> list[tuple[str, str]]:
-        """(value, label) pairs, in the shape a CharField's choices= expects."""
-        return [(member.value, member.label) for member in cls]
+    EMAIL = "email", "Email"
+    SMS = "sms", "SMS"
 
 
-class ShiftReason(StrEnum):
+class ShiftReason(models.TextChoices):
     """Why an Occurrence's send_date landed before its occurrence_date - see family.hebrew.resolve_send_date.
 
-    A plain enum, not models.TextChoices, for the same reason as
-    ChannelEnum above - family.hebrew (which computes this) can't import
-    from notifications.models without inverting this app's usual
-    dependency direction, but a Django-free enum carries no such risk
-    either way.
-
-    Unlike ChannelEnum, the value *is* the display text (no separate
-    label) - this is only ever stored (Occurrence.shift_reasons, a
-    JSONField) and displayed, never compared against as a machine code
-    the way ChannelEnum's values are throughout the rest of this app, so
-    there's nothing a second, human-readable label would add.
+    Standalone for the same reason as ChannelEnum above. The stored
+    value (Occurrence.shift_reasons, a JSONField holding a list of
+    these) is deliberately not the same string as .label - see
+    AGENTS.md's "Enums" section.
     """
 
-    SHABBOS = "Shabbos"
-    YOM_TOV = "Yom Tov"
+    SHABBOS = "shabbos", "Shabbos"
+    YOM_TOV = "yom_tov", "Yom Tov"

@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from accounts.models import Account
 from family.models import Person, Union
-from notifications.enums import ChannelEnum
+from notifications.enums import ChannelEnum, ShiftReason
 from tenants.models import Family
 
 
@@ -144,7 +144,7 @@ class NotificationPreference(models.Model):
     union = models.ForeignKey(
         Union, null=True, blank=True, on_delete=models.CASCADE, related_name="notification_preferences"
     )
-    channel = models.CharField(max_length=10, choices=ChannelEnum.choices())
+    channel = models.CharField(max_length=10, choices=ChannelEnum.choices)
     state = models.CharField(max_length=25, choices=State.choices)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -245,15 +245,14 @@ class Occurrence(models.Model):
     # Which of ShiftReason.SHABBOS/YOM_TOV actually caused send_date to
     # land before occurrence_date - see family.hebrew.resolve_send_date,
     # which produces exactly this list. Stored as plain JSON (a list of
-    # already-display-ready strings, e.g. ["Shabbos", "Yom Tov"] - see
-    # ShiftReason's own docstring for why there's no separate label to
-    # map back from) rather than a boolean, so a later admin edit to
-    # EventType.notify_days_before can never retroactively make the
-    # *reason* for an already-computed occurrence unrecoverable - only
-    # re-deriving it from the live, possibly-changed EventType could do
-    # that (see the real bug this replaced: OccurrencePreviewView used
-    # to replay resolve_send_date from event_type.notify_days_before at
-    # preview time).
+    # ShiftReason's own stable values, e.g. ["shabbos", "yom_tov"] - see
+    # shift_reason_labels below for the display text) rather than a
+    # boolean, so a later admin edit to EventType.notify_days_before can
+    # never retroactively make the *reason* for an already-computed
+    # occurrence unrecoverable - only re-deriving it from the live,
+    # possibly-changed EventType could do that (see the real bug this
+    # replaced: OccurrencePreviewView used to replay resolve_send_date
+    # from event_type.notify_days_before at preview time).
     shift_reasons = models.JSONField(default=list, blank=True)
 
     is_sent = models.BooleanField(default=False)
@@ -292,8 +291,19 @@ class Occurrence(models.Model):
 
     @property
     def shifted_for_shabbat_or_yomtov(self) -> bool:
-        """Whether send_date landed before occurrence_date at all, for any reason."""
-        return bool(self.shift_reasons)
+        """Whether send_date landed before occurrence_date because of Shabbos and/or Yom Tov.
+
+        Explicit membership check, not bool(self.shift_reasons) - the
+        two happen to coincide today (ShiftReason has exactly these two
+        members), but this property's own name is a specific claim about
+        *why* it shifted, not just *whether* shift_reasons is non-empty.
+        """
+        return ShiftReason.SHABBOS in self.shift_reasons or ShiftReason.YOM_TOV in self.shift_reasons
+
+    @property
+    def shift_reason_labels(self) -> list[str]:
+        """shift_reasons' stored stable values, mapped back to their display labels (e.g. "Shabbos")."""
+        return [ShiftReason(value).label for value in self.shift_reasons]
 
 
 # The tags/attributes Trix's default toolbar can actually produce (bold,
@@ -400,7 +410,7 @@ class Message(models.Model):
         Broadcast, null=True, blank=True, on_delete=models.CASCADE, related_name="messages"
     )
     account = models.ForeignKey(Account, null=True, on_delete=models.SET_NULL, related_name="messages")
-    channel = models.CharField(max_length=10, choices=ChannelEnum.choices())
+    channel = models.CharField(max_length=10, choices=ChannelEnum.choices)
     destination = models.CharField(max_length=255)
 
     subject = models.CharField(max_length=255, blank=True)

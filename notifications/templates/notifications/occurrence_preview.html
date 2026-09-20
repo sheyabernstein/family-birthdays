@@ -40,7 +40,7 @@ even a date *of* just reads as noise for a split second.
                 <span class="hebrew-date">{{ occurrence.send_date|hebrew_str }}</span>
                 <span class="gregorian-date">{{ occurrence.send_date|date:"l, F j, Y" }}</span>
                 {% if occurrence.shift_reasons %}
-                    <span class="stamp-note">Moved up for {{ occurrence.shift_reasons|join:" and " }}</span>
+                    <span class="stamp-note">Moved up for {{ occurrence.shift_reason_labels|join:" and " }}</span>
                 {% endif %}
             </div>
         </div>
