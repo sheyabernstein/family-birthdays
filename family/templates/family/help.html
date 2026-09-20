@@ -48,6 +48,7 @@
                 <li><a href="#resolution">How notification settings are decided</a></li>
                 <li><a href="#site-admins">Site admins</a></li>
                 <li><a href="#broadcasts">Broadcasts</a></li>
+                <li><a href="#preview">Previewing a notification</a></li>
                 <li><a href="#history">The History section</a></li>
             </ul>
         {% endif %}
@@ -235,6 +236,24 @@
                 which point they become visible to everyone with access, as a shared record. A site admin
                 (see above) is the one exception - they can see every pending broadcast, not just their
                 own.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="preview">Previewing a notification</h2>
+            <p>
+                On the <a href="{% url 'family:dashboard' %}">Upcoming</a> page, owners and editors see a small
+                Preview button next to each entry, showing exactly what its email and SMS will say -
+                subject line included. It's shown as it will actually read on the day it sends, not as
+                of right now, which matters for something still weeks out - a birthday ten days away
+                reads "is on Monday" once it's actually about to send, not the far-off date it'd show if
+                you looked at it today.
+            </p>
+            <p>
+                When the notification's own send date differs from the event's date, the preview shows
+                both, so it's clear why: a Shabbat/Yom Tov shift moves a notification a day or more
+                earlier (nobody's expected to check their phone once Shabbat or Yom Tov has begun), and
+                a Wedding is always sent a few days ahead of the day itself on purpose. Previewing never
+                sends anything or changes the real occurrence - it's read-only.
             </p>
         </div>
         <div class="card">

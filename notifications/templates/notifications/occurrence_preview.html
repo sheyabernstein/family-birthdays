@@ -12,9 +12,40 @@ a full page, deliberately no {% extends %}.
         · {{ occurrence.union.person_a.display_name }} &amp; {{ occurrence.union.person_b.display_name }}
     {% endif %}
 </h2>
-<p class="muted occurrence-preview-note">
-    Shown as it will read on its scheduled send date, {{ preview_as_of|hebrew_str }} · {{ preview_as_of|date:"l, F j, Y" }} - not as of right now.
-</p>
+{% comment %}
+Same "ledger stamp" component person_detail.html's own Born/Yahrzeit
+dates use (see app.css's own header comment) - reused here rather than
+inventing a second date-display convention just for this page. The
+send-date stamp is only shown at all when it actually differs from the
+event date (a Shabbat/Yom Tov shift, or Wedding's own fixed 3-day
+lead time) - the common case (birthday/yahrzeit/anniversary, sent
+same-day) has nothing to explain, so showing one stamp instead of two
+identical ones keeps that case uncluttered. The explanatory line comes
+first, before either stamp - reading a date before knowing what it's
+even a date *of* just reads as noise for a split second.
+{% endcomment %}
+<p class="muted occurrence-preview-note">Shown as it will read on its scheduled send date - not right now.</p>
+<div class="dates-row">
+    <div>
+        <span class="dates-label">Event date</span>
+        <div class="stamp">
+            <span class="hebrew-date">{{ occurrence.occurrence_date|hebrew_str }}</span>
+            <span class="gregorian-date">{{ occurrence.occurrence_date|date:"l, F j, Y" }}</span>
+        </div>
+    </div>
+    {% if occurrence.send_date != occurrence.occurrence_date %}
+        <div>
+            <span class="dates-label">Notification sends</span>
+            <div class="stamp {% if occurrence.shifted_for_shabbat_or_yomtov %}stamp-shifted{% endif %}">
+                <span class="hebrew-date">{{ occurrence.send_date|hebrew_str }}</span>
+                <span class="gregorian-date">{{ occurrence.send_date|date:"l, F j, Y" }}</span>
+                {% if occurrence.shifted_for_shabbat_or_yomtov %}
+                    <span class="stamp-note">Moved up for Shabbat/Yom Tov</span>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
 <div class="occurrence-preview-section">
     <h3>Email</h3>
     <p class="occurrence-preview-subject"><strong>Subject:</strong> {{ email_subject }}</p>

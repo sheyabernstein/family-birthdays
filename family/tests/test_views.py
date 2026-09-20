@@ -1109,6 +1109,18 @@ def test_help_falls_back_to_the_owner_account_email_with_no_person_record(client
     assert f"mailto:{owner.email}" in resp.content.decode()
 
 
+def test_help_shows_the_preview_section_to_an_editor_but_not_a_plain_member(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    editor_resp = client.get("/help/")
+    assert "Previewing a notification" in editor_resp.content.decode()
+
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    _login_as(client, member, family)
+    member_resp = client.get("/help/")
+    assert "Previewing a notification" not in member_resp.content.decode()
+
+
 def test_help_shows_nothing_owner_related_with_no_current_family(client):
     account = Account.objects.create_user(email="floating@example.com")
     client.force_login(account)

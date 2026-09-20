@@ -563,9 +563,9 @@ main {
 }
 
 .occurrence-preview-note {
-  margin-top: -0.25rem;
+  margin-top: 0.6rem;
   margin-bottom: 1rem;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .occurrence-preview-section {
@@ -902,6 +902,17 @@ label {
   color: var(--ink-soft);
   display: block;
   margin-bottom: 0.25rem;
+}
+
+/* .dates-row itself has no bottom margin - person_detail.html's own use
+   of it relies on whatever follows to space itself. Without this, the
+   occurrence preview's stamp sat flush against the "Email" heading
+   right below it, while that same heading had a full 0.5rem of its own
+   breathing room above "Subject:". Scoped to the preview dialog rather
+   than added to .dates-row itself, which would change spacing on
+   person_detail.html too. */
+.occurrence-preview-body .dates-row {
+  margin-bottom: 1rem;
 }
 
 /* --- Table scroll wrapper - every <table> on the site (.data-table,
