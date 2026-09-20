@@ -17,7 +17,7 @@ Same "ledger stamp" component person_detail.html's own Born/Yahrzeit
 dates use (see app.css's own header comment) - reused here rather than
 inventing a second date-display convention just for this page. The
 send-date stamp is only shown at all when it actually differs from the
-event date (a Shabbat/Yom Tov shift, or Wedding's own fixed 3-day
+event date (a Shabbos/Yom Tov shift, or Wedding's own fixed 3-day
 lead time) - the common case (birthday/yahrzeit/anniversary, sent
 same-day) has nothing to explain, so showing one stamp instead of two
 identical ones keeps that case uncluttered. The explanatory line comes
@@ -40,7 +40,7 @@ even a date *of* just reads as noise for a split second.
                 <span class="hebrew-date">{{ occurrence.send_date|hebrew_str }}</span>
                 <span class="gregorian-date">{{ occurrence.send_date|date:"l, F j, Y" }}</span>
                 {% if occurrence.shifted_for_shabbat_or_yomtov %}
-                    <span class="stamp-note">Moved up for Shabbat/Yom Tov</span>
+                    <span class="stamp-note">Moved up for Shabbos/Yom Tov</span>
                 {% endif %}
             </div>
         </div>

@@ -12,9 +12,9 @@ Two distinct problems live here:
    Both are configurable per-person/per-union because family customs vary.
 
 2. Shifting a resolved Gregorian occurrence date to the actual notification
-   send date: if the occurrence falls on Shabbat or Yom Tov, the
+   send date: if the occurrence falls on Shabbos or Yom Tov, the
    notification needs to go out the day before, since nobody's checking
-   phones that day. A Shabbat abutting a two-day Diaspora Yom Tov can chain
+   phones that day. A Shabbos abutting a two-day Diaspora Yom Tov can chain
    multiple days back.
 """
 
@@ -26,8 +26,8 @@ from hdate.hebrew_date import Months, is_leap_year
 
 ADAR_MONTHS = {Months.ADAR, Months.ADAR_I, Months.ADAR_II}
 
-# Max consecutive Shabbat/Yom-Tov days to walk back through (covers a
-# Diaspora "three-day yontif": Yom Tov, Shabbat, Yom Tov).
+# Max consecutive Shabbos/Yom-Tov days to walk back through (covers a
+# Diaspora "three-day yontif": Yom Tov, Shabbos, Yom Tov).
 MAX_SHIFT_DAYS = 4
 
 
@@ -119,7 +119,7 @@ def resolve_hebrew_anniversary(
 
 
 def resolve_send_date(occurrence_date: dt.date, diaspora: bool = True) -> tuple[dt.date, bool]:
-    """Walk backward from a halachic occurrence date while it lands on Shabbat or Yom Tov.
+    """Walk backward from a halachic occurrence date while it lands on Shabbos or Yom Tov.
 
     Returns:
         A tuple of the resolved send date and whether it was actually

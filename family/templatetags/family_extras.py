@@ -1,7 +1,7 @@
 import datetime as dt
 
 from django import template
-from django.utils import formats, timezone
+from django.utils import dateformat, formats, timezone
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 from django.utils.translation import gettext
@@ -35,7 +35,7 @@ def weekday_naturalday(date: dt.date, as_of: dt.date | None = None) -> str:
     naturalday only has words for a same-day/yesterday/tomorrow gap and
     falls back to a full formatted date ("September 28") for anything
     further out. The only gap this app can actually produce ahead of
-    "today" is a Shabbat/Yom Tov shift - at most family.hebrew.
+    "today" is a Shabbos/Yom Tov shift - at most family.hebrew.
     MAX_SHIFT_DAYS (4) days - where "is on Monday" reads far more
     naturally than "is September 28". Beyond a week (only possible for a
     genuinely late catch-up send, never a shift - see notifications.
@@ -62,6 +62,9 @@ def weekday_naturalday(date: dt.date, as_of: dt.date | None = None) -> str:
     worker could leak into a concurrent, unrelated request computing a
     real send_date at the same moment - not a risk worth taking in an
     app whose entire scheduling model depends on "today" being right.)
+
+    Renders the weekday via dateformat.format, not strftime - see
+    family.apps.FamilyConfig.ready() and AGENTS.md's "Dates" section.
     """
     today = as_of or timezone.localdate()
     delta = (date - today).days
@@ -72,7 +75,7 @@ def weekday_naturalday(date: dt.date, as_of: dt.date | None = None) -> str:
     if delta == -1:
         return gettext("yesterday")
     if -6 <= delta <= 6:
-        return f"on {date:%A}"
+        return f"on {dateformat.format(date, 'l')}"
     return formats.date_format(date)
 
 

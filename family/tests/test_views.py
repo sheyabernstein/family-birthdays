@@ -875,7 +875,7 @@ def test_dashboard_groups_same_date_occurrences_under_one_timeline_entry(client,
 
 def test_dashboard_does_not_group_occurrences_sharing_only_send_date(client, family):
     # A shared send_date doesn't imply a shared occurrence_date - two
-    # independent Shabbat/Yom Tov shifts can coincidentally land on the
+    # independent Shabbos/Yom Tov shifts can coincidentally land on the
     # same day - grouping on send_date alone would show one of them
     # under the wrong Hebrew date (see DashboardView's own comment).
     owner = _member(family, FamilyMembership.Role.OWNER)
@@ -901,7 +901,7 @@ def test_dashboard_does_not_group_occurrences_sharing_only_send_date(client, fam
 
 
 def test_dashboard_still_shows_an_unsent_occurrence_with_a_past_send_date(client, family):
-    # A missed run, or a same-day Shabbat/Yom Tov shift, can leave send_date
+    # A missed run, or a same-day Shabbos/Yom Tov shift, can leave send_date
     # in the past while is_sent is still False - it's real and about to
     # send, so it shouldn't silently vanish from Upcoming (see
     # send_due_notifications' own send_date__lte for the same reasoning).
@@ -919,7 +919,7 @@ def test_dashboard_still_shows_an_unsent_occurrence_with_a_past_send_date(client
 def test_dashboard_shows_the_occurrence_date_not_the_send_date(client, family):
     # The timeline's date column used to show send_date next to the
     # Hebrew occurrence_date - when a notification is shifted early for
-    # Shabbat/Yom Tov those disagree, and it read as if the event itself
+    # Shabbos/Yom Tov those disagree, and it read as if the event itself
     # had moved. It should show the Gregorian half of occurrence_date.
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)
@@ -938,7 +938,7 @@ def test_dashboard_shows_the_occurrence_date_not_the_send_date(client, family):
 
     assert date_filter(occurrence_date, "l, F j, Y") in content
     assert date_filter(send_date, "l, F j, Y") not in content
-    assert "moved up for Shabbat" not in content
+    assert "moved up for Shabbos" not in content
 
 
 def test_dashboard_orders_grouped_occurrences_by_event_type_name(client, family):

@@ -14,7 +14,7 @@ the wrong day for a yahrzeit. This app treats the Hebrew date as the thing
 that actually drives scheduling: every birth, death, and marriage is recorded
 in both calendars, and the recurring anniversary is recomputed against the
 Hebrew calendar every year, including leap-year Adar splits and short-month
-edge cases. Notifications that would otherwise land on Shabbat or Yom Tov go
+edge cases. Notifications that would otherwise land on Shabbos or Yom Tov go
 out the day before instead.
 
 ## Features
@@ -30,7 +30,7 @@ out the day before instead.
 - **Role-based access** — owners and editors can manage the tree; everyone
   can view it and manage their own notification subscriptions.
 - **Email + SMS notifications** — birthdays, yahrzeits, anniversaries, and
-  family-wide broadcasts, shifted off Shabbat/Yom Tov automatically.
+  family-wide broadcasts, shifted off Shabbos/Yom Tov automatically.
 - **Interactive family tree** — a rendered chart of the whole family, with
   birth-order-aware sibling sorting.
 - **Field-level privacy** — a plain member can't see anyone else's birth

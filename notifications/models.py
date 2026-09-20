@@ -240,10 +240,10 @@ class Occurrence(models.Model):
     hebrew_year = models.PositiveIntegerField()
     occurrence_date = models.DateField(help_text="The halachic date of the event this year")
     send_date = models.DateField(
-        help_text="The date the notification actually goes out (shifted for Shabbat/Yom Tov)"
+        help_text="The date the notification actually goes out (shifted for Shabbos/Yom Tov)"
     )
     shifted_for_shabbat_or_yomtov = models.BooleanField(
-        default=False, verbose_name="shifted for Shabbat/Yom Tov"
+        default=False, verbose_name="shifted for Shabbos/Yom Tov"
     )
 
     is_sent = models.BooleanField(default=False)

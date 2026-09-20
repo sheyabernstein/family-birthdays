@@ -793,7 +793,7 @@ def test_compute_occurrences_for_union_does_not_delete_already_sent_history(fami
 
 def test_compute_occurrences_for_union_deletes_an_unsent_occurrence_even_with_a_past_send_date(family):
     """Regression test for a real bug: resolve_send_date walks a
-    notification backward across Shabbat/Yom Tov (see family.hebrew), so
+    notification backward across Shabbos/Yom Tov (see family.hebrew), so
     an occurrence computed on its own anchor date, when that date is
     itself Yom Tov, gets a send_date already in the past the moment it's
     created - this actually happened, for a union anchored on 1 Tishrei
@@ -830,7 +830,7 @@ def test_compute_occurrences_produces_a_past_send_date_when_the_anchor_falls_on_
     run: a union anchored on 1 Tishrei, recomputed on 1 Tishrei itself
     (Rosh Hashanah - a Yom Tov), gets an Anniversary occurrence whose
     send_date has already been shifted to the day before "today" by the
-    Shabbat/Yom Tov walk-back in family.hebrew.resolve_send_date. Both
+    Shabbos/Yom Tov walk-back in family.hebrew.resolve_send_date. Both
     send_due_notifications and _delete_stale_unsent_occurrences have to
     treat this row as "still due"/"still cleanable" despite that, rather
     than a plain send_date/today comparison quietly losing it forever -
