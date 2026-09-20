@@ -344,7 +344,7 @@ def _compute_for_subject(
             defaults={
                 "occurrence_date": occurrence_date,
                 "send_date": send_date,
-                "shifted_for_shabbat_or_yomtov": bool(shift_reasons),
+                "shift_reasons": shift_reasons,
             },
         )
         written += 1

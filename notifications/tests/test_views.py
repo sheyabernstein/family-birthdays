@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from accounts.models import Account
 from family.models import Person, Union
+from notifications.enums import ShiftReason
 from notifications.models import Broadcast, EventType, NotificationPreference, Occurrence
 from tenants.models import FamilyMembership
 
@@ -605,7 +606,7 @@ def test_broadcast_create_re_renders_the_list_page_with_errors_when_invalid(clie
     assert not Broadcast.objects.filter(text="").exists()
 
 
-def _preview_occurrence(person, code, *, occurrence_date, send_date, shifted_for_shabbat_or_yomtov=False):
+def _preview_occurrence(person, code, *, occurrence_date, send_date, shift_reasons=()):
     event_type = EventType.objects.get(family=None, code=code)
     return Occurrence.objects.create(
         person=person,
@@ -613,7 +614,7 @@ def _preview_occurrence(person, code, *, occurrence_date, send_date, shifted_for
         hebrew_year=5786,
         occurrence_date=occurrence_date,
         send_date=send_date,
-        shifted_for_shabbat_or_yomtov=shifted_for_shabbat_or_yomtov,
+        shift_reasons=list(shift_reasons),
     )
 
 
@@ -713,21 +714,20 @@ def test_occurrence_preview_shows_one_stamp_when_not_shifted(client, family):
 
 
 def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
-    # The shift reason is recomputed from the real calendar (see
-    # OccurrencePreviewView), not read off the stored boolean, so this
-    # needs occurrence_date/send_date that are actually real - 2 Tishrei
-    # 5787 (Rosh Hashanah day 2), where 1 Tishrei that year happens to
-    # fall on Shabbos too - see family.tests.test_hebrew's own coverage
-    # of this exact date pair for resolve_send_date directly.
+    # The preview reads shift_reasons straight off the stored occurrence
+    # (see OccurrencePreviewView) rather than recomputing it, so this
+    # doesn't need occurrence_date/send_date to be a real Shabbos/Yom Tov
+    # pair - family.tests.test_hebrew covers resolve_send_date's own
+    # calendar math directly.
     editor = _member(family, FamilyMembership.Role.EDITOR)
     _login_as(client, editor, family)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
     occurrence = _preview_occurrence(
         person,
         EventType.BuiltinCode.BIRTHDAY,
-        occurrence_date=dt.date(2026, 9, 13),
-        send_date=dt.date(2026, 9, 11),
-        shifted_for_shabbat_or_yomtov=True,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+        shift_reasons=[ShiftReason.SHABBOS, ShiftReason.YOM_TOV],
     )
 
     resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
@@ -755,7 +755,6 @@ def test_occurrence_preview_shows_both_stamps_without_a_shift_note_for_a_fixed_l
         hebrew_year=5786,
         occurrence_date=timezone.localdate() + dt.timedelta(days=3),
         send_date=timezone.localdate(),
-        shifted_for_shabbat_or_yomtov=False,
     )
 
     resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")

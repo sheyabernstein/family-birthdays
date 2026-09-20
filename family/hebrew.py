@@ -24,6 +24,8 @@ from hdate import HDateInfo, HebrewDate
 from hdate.gematria import hebrew_number
 from hdate.hebrew_date import Months, is_leap_year
 
+from notifications.enums import ShiftReason
+
 ADAR_MONTHS = {Months.ADAR, Months.ADAR_I, Months.ADAR_II}
 
 # Max consecutive Shabbos/Yom-Tov days to walk back through (covers a
@@ -118,27 +120,28 @@ def resolve_hebrew_anniversary(
     return HebrewDate(next_year, next_month, 1)
 
 
-def resolve_send_date(occurrence_date: dt.date, diaspora: bool = True) -> tuple[dt.date, list[str]]:
+def resolve_send_date(occurrence_date: dt.date, diaspora: bool = True) -> tuple[dt.date, list[ShiftReason]]:
     """Walk backward from a halachic occurrence date while it lands on Shabbos or Yom Tov.
 
     Returns:
-        A tuple of the resolved send date, and which of "Shabbos"/"Yom
-        Tov" actually applied on the day(s) walked past (empty if it
-        wasn't shifted at all) - a Diaspora three-day yontif can involve
-        both, always reported "Shabbos" first (sorted() - "Shabbos" <
-        "Yom Tov" - rather than whichever day the walk happened to hit
-        first, so the same pair of dates always reads the same way).
-        `bool(reasons)` is exactly the old "was this shifted" check.
+        A tuple of the resolved send date, and which of ShiftReason.
+        SHABBOS/YOM_TOV actually applied on the day(s) walked past
+        (empty if it wasn't shifted at all) - a Diaspora three-day
+        yontif can involve both, always reported Shabbos first
+        (sorted() - "shabbos" < "yom_tov" - rather than whichever day
+        the walk happened to hit first, so the same pair of dates
+        always reads the same way). `bool(reasons)` is exactly the old
+        "was this shifted" check.
     """
     date = occurrence_date
-    reasons: set[str] = set()
+    reasons: set[ShiftReason] = set()
     for _ in range(MAX_SHIFT_DAYS):
         info = HDateInfo(date, diaspora=diaspora)
         if not (info.is_shabbat or info.is_yom_tov):
             break
         if info.is_shabbat:
-            reasons.add("Shabbos")
+            reasons.add(ShiftReason.SHABBOS)
         if info.is_yom_tov:
-            reasons.add("Yom Tov")
+            reasons.add(ShiftReason.YOM_TOV)
         date -= dt.timedelta(days=1)
     return date, sorted(reasons)

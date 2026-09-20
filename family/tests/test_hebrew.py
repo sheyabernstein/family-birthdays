@@ -10,6 +10,7 @@ from family.hebrew import (
     resolve_hebrew_anniversary,
     resolve_send_date,
 )
+from notifications.enums import ShiftReason
 
 
 def test_format_hebrew_date_omits_the_thousands_digit():
@@ -92,7 +93,7 @@ def test_30_cheshvan_observance(target_year, day30_observance, expected_month, e
 @pytest.mark.parametrize(
     ["occurrence_date", "expected_send_date", "expected_reasons"],
     [
-        [dt.date(2025, 9, 23), dt.date(2025, 9, 22), ["Yom Tov"]],
+        [dt.date(2025, 9, 23), dt.date(2025, 9, 22), [ShiftReason.YOM_TOV]],
         [dt.date(2026, 6, 9), dt.date(2026, 6, 9), []],
     ],
     ids=[
@@ -117,7 +118,7 @@ def test_resolve_send_date_names_both_reasons_for_a_multi_day_chain():
     send_date, reasons = resolve_send_date(occurrence_date)
 
     assert send_date == dt.date(2026, 9, 11)
-    assert reasons == ["Shabbos", "Yom Tov"]
+    assert reasons == [ShiftReason.SHABBOS, ShiftReason.YOM_TOV]
 
 
 def test_gregorian_hebrew_round_trip():

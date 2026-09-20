@@ -1,4 +1,3 @@
-import datetime as dt
 from typing import Any
 
 from django import forms
@@ -15,7 +14,6 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
 from family.access import person_is_visible, union_is_visible
-from family.hebrew import resolve_send_date
 from family.models import Person, Union
 from notifications.audience import available_channels, preference_status
 from notifications.enums import ChannelEnum
@@ -272,21 +270,6 @@ class OccurrencePreviewView(FamilyEditorRequiredMixin, FamilyScopedMixin, Detail
         _subject, sms_text, _html = _render_occurrence_message(
             occurrence, channel=ChannelEnum.SMS, as_of=as_of
         )
-        # Recomputed rather than read off the stored boolean - the
-        # boolean alone can't say *which* of Shabbos/Yom Tov applied
-        # (see resolve_send_date's own return value), and this is
-        # display-only, so there's no reason to persist it on Occurrence
-        # just for the preview. resolve_send_date is deterministic for a
-        # given real calendar date, so replaying it from the same
-        # notify_from anchor the original compute used reproduces the
-        # same reasons every time.
-        shift_reason = ""
-        if occurrence.shifted_for_shabbat_or_yomtov:
-            notify_from = occurrence.occurrence_date - dt.timedelta(
-                days=occurrence.event_type.notify_days_before
-            )
-            _send_date, reasons = resolve_send_date(notify_from)
-            shift_reason = " and ".join(reasons)
         context.update(
             {
                 "preview_as_of": as_of,
@@ -294,7 +277,6 @@ class OccurrencePreviewView(FamilyEditorRequiredMixin, FamilyScopedMixin, Detail
                 "email_html": html,
                 "sms_text": sms_text,
                 "sms_char_budget": SMS_CHAR_BUDGET,
-                "shift_reason": shift_reason,
             }
         )
         return context
