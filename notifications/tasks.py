@@ -4,7 +4,6 @@ from collections.abc import Iterator
 from html import unescape as unescape_html
 
 from celery import Task, shared_task
-from django.contrib.humanize.templatetags.humanize import naturalday
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.html import strip_tags
@@ -20,6 +19,7 @@ from family.hebrew import (
     resolve_send_date,
 )
 from family.models import Person, Union
+from family.templatetags.family_extras import weekday_naturalday
 from notifications.audience import resolve_audience, resolve_broadcast_audience
 from notifications.enums import ChannelEnum
 from notifications.helpers import html_to_plain_text
@@ -38,6 +38,17 @@ SMS_CHAR_BUDGET = 160
 # self-heals if a person's dates are corrected later or a new EventType
 # is added.
 OCCURRENCE_HORIZON_DAYS = 400
+
+# How many days past the real occurrence_date a catch-up send (send_due_
+# notifications picking up a row a missed run left behind - see that
+# task's own docstring) is still worth sending. Beyond this, "was on
+# <date>" stops reading as a timely nudge and starts reading as stale
+# noise nobody asked for, so the occurrence is discarded (deleted, no
+# message ever queued) rather than sent late. Deliberately smaller than
+# family.hebrew.MAX_SHIFT_DAYS (4) - a Shabbat/Yom Tov shift is never
+# "late" in the first place (occurrence_date hasn't passed yet), so the
+# two constants aren't meant to line up.
+MAX_CATCHUP_DAYS_LATE = 3
 
 # A girl's 12th Hebrew birthday and a boy's 13th are a bat/bar mitzvah,
 # not just another birthday - these codes are never computed as their own
@@ -467,6 +478,10 @@ def send_due_notifications() -> None:
     own claim: without it, a worker crash/retry between sending and saving
     is_sent, or an overlapping run, would re-send the same occurrence's
     notifications to the whole family.
+
+    A claimed occurrence more than MAX_CATCHUP_DAYS_LATE past its own
+    occurrence_date is discarded (deleted outright) instead of sent - see
+    that constant's own docstring.
     """
     today = timezone.localdate()
     due_ids = list(
@@ -476,6 +491,7 @@ def send_due_notifications() -> None:
 
     queued = 0
     claimed_count = 0
+    discarded_count = 0
     for occurrence_id in due_ids:
         claimed = Occurrence.objects.filter(pk=occurrence_id, is_sent=False).update(is_sent=True)
         if not claimed:
@@ -498,6 +514,17 @@ def send_due_notifications() -> None:
             "union__person_b__mother",
             "event_type",
         ).get(pk=occurrence_id)
+
+        if occurrence.occurrence_date < today - dt.timedelta(days=MAX_CATCHUP_DAYS_LATE):
+            logger.info(
+                "discarding occurrence beyond the catch-up window",
+                occurrence=occurrence.uuid,
+                occurrence_date=occurrence.occurrence_date,
+                days_late=(today - occurrence.occurrence_date).days,
+            )
+            discarded_count += 1
+            occurrence.delete()
+            continue
 
         audience = resolve_audience(
             event_type=occurrence.event_type, person=occurrence.person, union=occurrence.union
@@ -524,7 +551,12 @@ def send_due_notifications() -> None:
             send_message.delay(message.pk)
             queued += 1
 
-    logger.info("notifications queued", occurrences_due=claimed_count, messages_queued=queued)
+    logger.info(
+        "notifications queued",
+        occurrences_due=claimed_count,
+        messages_queued=queued,
+        occurrences_discarded=discarded_count,
+    )
     metrics.beat_task_last_success_timestamp.labels(task_name="send_due_notifications").set(
         timezone.now().timestamp()
     )
@@ -543,15 +575,18 @@ def _occurrence_template_context(occurrence: Occurrence) -> dict:
     # not when it's early for Shabbat/Yom Tov (occurrence_date > today,
     # already called out separately via shifted_for_shabbat_or_yomtov) -
     # templates use this to pick "was"/"is" tense, then say *when* via
-    # the occurrence_date|naturalday filter rather than hardcoding
-    # "Today is ..." - a real bug once shipped to production: a birthday
-    # whose real Hebrew date fell on Yom Tov got shifted a day earlier
-    # by resolve_send_date, so it was neither late nor actually today,
-    # and every template's "not late" branch unconditionally claimed
-    # "Today is ..." anyway. naturalday reads "today"/"tomorrow"/
-    # "yesterday" for a 1-day gap either direction and falls back to a
-    # formatted date beyond that, so the same filter covers the on-time
-    # case and the shifted-early case without a separate flag for it.
+    # the occurrence_date|weekday_naturalday filter rather than
+    # hardcoding "Today is ..." - a real bug once shipped to production:
+    # a birthday whose real Hebrew date fell on Yom Tov got shifted a
+    # day earlier by resolve_send_date, so it was neither late nor
+    # actually today, and every template's "not late" branch
+    # unconditionally claimed "Today is ..." anyway. weekday_naturalday
+    # reads "today"/"tomorrow"/"yesterday" for a 1-day gap either
+    # direction, a weekday name ("Monday") for the 2-6 day gap a
+    # Shabbat/Yom Tov shift can actually produce, and falls back to a
+    # full formatted date beyond that - so the same filter covers the
+    # on-time case and the shifted-early case without a separate flag
+    # for it.
     return {
         "occurrence": occurrence,
         "family_name": family.name,
@@ -563,10 +598,10 @@ def _occurrence_subject(occurrence: Occurrence, *, is_late: bool) -> str:
     """Builds the email subject line for one occurrence.
 
     Mirrors the body templates' own on-time/late/coming-up wording (see
-    _occurrence_template_context's is_late, and its naturalday use) so
-    the subject line never disagrees with the body it's paired with - a
-    subject claiming "today" over a body that says "was on <date>" (a
-    late catch-up send) or "coming up" (Wedding, sent
+    _occurrence_template_context's is_late, and its weekday_naturalday
+    use) so the subject line never disagrees with the body it's paired
+    with - a subject claiming "today" over a body that says "was on
+    <date>" (a late catch-up send) or "coming up" (Wedding, sent
     notify_days_before ahead of the day itself) would be a confusing
     mismatch for whoever's just glancing at their inbox.
     """
@@ -574,10 +609,10 @@ def _occurrence_subject(occurrence: Occurrence, *, is_late: bool) -> str:
     name = getattr(subject_obj, "display_name", str(subject_obj))
     event_name = occurrence.event_type.name
     if is_late:
-        return f"{name} - {event_name} was {naturalday(occurrence.occurrence_date)}"
+        return f"{name} - {event_name} was {weekday_naturalday(occurrence.occurrence_date)}"
     if occurrence.event_type.code == EventType.BuiltinCode.WEDDING:
         return f"{name} - {event_name} coming up"
-    return f"{name} - {event_name} is {naturalday(occurrence.occurrence_date)}"
+    return f"{name} - {event_name} is {weekday_naturalday(occurrence.occurrence_date)}"
 
 
 def _render_occurrence_message(occurrence: Occurrence, *, channel: str) -> tuple[str, str, str]:

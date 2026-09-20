@@ -5,6 +5,7 @@ import pytest
 from django.conf import settings
 from django.contrib.humanize.templatetags.humanize import naturalday
 from django.core import mail
+from django.template.defaultfilters import date as date_filter
 from django.utils import timezone
 
 from accounts.models import Account
@@ -316,13 +317,14 @@ def test_occurrence_sms_falls_back_to_the_default_template(family):
 # occurrence_date == today - including the normal case where send_date
 # lands *earlier* than occurrence_date for a Shabbat/Yom Tov shift -
 # since the event itself hasn't passed. Wording is built with
-# occurrence_date|naturalday (see _occurrence_template_context's own
-# docstring for the real production bug that drove this - a birthday
-# shifted a day earlier for Yom Tov was neither late nor actually today,
-# and every template's "not late" branch claimed "Today is ..." anyway;
-# naturalday reads "today"/"tomorrow"/"yesterday" for a 1-day gap either
-# direction and a formatted date beyond that, covering the on-time and
-# shifted-early cases with the same filter). ---
+# occurrence_date|weekday_naturalday (see _occurrence_template_context's
+# own docstring for the real production bug that drove this - a
+# birthday shifted a day earlier for Yom Tov was neither late nor
+# actually today, and every template's "not late" branch claimed "Today
+# is ..." anyway; weekday_naturalday reads "today"/"tomorrow"/
+# "yesterday" for a 1-day gap either direction, a weekday name for a
+# 2-6 day gap, and a formatted date beyond that, covering the on-time
+# and shifted-early cases with the same filter). ---
 
 
 @pytest.mark.parametrize(
@@ -517,20 +519,53 @@ def test_person_occurrence_says_yesterday_when_late_by_exactly_one_day(family, c
     assert f"{event_name} was yesterday" in sms_body
 
 
-def test_occurrence_falls_back_to_a_formatted_date_when_shifted_multiple_days_early(family):
+def test_occurrence_names_the_weekday_when_shifted_multiple_days_early(family):
     # A 2-day Diaspora Yom Tov immediately followed by Shabbat can shift
-    # send_date more than a single day ahead of occurrence_date -
-    # naturalday only has words for a 1-day gap, so this must fall back
-    # to a real formatted date rather than mislabeling it "tomorrow".
+    # send_date up to family.hebrew.MAX_SHIFT_DAYS (4) days ahead of
+    # occurrence_date - naturalday only has words for a 1-day gap, and a
+    # full formatted date ("is September 28") reads worse than naming
+    # the weekday for a gap this small, so this falls back to
+    # weekday_naturalday's weekday-name branch rather than a bare date.
     occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ahead=3)
+    expected_weekday = f"on {occurrence.occurrence_date:%A}"
+
+    subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert f"birthday is {expected_weekday}" in html
+    assert f"is {expected_weekday}" in subject
+    assert "is tomorrow" not in html
+    assert "is today" not in html
+
+
+def test_occurrence_falls_back_to_a_formatted_date_beyond_a_week_late(family):
+    # Only a genuinely late catch-up send (a worker outage, not a
+    # Shabbat/Yom Tov shift - those are capped at MAX_SHIFT_DAYS) can
+    # produce a gap this large. A bare weekday name would be ambiguous
+    # about which week, so this should still fall back to a full date.
+    occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ago=9)
     expected = naturalday(occurrence.occurrence_date)
 
     subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
-    assert f"birthday is {expected}" in html
-    assert "is tomorrow" not in html
-    assert "is today" not in html
-    assert f"is {expected}" in subject
+    assert f"birthday was {expected}" in html
+    assert f"was {expected}" in subject
+
+
+def test_date_stamp_shows_the_occurrence_date_not_the_send_date(family):
+    # The small-print date stamp used to pair the Hebrew occurrence_date
+    # with the Gregorian send_date - when a notification goes out early
+    # for Shabbat/Yom Tov those disagree, and the stamp read as if the
+    # event itself had moved. It should show the Gregorian half of the
+    # same occurrence_date the Hebrew half and the naturalday headline
+    # above it already commit to.
+    occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ahead=3)
+    assert occurrence.occurrence_date != occurrence.send_date
+
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert date_filter(occurrence.occurrence_date, "l, F j, Y") in html
+    assert date_filter(occurrence.send_date, "l, F j, Y") not in html
+    assert "moved up for Shabbat" not in html
 
 
 def test_subject_line_matches_the_body_wording_when_late(family):

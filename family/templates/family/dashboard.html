@@ -13,10 +13,7 @@
                     <li class="timeline-entry event-{{ first.event_type.anchor }}">
                         <div class="timeline-when">
                             <span class="hebrew-date">{{ group.occurrence_date|hebrew_str }}</span>
-                            <span>{{ group.send_date|date:"l, F j, Y" }}</span>
-                            {% if first.shifted_for_shabbat_or_yomtov %}
-                                <span class="stamp-note">moved up for Shabbat/Yom Tov</span>
-                            {% endif %}
+                            <span>{{ group.occurrence_date|date:"l, F j, Y" }}</span>
                         </div>
                         <div class="timeline-card">
                             {% for occurrence in group.occurrences %}

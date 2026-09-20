@@ -1,5 +1,5 @@
 {% extends "email/_base.html" %}
-{% load family_extras humanize notifications_extras %}
+{% load family_extras notifications_extras %}
 {% block title %}{{ occurrence.event_type.name }}{% endblock %}
 {% block icon %}
     {% event_icon_url "notifications/img/event-icons/default.png" %}
@@ -9,18 +9,18 @@
     <p>
         {% if occurrence.person %}
             {% if is_late %}
-                <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} was {{ occurrence.occurrence_date|naturalday }}.
+                <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} was {{ occurrence.occurrence_date|weekday_naturalday }}.
             {% else %}
-                <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} is {{ occurrence.occurrence_date|naturalday }}.
+                <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} is {{ occurrence.occurrence_date|weekday_naturalday }}.
             {% endif %}
         {% elif is_late %}
             <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
             <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} was
-            {{ occurrence.occurrence_date|naturalday }}.
+            {{ occurrence.occurrence_date|weekday_naturalday }}.
         {% else %}
             <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
             <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} is
-            {{ occurrence.occurrence_date|naturalday }}.
+            {{ occurrence.occurrence_date|weekday_naturalday }}.
         {% endif %}
     </p>
     {% if occurrence.person %}
@@ -30,7 +30,6 @@
         {% include "notifications/email/_parents.html" with person=occurrence.union.person_b %}
     {% endif %}
     <p class="muted" style="font-size: 14px;">
-        {{ occurrence.occurrence_date|hebrew_str }} · {{ occurrence.send_date|date:"l, F j, Y" }}
-        {% if occurrence.shifted_for_shabbat_or_yomtov %}(moved up for Shabbat/Yom Tov){% endif %}
+        {{ occurrence.occurrence_date|hebrew_str }} · {{ occurrence.occurrence_date|date:"l, F j, Y" }}
     </p>
 {% endblock %}

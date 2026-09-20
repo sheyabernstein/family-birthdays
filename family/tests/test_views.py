@@ -2,6 +2,7 @@ import datetime as dt
 
 import pytest
 from django.db import connection
+from django.template.defaultfilters import date as date_filter
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -913,6 +914,31 @@ def test_dashboard_still_shows_an_unsent_occurrence_with_a_past_send_date(client
     resp = client.get("/")
 
     assert len(resp.context["upcoming_groups"]) == 1
+
+
+def test_dashboard_shows_the_occurrence_date_not_the_send_date(client, family):
+    # The timeline's date column used to show send_date next to the
+    # Hebrew occurrence_date - when a notification is shifted early for
+    # Shabbat/Yom Tov those disagree, and it read as if the event itself
+    # had moved. It should show the Gregorian half of occurrence_date.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    occurrence_date = timezone.localdate() + dt.timedelta(days=3)
+    send_date = timezone.localdate()
+    _occurrence(
+        person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=occurrence_date,
+        send_date=send_date,
+    )
+
+    resp = client.get("/")
+    content = resp.content.decode()
+
+    assert date_filter(occurrence_date, "l, F j, Y") in content
+    assert date_filter(send_date, "l, F j, Y") not in content
+    assert "moved up for Shabbat" not in content
 
 
 def test_dashboard_orders_grouped_occurrences_by_event_type_name(client, family):
