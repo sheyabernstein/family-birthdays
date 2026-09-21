@@ -3,8 +3,18 @@ import datetime as dt
 import pytest
 
 from family.forms import PersonForm, UnionForm
-from family.models import Person
-from family.widgets import PersonPickerSelect, _gender_warning, _year_label
+from family.models import Person, Union
+from family.widgets import (
+    PersonPickerSelect,
+    _children_hint,
+    _gender_warning,
+    _parents_hint,
+    _person_option_label,
+    _relations_hint,
+    _spouse_hint,
+    _year_label,
+    prefetch_for_person_picker,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -53,6 +63,102 @@ def test_gender_warning(family, person_gender, expected_gender, expected_warning
     assert _gender_warning(person, expected_gender) == expected_warning
 
 
+def test_parents_hint_names_both_parents(family):
+    father = Person.objects.create(family=family, first_name_en="Shloime", last_name_en="Rokach")
+    mother = Person.objects.create(family=family, first_name_en="Bruchele", last_name_en="Rokach")
+    person = Person.objects.create(
+        family=family, first_name_en="Blimi", last_name_en="Rokach", father=father, mother=mother
+    )
+
+    assert _parents_hint(person) == "child of Shloime Rokach & Bruchele Rokach"
+
+
+def test_parents_hint_includes_a_deceased_or_untracked_parent(family):
+    # Unlike Person.parents_label (warm notification copy), this is for
+    # telling two ledger entries apart - an untracked/deceased parent's
+    # name is exactly the useful clue, not something to hide.
+    father = Person.objects.create(
+        family=family, first_name_en="Shloime", last_name_en="Rokach", notifications_enabled=False
+    )
+    person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach", father=father)
+
+    assert _parents_hint(person) == "child of Shloime Rokach"
+
+
+def test_parents_hint_is_empty_without_any_recorded_parent(family):
+    person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach")
+
+    assert _parents_hint(person) == ""
+
+
+def test_spouse_hint_names_a_married_spouse_from_either_side(family):
+    person_a = Person.objects.create(family=family, first_name_en="Shloime", last_name_en="Rokach")
+    person_b = Person.objects.create(family=family, first_name_en="Bruchele", last_name_en="Rokach")
+    Union.objects.create(person_a=person_a, person_b=person_b, status=Union.Status.MARRIED)
+
+    assert _spouse_hint(person_a) == "spouse of Bruchele Rokach"
+    assert _spouse_hint(person_b) == "spouse of Shloime Rokach"
+
+
+def test_spouse_hint_omits_a_non_married_union(family):
+    # _spouse_hint itself doesn't filter by status - it relies on
+    # prefetch_for_person_picker's own married-only Prefetch already
+    # having scoped unions_as_a/_b down before this reads them.
+    person_a = Person.objects.create(family=family, first_name_en="Shloime", last_name_en="Rokach")
+    person_b = Person.objects.create(family=family, first_name_en="Bruchele", last_name_en="Rokach")
+    Union.objects.create(person_a=person_a, person_b=person_b, status=Union.Status.DIVORCED)
+    person_a = prefetch_for_person_picker(Person.objects.filter(pk=person_a.pk)).get()
+
+    assert _spouse_hint(person_a) == ""
+
+
+def test_spouse_hint_is_empty_without_any_union(family):
+    person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach")
+
+    assert _spouse_hint(person) == ""
+
+
+def test_children_hint_names_children_from_either_parent_field(family):
+    parent = Person.objects.create(family=family, first_name_en="Shloime", last_name_en="Rokach")
+    Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach", father=parent)
+    Person.objects.create(family=family, first_name_en="Elchanan", last_name_en="Rokach", mother=parent)
+
+    assert _children_hint(parent) == "parent of Blimi Rokach, Elchanan Rokach"
+
+
+def test_children_hint_is_empty_without_any_recorded_child(family):
+    person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach")
+
+    assert _children_hint(person) == ""
+
+
+def test_relations_hint_combines_parent_spouse_and_child_fragments(family):
+    grandparent = Person.objects.create(family=family, first_name_en="Yitzchok", last_name_en="Rokach")
+    spouse = Person.objects.create(family=family, first_name_en="Bruchele", last_name_en="Rokach")
+    person = Person.objects.create(
+        family=family, first_name_en="Shloime", last_name_en="Rokach", father=grandparent
+    )
+    Union.objects.create(person_a=person, person_b=spouse, status=Union.Status.MARRIED)
+    Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach", father=person)
+
+    assert _relations_hint(person) == (
+        "child of Yitzchok Rokach; spouse of Bruchele Rokach; parent of Blimi Rokach"
+    )
+
+
+def test_relations_hint_is_empty_without_any_relation_on_file(family):
+    person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach")
+
+    assert _relations_hint(person) == ""
+
+
+def test_person_option_label_includes_the_parents_hint(family):
+    father = Person.objects.create(family=family, first_name_en="Shloime", last_name_en="Rokach")
+    person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach", father=father)
+
+    assert _person_option_label(person) == "Blimi Rokach (birth year unknown) - child of Shloime Rokach"
+
+
 def _choice_value(field, person: Person):
     """ModelChoiceField's own iterator wraps each choice in a
     ModelChoiceIteratorValue carrying `.instance` - that's what
@@ -90,6 +196,33 @@ def test_person_picker_option_carries_display_data(family):
     assert attrs["data-birth-year"] == "b. 1952"
     assert attrs["data-hebrew-first-name"] == "אלחנן"
     assert "data-warning" not in attrs
+
+
+def test_person_picker_option_carries_the_relations_hint(family):
+    grandfather = Person.objects.create(family=family, first_name_en="Yitzchok", last_name_en="Rokach")
+    father = Person.objects.create(
+        family=family,
+        first_name_en="Elchanan",
+        last_name_en="Rokach",
+        gender=Person.Gender.MALE,
+        father=grandfather,
+    )
+    form = PersonForm(family=family)
+
+    attrs = _father_option_attrs(form, father)
+
+    assert attrs["data-relations-hint"] == "child of Yitzchok Rokach"
+
+
+def test_person_picker_option_omits_the_relations_hint_without_any_recorded_relation(family):
+    father = Person.objects.create(
+        family=family, first_name_en="Elchanan", last_name_en="Rokach", gender=Person.Gender.MALE
+    )
+    form = PersonForm(family=family)
+
+    attrs = _father_option_attrs(form, father)
+
+    assert "data-relations-hint" not in attrs
 
 
 def test_person_picker_option_flags_wrong_gender_on_file(family):

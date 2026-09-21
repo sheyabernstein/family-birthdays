@@ -35,6 +35,11 @@
         </div>
         <div class="card form-section">
             <h2>Family links</h2>
+            {% if link_as %}
+                <p class="muted warning-icon">
+                    These are <strong>the new person's own</strong> father and mother - a further-back generation than {{ link_of.display_name }}, not {{ link_of.display_name }} themselves. Leave blank unless you actually know the new person's own parents too.
+                </p>
+            {% endif %}
             <div class="form-row">
                 <div class="form-field">{% field_label form.father %}{{ form.father }}{{ form.father.errors }}</div>
                 <div class="form-field">{% field_label form.mother %}{{ form.mother }}{{ form.mother.errors }}</div>

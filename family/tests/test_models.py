@@ -81,6 +81,53 @@ def test_person_cannot_be_their_own_father(family):
         person.clean()
 
 
+def test_person_cannot_have_their_own_child_as_a_parent(family):
+    # A two-node cycle (A's mother is B, B's mother is A) is just as
+    # invalid as direct self-parenting above - a real incident, not
+    # hypothetical (see AGENTS.md/family/views.PersonCreateView).
+    grandparent = Person.objects.create(family=family, first_name_en="G", last_name_en="Person")
+    parent = Person.objects.create(
+        family=family, first_name_en="Parent", last_name_en="Person", mother=grandparent
+    )
+
+    grandparent.mother_id = parent.pk
+    with pytest.raises(ValidationError):
+        grandparent.clean()
+
+
+def test_person_cannot_have_a_more_distant_descendant_as_a_parent(family):
+    grandparent = Person.objects.create(family=family, first_name_en="G", last_name_en="Person")
+    parent = Person.objects.create(
+        family=family, first_name_en="Parent", last_name_en="Person", father=grandparent
+    )
+    grandchild = Person.objects.create(
+        family=family, first_name_en="Grandchild", last_name_en="Person", father=parent
+    )
+
+    grandparent.father_id = grandchild.pk
+    with pytest.raises(ValidationError):
+        grandparent.clean()
+
+
+def test_person_can_have_an_unrelated_parent_with_no_descendants_in_common(family):
+    # Sanity check: the new cycle check shouldn't false-positive on an
+    # ordinary, valid parent assignment.
+    child = Person.objects.create(family=family, first_name_en="Child", last_name_en="Person")
+    unrelated = Person.objects.create(family=family, first_name_en="Unrelated", last_name_en="Person")
+
+    child.father_id = unrelated.pk
+    child.clean()  # does not raise
+
+
+def test_a_brand_new_unsaved_person_has_no_descendants_to_conflict_with(family):
+    # self.pk is None here - descendant_ids() must not be called in a way
+    # that errors for a not-yet-created person (who trivially has none).
+    parent = Person.objects.create(family=family, first_name_en="Parent", last_name_en="Person")
+    new_person = Person(family=family, first_name_en="New", last_name_en="Person", father=parent)
+
+    new_person.clean()  # does not raise
+
+
 def test_dob_hebrew_display_omits_the_thousands_digit(family):
     person = Person.objects.create(
         family=family,

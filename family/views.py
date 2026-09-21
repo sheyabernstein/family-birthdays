@@ -5,6 +5,7 @@ from typing import Any
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import QuerySet
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
@@ -509,10 +510,27 @@ class PersonCreateView(FamilyEditorRequiredMixin, CreateView):
         anchor = self._link_of()
         if link_as and anchor is not None:
             setattr(anchor, link_as, self.object)
-            anchor.save(update_fields=[link_as])
-            messages.success(
-                self.request, f"Added {form.instance.display_name} as {anchor.display_name}'s {link_as}."
-            )
+            # A plain .save() never calls clean() - unlike PersonForm's
+            # own save() (a ModelForm always runs full_clean() first) -
+            # so this is the one write path that could otherwise silently
+            # create the exact kind of cycle Person.clean() now rejects
+            # (see AGENTS.md/a real incident: a newly-added parent whose
+            # own father/mother field was mistakenly set back to the
+            # person they were just added as the parent of). Validate
+            # explicitly rather than let a bad link through unnoticed.
+            try:
+                anchor.full_clean()
+            except ValidationError as exc:
+                messages.error(
+                    self.request,
+                    f"Added {form.instance.display_name}, but couldn't set them as "
+                    f"{anchor.display_name}'s {link_as}: {' '.join(exc.messages)}",
+                )
+            else:
+                anchor.save(update_fields=[link_as])
+                messages.success(
+                    self.request, f"Added {form.instance.display_name} as {anchor.display_name}'s {link_as}."
+                )
         else:
             messages.success(self.request, f"Added {form.instance.display_name}.")
         return response

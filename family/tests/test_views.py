@@ -1,6 +1,7 @@
 import datetime as dt
 
 import pytest
+from django.contrib.messages import get_messages
 from django.db import connection
 from django.template.defaultfilters import date as date_filter
 from django.test.utils import CaptureQueriesContext
@@ -142,6 +143,31 @@ def test_father_choices_are_scoped_to_the_current_family(client, family):
     assert father_ids == {own_person.pk}
 
 
+def test_person_create_page_query_count_does_not_scale_with_candidates_with_parents(client, family):
+    # _parents_hint (family.widgets, rendered for every father/mother
+    # picker option) reads person.father/person.mother - a real N+1
+    # risk without select_related on the candidate queryset, since this
+    # page can show a couple hundred people.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    def _add_candidates(count):
+        for i in range(count):
+            grandparent = Person.objects.create(family=family, first_name_en=f"G{i}", last_name_en="Test")
+            Person.objects.create(
+                family=family, first_name_en=f"P{i}", last_name_en="Test", father=grandparent
+            )
+
+    with CaptureQueriesContext(connection) as few:
+        client.get("/people/new/")
+
+    _add_candidates(15)
+    with CaptureQueriesContext(connection) as many:
+        client.get("/people/new/")
+
+    assert len(many.captured_queries) == len(few.captured_queries)
+
+
 def test_father_and_mother_choices_are_filtered_by_gender(client, family):
     man = Person.objects.create(
         family=family, first_name_en="Man", last_name_en="Person", gender=Person.Gender.MALE
@@ -202,6 +228,54 @@ def test_father_field_keeps_a_wrong_gender_value_already_on_file(client, family)
     assert mother_stored_as_father.pk in father_ids
     label = resp.context["form"].fields["father"].label_from_instance(mother_stored_as_father)
     assert "wrong gender on file" in label
+
+
+def test_mother_field_keeps_an_already_cyclic_value_on_file(client, family):
+    # Pre-existing bad data (a two-node cycle - a real incident, not
+    # hypothetical, see AGENTS.md/family/views.PersonCreateView) shouldn't
+    # become invisible in the edit form just because the dropdown now
+    # also excludes descendants, to stop a *new* cycle from being
+    # created. See family.forms._parent_queryset.
+    a = Person.objects.create(family=family, first_name_en="A", last_name_en="Person")
+    b = Person.objects.create(family=family, first_name_en="B", last_name_en="Person", mother=a)
+    # .update() bypasses Person.clean() entirely - simulating the exact
+    # legacy corrupted state a normal .save() would now correctly reject.
+    Person.objects.filter(pk=a.pk).update(mother_id=b.pk)
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    resp = client.get(f"/people/{a.uuid}/edit/")
+
+    mother_ids = {p.pk for p in resp.context["form"].fields["mother"].queryset}
+    assert b.pk in mother_ids
+
+
+def test_edit_form_rejects_resaving_an_already_cyclic_mother_value(client, family):
+    # The picker keeping a pre-existing cyclic value visible (previous
+    # test) doesn't mean re-submitting it should succeed - Person.clean()
+    # rejects it either way, and the form needs to actually surface that
+    # rather than silently re-saving or silently wiping the field.
+    a = Person.objects.create(family=family, first_name_en="A", last_name_en="Person")
+    b = Person.objects.create(family=family, first_name_en="B", last_name_en="Person", mother=a)
+    Person.objects.filter(pk=a.pk).update(mother_id=b.pk)
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    resp = client.post(
+        f"/people/{a.uuid}/edit/",
+        {
+            "first_name_en": "A",
+            "last_name_en": "Person",
+            "mother": b.pk,
+            "yahrzeit_adar_observance": "adar_ii",
+            "yahrzeit_day30_observance": "start_of_next_month",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert b"descendants" in resp.content
+    a.refresh_from_db()
+    assert a.mother_id == b.pk
 
 
 @pytest.mark.parametrize(
@@ -360,6 +434,48 @@ def test_person_create_link_as_father_auto_links_the_new_person(client, family):
     child.refresh_from_db()
     assert child.father_id == new_father.id
     assert resp.status_code == 302
+
+
+def test_person_create_link_as_mother_rejects_a_cycle_created_via_the_new_persons_own_parent_field(
+    client, family
+):
+    # Real incident: creating a new person as an existing person's parent
+    # via "+ Add mother", while *also* filling in the new person's own
+    # (unrelated) "Mother" field with the very person they were just
+    # added as the parent of - closing a two-node cycle across the two
+    # saves this view makes (the new person, then the anchor).
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+    anchor = Person.objects.create(
+        family=family, first_name_en="Anchor", last_name_en="Test", gender=Person.Gender.FEMALE
+    )
+
+    resp = client.post(
+        f"/people/new/?link_as=mother&link_of={anchor.uuid}",
+        {
+            "first_name_en": "New",
+            "last_name_en": "Mother",
+            "gender": Person.Gender.FEMALE,
+            "mother": anchor.pk,
+            "link_as": "mother",
+            "link_of": str(anchor.uuid),
+            "yahrzeit_adar_observance": "adar_ii",
+            "yahrzeit_day30_observance": "start_of_next_month",
+        },
+    )
+
+    new_mother = Person.objects.get(first_name_en="New", last_name_en="Mother")
+    anchor.refresh_from_db()
+    # The new person's own (unrelated) mother field is exactly what was
+    # submitted - nothing wrong with that part on its own.
+    assert new_mother.mother_id == anchor.pk
+    # But the automatic "link them as the anchor's mother" step must be
+    # rejected, not silently applied - anchor.mother is still unset,
+    # not pointing back at their own descendant.
+    assert anchor.mother_id is None
+    assert resp.status_code == 302
+    messages = [str(m) for m in get_messages(resp.wsgi_request)]
+    assert any("couldn't set them as" in m for m in messages)
 
 
 def test_person_create_link_of_is_scoped_to_your_own_family(client, family):
