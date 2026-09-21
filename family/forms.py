@@ -15,7 +15,7 @@ from tenants.models import Family, FamilyMembership
 
 
 def _parent_queryset(
-    candidates: QuerySet[Person], *, expected_gender: str, current_id: int | None
+    candidates: QuerySet[Person], *, expected_gender: str, current_id: int | None, family: Family
 ) -> QuerySet[Person]:
     """Gender-filters candidates, but never drops whoever's already assigned.
 
@@ -31,12 +31,19 @@ def _parent_queryset(
     excluded from it upstream (PersonForm.__init__ excludes the person's
     own descendants before calling this, to stop a *new* cycle - but that
     exclusion would just as happily hide an *existing* one). Explicitly
-    unioning in a fresh, unscoped fetch of `current_id` guarantees it
-    survives regardless of what candidates already had removed.
+    unioning in a fresh fetch of `current_id` guarantees it survives
+    regardless of what candidates already had removed - but that fresh
+    fetch still has to be scoped to `family` itself, the same as
+    `candidates` already is: a person can only be recorded as their own
+    family's father/mother (see AGENTS.md), and an unscoped fetch here
+    would cross that tenant boundary if `current_id` ever pointed at
+    another family's person (a data bug, not something this should widen
+    into a real leak of that person's name/gender into this family's
+    picker).
     """
     filtered = candidates.filter(gender=expected_gender)
     if current_id is not None:
-        filtered |= Person.objects.filter(pk=current_id)
+        filtered |= Person.objects.filter(pk=current_id, family=family)
     return filtered
 
 
@@ -120,10 +127,16 @@ class PersonForm(forms.ModelForm):
         self.fields["father"].widget = PersonPickerSelect(expected_gender=Person.Gender.MALE)
         self.fields["mother"].widget = PersonPickerSelect(expected_gender=Person.Gender.FEMALE)
         self.fields["father"].queryset = _parent_queryset(
-            candidate_parents, expected_gender=Person.Gender.MALE, current_id=self.instance.father_id
+            candidate_parents,
+            expected_gender=Person.Gender.MALE,
+            current_id=self.instance.father_id,
+            family=family,
         )
         self.fields["mother"].queryset = _parent_queryset(
-            candidate_parents, expected_gender=Person.Gender.FEMALE, current_id=self.instance.mother_id
+            candidate_parents,
+            expected_gender=Person.Gender.FEMALE,
+            current_id=self.instance.mother_id,
+            family=family,
         )
         self.fields["father"].required = False
         self.fields["mother"].required = False

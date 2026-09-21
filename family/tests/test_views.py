@@ -250,6 +250,33 @@ def test_mother_field_keeps_an_already_cyclic_value_on_file(client, family):
     assert b.pk in mother_ids
 
 
+def test_mother_field_does_not_leak_a_cross_family_person_even_when_already_on_file(client, two_families):
+    # _parent_queryset's own "never drop what's already assigned" fallback
+    # unions in a fresh fetch of current_id - that fetch has to stay
+    # scoped to this family too, or a data bug that lets mother_id point
+    # at another family's person (never supposed to happen, and only ever
+    # enforced by the form, not the DB - see AGENTS.md) would leak that
+    # other family's person into this family's picker dropdown, crossing
+    # the tenant boundary the rest of the app is careful about.
+    family_a, family_b, account_a, _account_b = two_families
+    other_family_person = Person.objects.create(
+        family=family_b, first_name_en="Outsider", last_name_en="Person"
+    )
+    a = Person.objects.create(family=family_a, first_name_en="A", last_name_en="Person")
+    # .update() bypasses Person.clean()/PersonForm entirely - simulating a
+    # data bug that got a cross-family mother_id onto the row in the
+    # first place, which is exactly the kind of pre-existing bad data
+    # _parent_queryset's fallback exists to keep visible without leaking
+    # it beyond this one family.
+    Person.objects.filter(pk=a.pk).update(mother_id=other_family_person.pk)
+    _login_as(client, account_a, family_a)
+
+    resp = client.get(f"/people/{a.uuid}/edit/")
+
+    mother_ids = {p.pk for p in resp.context["form"].fields["mother"].queryset}
+    assert other_family_person.pk not in mother_ids
+
+
 def test_edit_form_rejects_resaving_an_already_cyclic_mother_value(client, family):
     # The picker keeping a pre-existing cyclic value visible (previous
     # test) doesn't mean re-submitting it should succeed - Person.clean()
