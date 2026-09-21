@@ -4,16 +4,6 @@
     <div class="page-header">
         <h1>Help</h1>
     </div>
-    <p class="muted">A reference for how Family Tree works - come back any time, nothing here is a one-time tour.</p>
-    {% if family_owners %}
-        <p class="muted">
-            {{ request.family.name }} is managed by
-            {% for owner in family_owners %}
-                <strong>{{ owner.name }}</strong>{% if owner.email %} (<a href="mailto:{{ owner.email }}">{{ owner.email }}</a>){% endif %}{% if forloop.revcounter0 == 1 %} and {% elif not forloop.last %}, {% endif %}
-            {% endfor %}
-            - reach out to them for anything only an owner can do (removing someone from the family, deleting a marriage record, or fixing a role).
-        </p>
-    {% endif %}
     {% if perms.tenants.add_family or request.has_multiple_families %}
         <p class="muted">
             Two words that mean different things throughout this page: your <strong>family</strong> is
@@ -116,6 +106,14 @@
         </p>
         {% if request.family_role %}
             <p class="muted"><span class="info-icon"></span> You currently have the <strong>{{ request.family_role|title }}</strong> role in {{ request.family.name }}.</p>
+        {% endif %}
+        {% if family_owners %}
+            <p class="muted" style="margin-bottom: 0.5rem;">Reach out to {{ request.family.name }}'s owner{{ family_owners|length|pluralize }} for anything only an owner can do:</p>
+            <ul>
+                {% for owner in family_owners %}
+                    <li><strong>{{ owner.name }}</strong>{% if owner.email %} (<a href="mailto:{{ owner.email }}">{{ owner.email }}</a>){% endif %}</li>
+                {% endfor %}
+            </ul>
         {% endif %}
     </div>
     {% if request.family_permissions.can_edit %}
