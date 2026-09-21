@@ -7,6 +7,7 @@ app_name = "family"
 urlpatterns = [
     path("help/", views.HelpView.as_view(), name="help"),
     path("ajax/gregorian-to-hebrew/", views.GregorianToHebrewView.as_view(), name="gregorian_to_hebrew"),
+    path("ajax/hebrew-to-gregorian/", views.HebrewToGregorianView.as_view(), name="hebrew_to_gregorian"),
     path("", views.DashboardView.as_view(), name="dashboard"),
     path("people/", views.PersonListView.as_view(), name="person_list"),
     path("people/new/", views.PersonCreateView.as_view(), name="person_create"),
