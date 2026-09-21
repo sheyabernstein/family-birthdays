@@ -1,9 +1,12 @@
 /* Turns a father/mother/existing_spouse <select> (see
  * family.forms.PersonPickerSelect) into a type-to-filter Tom Select
- * combobox with a two-line option: display name + birth year on top,
- * Hebrew first name as a subtitle underneath - plain text alone can't
- * disambiguate a ledger's worth of repeated names (two "Blimi Rokach"s
- * is normal), see AGENTS.md.
+ * combobox with a multi-line option: display name + birth year on top,
+ * Hebrew first name and a "child of .../spouse of .../parent of ..."
+ * relations hint as subtitles
+ * underneath - plain text alone can't disambiguate a ledger's worth of
+ * repeated names (two "Blimi Rokach"s is normal), see AGENTS.md. Found
+ * for real: a two-person cycle created by picking the wrong same-named,
+ * no-other-distinguishing-info person from this exact picker.
  *
  * Tom Select doesn't read arbitrary data-* attributes off the source
  * <option> elements on its own (only value/text/disabled) - confirmed
@@ -47,6 +50,7 @@ function initPersonPicker(selector) {
           displayName: opt.dataset.displayName || "",
           hebrewFirstName: opt.dataset.hebrewFirstName || "",
           birthYear: opt.dataset.birthYear || "",
+          relationsHint: opt.dataset.relationsHint || "",
           warning: opt.dataset.warning || "",
         }),
       );
@@ -58,6 +62,9 @@ function renderRow(data, escape) {
   const name = data.displayName || data.text;
   const hebrew = data.hebrewFirstName
     ? `<div class="ts-option-hebrew">${escape(data.hebrewFirstName)}</div>`
+    : "";
+  const relations = data.relationsHint
+    ? `<div class="ts-option-relations">${escape(data.relationsHint)}</div>`
     : "";
   const warning = data.warning
     ? `<div class="ts-option-warning">${escape(data.warning)}</div>`
@@ -73,6 +80,7 @@ function renderRow(data, escape) {
         }
       </div>
       ${hebrew}
+      ${relations}
       ${warning}
     </div>
   `;

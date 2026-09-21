@@ -1321,10 +1321,11 @@ main.auth-main {
   color: var(--ink);
 }
 
-/* Two-line option row (family.forms.PersonPickerSelect + person_picker.js)
-   - name/year on top, Hebrew first name as a subtitle underneath, since
-   name + birth year alone can't always disambiguate a large family's
-   repeated names. */
+/* Multi-line option row (family.forms.PersonPickerSelect +
+   person_picker.js) - name/year on top, Hebrew first name and a
+   "child of .../spouse of .../parent of ..." relations hint as
+   subtitles underneath, since name + birth year alone can't always
+   disambiguate a large family's repeated names. */
 .ts-option-row {
   display: flex;
   flex-direction: column;
@@ -1355,6 +1356,12 @@ main.auth-main {
   color: var(--ink-soft);
   direction: rtl;
   unicode-bidi: isolate;
+}
+
+.ts-option-relations {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  font-style: italic;
 }
 
 .ts-option-warning {

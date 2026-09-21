@@ -1,25 +1,50 @@
 from typing import Any
 
 from django import forms
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 
 from accounts.models import Account
 from family.models import Person, Union
-from family.widgets import PersonPickerSelect, _parent_option_label, _person_option_label
+from family.widgets import (
+    PersonPickerSelect,
+    _parent_option_label,
+    _person_option_label,
+    prefetch_for_person_picker,
+)
 from tenants.models import Family, FamilyMembership
 
 
 def _parent_queryset(
-    candidates: QuerySet[Person], *, expected_gender: str, current_id: int | None
+    candidates: QuerySet[Person], *, expected_gender: str, current_id: int | None, family: Family
 ) -> QuerySet[Person]:
     """Gender-filters candidates, but never drops whoever's already assigned.
 
     Otherwise editing a person whose father/mother field already holds
-    bad data (wrong gender - see _parent_option_label) would render that
-    field blank, and saving the form would silently wipe it instead of
-    leaving the bad-but-real data for a person to fix deliberately.
+    bad data (wrong gender - see _parent_option_label - or, since a real
+    incident, a cycle that predates Person.clean() rejecting one) would
+    render that field blank, and saving the form would silently wipe it
+    instead of leaving the bad-but-real data for a person to fix
+    deliberately.
+
+    `Q(pk=current_id)` alone isn't enough for this: it only *filters*
+    `candidates`, so it can't resurrect a row `candidates` has already had
+    excluded from it upstream (PersonForm.__init__ excludes the person's
+    own descendants before calling this, to stop a *new* cycle - but that
+    exclusion would just as happily hide an *existing* one). Explicitly
+    unioning in a fresh fetch of `current_id` guarantees it survives
+    regardless of what candidates already had removed - but that fresh
+    fetch still has to be scoped to `family` itself, the same as
+    `candidates` already is: a person can only be recorded as their own
+    family's father/mother (see AGENTS.md), and an unscoped fetch here
+    would cross that tenant boundary if `current_id` ever pointed at
+    another family's person (a data bug, not something this should widen
+    into a real leak of that person's name/gender into this family's
+    picker).
     """
-    return candidates.filter(Q(gender=expected_gender) | Q(pk=current_id))
+    filtered = candidates.filter(gender=expected_gender)
+    if current_id is not None:
+        filtered |= Person.objects.filter(pk=current_id, family=family)
+    return filtered
 
 
 class PersonForm(forms.ModelForm):
@@ -86,7 +111,10 @@ class PersonForm(forms.ModelForm):
         # A person can only be recorded as their own family's father/mother
         # - a parent who belongs to another family's ledger is left blank
         # here and only shown as a link on the child's profile.
-        candidate_parents = Person.objects.filter(family=family)
+        # prefetch_for_person_picker avoids an N+1 from _relations_hint's
+        # own father/mother/spouse/children access, once per candidate in
+        # the picker (a couple hundred people is a normal ledger size here).
+        candidate_parents = prefetch_for_person_picker(Person.objects.filter(family=family))
         if self.instance.pk:
             excluded = self.instance.descendant_ids() | {self.instance.pk}
             candidate_parents = candidate_parents.exclude(pk__in=excluded)
@@ -99,10 +127,16 @@ class PersonForm(forms.ModelForm):
         self.fields["father"].widget = PersonPickerSelect(expected_gender=Person.Gender.MALE)
         self.fields["mother"].widget = PersonPickerSelect(expected_gender=Person.Gender.FEMALE)
         self.fields["father"].queryset = _parent_queryset(
-            candidate_parents, expected_gender=Person.Gender.MALE, current_id=self.instance.father_id
+            candidate_parents,
+            expected_gender=Person.Gender.MALE,
+            current_id=self.instance.father_id,
+            family=family,
         )
         self.fields["mother"].queryset = _parent_queryset(
-            candidate_parents, expected_gender=Person.Gender.FEMALE, current_id=self.instance.mother_id
+            candidate_parents,
+            expected_gender=Person.Gender.FEMALE,
+            current_id=self.instance.mother_id,
+            family=family,
         )
         self.fields["father"].required = False
         self.fields["mother"].required = False
@@ -233,7 +267,7 @@ class UnionForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.person_a = person_a
         self.family = family
-        candidates = Person.objects.filter(family=family).exclude(pk=person_a.pk)
+        candidates = prefetch_for_person_picker(Person.objects.filter(family=family).exclude(pk=person_a.pk))
         # Only excludes the *same* gender when person_a's own gender is
         # known - a blank/unknown gender on either side isn't reason
         # enough to hide a real candidate.

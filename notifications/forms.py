@@ -2,7 +2,7 @@ from django import forms
 from django.db.models import Q
 
 from family.models import Person
-from family.widgets import PersonMultiPickerSelect, _person_option_label
+from family.widgets import PersonMultiPickerSelect, _person_option_label, prefetch_for_person_picker
 from notifications.models import Broadcast
 from notifications.widgets import TrixEditorWidget
 from tenants.models import Family
@@ -46,7 +46,9 @@ class BroadcastForm(forms.ModelForm):
         tracked_or_already_tied = Q(notifications_enabled=True)
         if self.instance.pk:
             tracked_or_already_tied |= Q(pk__in=self.instance.people.values_list("pk", flat=True))
-        self.fields["people"].queryset = Person.objects.filter(family=family).filter(tracked_or_already_tied)
+        self.fields["people"].queryset = prefetch_for_person_picker(
+            Person.objects.filter(family=family).filter(tracked_or_already_tied)
+        )
         self.fields["people"].required = False
         self.fields["people"].label_from_instance = _person_option_label
         # The browser submits a datetime-local value with no seconds and a

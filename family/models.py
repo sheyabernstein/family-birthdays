@@ -332,6 +332,27 @@ class Person(models.Model):
             raise ValidationError("A person cannot be their own father.")
         if self.mother_id and self.mother_id == self.pk:
             raise ValidationError("A person cannot be their own mother.")
+        # A deeper cycle (A's mother is B, B's mother is A) is just as
+        # invalid as direct self-parenting above, and isn't hypothetical -
+        # this happened for real: a new person was created as an existing
+        # person's parent, and that same new person's own (unrelated)
+        # parent field was mistakenly filled in with the person they were
+        # just added as the parent of, closing the loop across two saves.
+        # self.pk is None for a not-yet-created person, for whom
+        # descendant_ids() is always correctly empty (they can't have
+        # descendants before they exist) - no separate guard needed.
+        if self.pk:
+            descendants = self.descendant_ids()
+            if self.father_id and self.father_id in descendants:
+                raise ValidationError(
+                    "This person's father can't be one of their own descendants - "
+                    "that would make them their own ancestor."
+                )
+            if self.mother_id and self.mother_id in descendants:
+                raise ValidationError(
+                    "This person's mother can't be one of their own descendants - "
+                    "that would make them their own ancestor."
+                )
         if self.dob_gregorian and self.dod_gregorian and self.dod_gregorian < self.dob_gregorian:
             raise ValidationError("Date of death cannot be before date of birth.")
 
