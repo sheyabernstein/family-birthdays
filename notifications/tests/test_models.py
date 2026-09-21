@@ -74,25 +74,25 @@ def _yahrzeit_event_type():
     return EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT)
 
 
-def test_preference_rejects_ancestors_only_for_a_union_anchored_type(family):
+def test_preference_rejects_direct_family_only_for_a_union_anchored_type(family):
     account = Account.objects.create_user(email="a@example.com")
     preference = NotificationPreference(
         account=account,
         event_type=_anniversary_event_type(),
         channel="email",
-        state=NotificationPreference.State.ANCESTORS_ONLY,
+        state=NotificationPreference.State.DIRECT_FAMILY_ONLY,
     )
     with pytest.raises(ValidationError):
         preference.full_clean()
 
 
-def test_preference_allows_ancestors_only_for_yahrzeit(family):
+def test_preference_allows_direct_family_only_for_yahrzeit(family):
     account = Account.objects.create_user(email="a@example.com")
     preference = NotificationPreference(
         account=account,
         event_type=_yahrzeit_event_type(),
         channel="email",
-        state=NotificationPreference.State.ANCESTORS_ONLY,
+        state=NotificationPreference.State.DIRECT_FAMILY_ONLY,
     )
     preference.full_clean()  # does not raise
 
@@ -104,7 +104,7 @@ def test_event_type_clean_rejects_a_default_state_outside_allowed_states(family)
         name="Test Anniversary",
         anchor=EventType.Anchor.MARRIAGE,
         applies_to_union=True,
-        default_state=NotificationPreference.State.ANCESTORS_ONLY,
+        default_state=NotificationPreference.State.DIRECT_FAMILY_ONLY,
     )
     with pytest.raises(ValidationError):
         event_type.full_clean()

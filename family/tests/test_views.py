@@ -958,7 +958,7 @@ def test_dashboard_groups_same_date_occurrences_under_one_timeline_entry(client,
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
-    # Yahrzeit defaults to ancestors_only (see AGENTS.md) - the owner
+    # Yahrzeit defaults to direct_family_only (see AGENTS.md) - the owner
     # isn't related to this person at all, so without an explicit
     # override the yahrzeit occurrence below wouldn't show up in
     # "Upcoming" and this test would have nothing to group.
@@ -987,7 +987,7 @@ def test_dashboard_does_not_group_occurrences_sharing_only_send_date(client, fam
     _login_as(client, owner, family)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
     # Same reason as the test above - the owner isn't related to this
-    # person, so yahrzeit's ancestors_only default would otherwise hide
+    # person, so yahrzeit's direct_family_only default would otherwise hide
     # its occurrence entirely.
     NotificationPreference.objects.create(
         account=owner,

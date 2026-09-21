@@ -26,7 +26,12 @@ class NotificationState(models.TextChoices):
     MUTED = "muted", "Muted"
     SUBSCRIBED = "subscribed", "Subscribed"
     IMMEDIATE_FAMILY_ONLY = "immediate_family_only", "Immediate family only"
-    ANCESTORS_ONLY = "ancestors_only", "Ancestors only"
+    # Immediate family (spouse/parent/child/sibling), plus the whole
+    # ancestor/descendant line at any depth - and the same again for the
+    # account's own current spouse (an in-law's own family reaches you
+    # through your spouse, one marriage hop only - see
+    # notifications.audience.is_direct_family).
+    DIRECT_FAMILY_ONLY = "direct_family_only", "Direct family only"
 
 
 @reversion.register()
@@ -85,8 +90,8 @@ class EventType(models.Model):
         choices=NotificationState.choices,
         default=NotificationState.SUBSCRIBED,
         help_text="What people are set to for this event type unless they say otherwise - subscribed, "
-        "muted, or scoped to their immediate family/ancestors by default. A family adding a more "
-        "sensitive custom event type may want it to start muted instead.",
+        "muted, or scoped to their direct family by default. A family adding a more sensitive "
+        "custom event type may want it to start muted instead.",
     )
     always_schedule = models.BooleanField(
         default=False,
@@ -154,14 +159,14 @@ class EventType(models.Model):
         scattered conditional - e.g. Broadcast keeps IMMEDIATE_FAMILY_ONLY
         (resolve_broadcast_audience unions the per-tied-person immediate
         family, same as any other event type - see AGENTS.md) but not
-        ANCESTORS_ONLY, since a broadcast has no per-recipient targeting
-        at all (see NotificationPreference.clean()) and no anchor subject
-        to climb father_id/mother_id from in the first place. A family's
-        own custom event type has no matching BuiltinCode, so it falls
-        back to a generic anchor-based rule instead: ANCESTORS_ONLY only
-        makes sense for a subject reached by climbing father_id/mother_id,
-        i.e. a person-anchored type, not a union-anchored or unanchored
-        one.
+        DIRECT_FAMILY_ONLY, since a broadcast has no per-recipient
+        targeting at all (see NotificationPreference.clean()) and no
+        anchor subject to climb father_id/mother_id from in the first
+        place. A family's own custom event type has no matching
+        BuiltinCode, so it falls back to a generic anchor-based rule
+        instead: DIRECT_FAMILY_ONLY only makes sense for a subject
+        reached by climbing father_id/mother_id, i.e. a person-anchored
+        type, not a union-anchored or unanchored one.
         """
         by_code = ALLOWED_STATES_BY_CODE.get(self.code)
         if by_code is not None:
@@ -172,7 +177,7 @@ class EventType(models.Model):
             NotificationState.IMMEDIATE_FAMILY_ONLY,
         }
         if self.anchor and not self.applies_to_union:
-            base.add(NotificationState.ANCESTORS_ONLY)
+            base.add(NotificationState.DIRECT_FAMILY_ONLY)
         return frozenset(base)
 
 
@@ -210,13 +215,15 @@ class NotificationPreference(models.Model):
       type for that account. Its state can mute it entirely, force it
       on (overriding a default_state of muted), or restrict it to the
       account's immediate family (spouse/parent/child/sibling - see
-      notifications.audience.is_immediate_family) or direct ancestors
-      (notifications.audience.is_ancestor) for everyone else - see
-      EventType.allowed_states for which of these a given event type
-      actually supports.
+      notifications.audience.is_immediate_family) or direct family
+      (immediate family plus the whole ancestor/descendant line at any
+      depth, for the account and its own current spouse alike - see
+      notifications.audience.is_direct_family) for everyone else -
+      see EventType.allowed_states for which of these a given event
+      type actually supports.
     - A row with person or union set narrows or overrides that down to
       one specific person's or union's event - including forcing one
-      person back on despite an immediate-family/ancestors-only
+      person back on despite an immediate/direct-family-only
       restriction, or muting one person despite an otherwise-open
       subscription.
     """
@@ -253,7 +260,7 @@ class NotificationPreference(models.Model):
                 name="preference_not_both_person_and_union",
             ),
             models.CheckConstraint(
-                condition=~models.Q(state__in=["immediate_family_only", "ancestors_only"])
+                condition=~models.Q(state__in=["immediate_family_only", "direct_family_only"])
                 | (models.Q(person__isnull=True) & models.Q(union__isnull=True)),
                 name="family_scope_states_are_whole_type_only",
             ),

@@ -5,8 +5,8 @@ cell. The label always shows what's actually in effect right now, and why:
 - "(family-wide)" - your own Everyone/Muted setting for the whole event type
 - "(immediate family)" / "(outside immediate family)" - your Immediate-family-only
   circle setting for this event type, and whether this person is in it
-- "(ancestors)" / "(not an ancestor)" - your Ancestors-only circle setting
-  for this event type, and whether this person is one of yours
+- "(direct family)" / "(outside direct family)" - your Extended-family-only
+  circle setting for this event type, and whether this person is in it
 - "(your override)" - you've already set an exception for this exact person/union
 
 Clicking always does the same thing: if there's already an exception for this
@@ -23,6 +23,6 @@ otherwise add one that flips whatever's currently in effect.
     <button type="submit"
             class="btn btn-sm {% if channel.subscribed %}btn-subscribed{% else %}btn-outline{% endif %}"
             title="{% if channel.reason == 'specific_subscribed' or channel.reason == 'specific_muted' %}You've already set an exception here - click to reset to your usual {{ event_type.name|lower }} setting.{% else %}Click to add an exception just for {{ subject }}.{% endif %}">
-        {% if channel.subscribed %}Subscribed{% else %}Muted{% endif %}{% if channel.reason == "type_subscribed" or channel.reason == "type_muted" %} (family-wide){% elif channel.reason == "type_immediate_only" %}{% if channel.subscribed %} (immediate family){% else %} (outside immediate family){% endif %}{% elif channel.reason == "type_ancestors_only" %}{% if channel.subscribed %} (ancestors){% else %} (not an ancestor){% endif %}{% elif channel.reason == "specific_subscribed" or channel.reason == "specific_muted" %} (your override){% endif %}
+        {% if channel.subscribed %}Subscribed{% else %}Muted{% endif %}{% if channel.reason == "type_subscribed" or channel.reason == "type_muted" %} (family-wide){% elif channel.reason == "type_immediate_only" %}{% if channel.subscribed %} (immediate family){% else %} (outside immediate family){% endif %}{% elif channel.reason == "type_direct_family_only" %}{% if channel.subscribed %} (direct family){% else %} (outside direct family){% endif %}{% elif channel.reason == "specific_subscribed" or channel.reason == "specific_muted" %} (your override){% endif %}
     </button>
 </form>
