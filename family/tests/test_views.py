@@ -727,6 +727,48 @@ def test_cannot_submit_both_existing_and_new_spouse(client, family):
     assert not Union.objects.filter(person_a=person_a).exists()
 
 
+def test_add_spouse_page_renders_without_a_divorce_date_field(client, family):
+    # UnionForm (create) has no divorce_date_gregorian field at all -
+    # unlike UnionEditForm (edit). Regression guard for a real crash:
+    # the shared template used to gate this field on `{% if form.
+    # divorce_date_gregorian %}`, which happened to also be the only
+    # thing stopping a missing-field AttributeError on this page.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person_a = Person.objects.create(family=family, first_name_en="Elchanan", last_name_en="Rokach")
+    _login_as(client, owner, family)
+
+    resp = client.get(f"/people/{person_a.uuid}/spouse/new/")
+
+    assert resp.status_code == 200
+    assert b"Divorce date" not in resp.content
+
+
+@pytest.mark.parametrize(
+    ["status", "expect_hidden"],
+    [
+        [Union.Status.MARRIED, True],
+        [Union.Status.WIDOWED, True],
+        [Union.Status.DIVORCED, False],
+    ],
+    ids=[
+        "married hides the divorce date row",
+        "widowed hides the divorce date row",
+        "divorced shows the divorce date row",
+    ],
+)
+def test_edit_marriage_divorce_date_visibility_follows_status(client, family, status, expect_hidden):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person_a = Person.objects.create(family=family, first_name_en="Elchanan", last_name_en="Rokach")
+    person_b = Person.objects.create(family=family, first_name_en="Rivka", last_name_en="Rokach")
+    union = Union.objects.create(person_a=person_a, person_b=person_b, status=status)
+    _login_as(client, owner, family)
+
+    resp = client.get(f"/unions/{union.uuid}/edit/")
+
+    text = " ".join(resp.content.decode().split())
+    assert ('id="divorce-date-row" hidden>' in text) is expect_hidden
+
+
 def test_plain_member_cannot_add_a_spouse(client, family):
     member = _member(family, FamilyMembership.Role.MEMBER)
     person_a = Person.objects.create(family=family, first_name_en="Elchanan", last_name_en="Rokach")

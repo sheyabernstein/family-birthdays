@@ -755,6 +755,14 @@ label {
   margin-bottom: 1rem;
 }
 
+/* .form-row's own display: grid is an author style, so it silently beats
+   the browser's default [hidden] { display: none } UA rule regardless of
+   specificity - an element needs its own [hidden] override once it also
+   carries a class that sets display. */
+.form-row[hidden] {
+  display: none;
+}
+
 .form-row:last-child {
   margin-bottom: 0;
 }
