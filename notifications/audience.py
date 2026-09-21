@@ -6,9 +6,9 @@ Resolution order, most specific wins:
    family only, but I also want this one cousin" or "everyone, but not
    this one person".
 2. A whole-event-type row (person and union both null). "muted" and
-   "subscribed" are decisive; "immediate_family_only"/"ancestors_only"
-   defer to is_immediate_family()/is_ancestor() to decide per
-   person/union.
+   "subscribed" are decisive; "immediate_family_only"/
+   "direct_family_only" defer to is_immediate_family()/
+   is_direct_family() to decide per person/union.
 3. EventType.default_state - the family-wide default for this event
    type when the account hasn't said anything about it at all. Resolved
    through the exact same state-branching as an explicit whole-type row
@@ -139,25 +139,98 @@ def is_ancestor(
 ) -> bool:
     """Whether subject is somewhere in viewer's own direct father/mother line.
 
-    Used for the ancestors_only preference. `ancestor_ids_fn` defaults to
-    a live BFS-by-recursive-query (_ancestor_ids_for), but callers
-    resolving this for many (account, subject) pairs at once - see
-    PreferenceResolver below - pass in a cache-backed version instead, so
-    the same viewer's ancestor chain is only ever computed once
-    regardless of how many subjects it's checked against.
+    One of the three ingredients of is_direct_family (below) - not
+    used as a standalone whole-type preference on its own. `ancestor_ids_fn`
+    defaults to a live BFS-by-recursive-query (_ancestor_ids_for), but
+    callers resolving this for many (account, subject) pairs at once -
+    see PreferenceResolver below - pass in a cache-backed version
+    instead, so the same viewer's ancestor chain is only ever computed
+    once regardless of how many subjects it's checked against.
     """
     if viewer.id == subject.id:
         return False
     return subject.id in ancestor_ids_fn(viewer)
 
 
-def _in_ancestors(account: Account, *, person: Person | None, union: Union | None) -> bool:
+def _descendant_ids_for(viewer: Person) -> set[int]:
+    return viewer.descendant_ids()
+
+
+def is_descendant(
+    viewer: Person, subject: Person, *, descendant_ids_fn: Callable[[Person], set[int]] = _descendant_ids_for
+) -> bool:
+    """Whether subject is somewhere in viewer's own descendant tree, at any depth.
+
+    The "down" counterpart to is_ancestor - see that function's own
+    docstring and is_direct_family below for how the two combine.
+    """
+    if viewer.id == subject.id:
+        return False
+    return subject.id in descendant_ids_fn(viewer)
+
+
+def _spouses_of(person: Person) -> list[Person]:
+    """Every person currently married to `person` - almost always zero or one, never assumed to be at most one."""
+    unions = Union.objects.filter(
+        (models.Q(person_a=person) | models.Q(person_b=person)), status=Union.Status.MARRIED
+    ).select_related("person_a", "person_b")
+    return [union.other(person) for union in unions]
+
+
+def is_direct_family(
+    viewer: Person,
+    subject: Person,
+    *,
+    spouse_check: Callable[[Person, Person], bool] = _is_spouse,
+    ancestor_ids_fn: Callable[[Person], set[int]] = _ancestor_ids_for,
+    descendant_ids_fn: Callable[[Person], set[int]] = _descendant_ids_for,
+    spouses_of_fn: Callable[[Person], list[Person]] = _spouses_of,
+) -> bool:
+    """Immediate family, the whole ancestor/descendant line, and the same again through one marriage hop.
+
+    Used for the direct_family_only preference (Yahrzeit's own
+    default). Three ingredients, unioned:
+
+    - is_immediate_family(viewer, subject) - spouse/parent/child/sibling,
+      the fixed one-generation definition.
+    - is_ancestor(viewer, subject) - viewer's own ancestor line, any depth
+      (a great-grandparent isn't "immediate family" by the definition
+      above, but should still reach every descendant, however distant).
+    - is_descendant(viewer, subject) - the mirror image: viewer's own
+      descendant line, any depth (a still-living great-grandparent should
+      hear about a great-grandchild's yahrzeit the same way the reverse
+      case works).
+
+    All three are also checked against viewer's own current spouse(s), not
+    just viewer directly - a spouse's own family reaches you too (their
+    grandparent is your in-law's yahrzeit to hear about), the same way
+    marrying in makes someone "immediate family" in the first place. This
+    is deliberately bounded to one marriage hop from viewer - it does not
+    also reach through, say, a child's own spouse's family, which would
+    turn this into an unbounded walk across blood *and* marriage edges
+    together and stop being a meaningfully narrower circle than
+    "everyone".
+    """
+
+    def _covers(person: Person) -> bool:
+        return (
+            is_immediate_family(person, subject, spouse_check=spouse_check)
+            or is_ancestor(person, subject, ancestor_ids_fn=ancestor_ids_fn)
+            or is_descendant(person, subject, descendant_ids_fn=descendant_ids_fn)
+        )
+
+    if _covers(viewer):
+        return True
+    return any(_covers(spouse) for spouse in spouses_of_fn(viewer))
+
+
+def _in_direct_family(account: Account, *, person: Person | None, union: Union | None) -> bool:
     viewer = _viewer_person(account, person=person, union=union)
     if viewer is None:
         return False
     if person is not None:
-        return is_ancestor(viewer, person)
-    return is_ancestor(viewer, union.person_a) or is_ancestor(viewer, union.person_b)
+        return is_direct_family(viewer, person)
+    return is_direct_family(viewer, union.person_a) or is_direct_family(viewer, union.person_b)
 
 
 @dataclass
@@ -170,7 +243,8 @@ class PreferenceStatus:
     # "type_subscribed" / "type_muted" - an explicit whole-type row
     # "type_immediate_only" - an explicit whole-type immediate_family_only row
     #   (in_immediate_family tells you which way it landed)
-    # "type_ancestors_only" - an explicit whole-type ancestors_only row
+    # "type_direct_family_only" - an explicit whole-type
+    #   direct_family_only row
     # "default" - nothing set, using EventType.default_state (whichever
     #   of the above states that resolves to)
     reason: str
@@ -183,7 +257,7 @@ def _preference_status_from_rows(
     whole: NotificationPreference | None,
     event_type: EventType,
     in_family_fn: Callable[[], bool],
-    in_ancestors_fn: Callable[[], bool],
+    in_direct_family_fn: Callable[[], bool],
 ) -> PreferenceStatus:
     """The actual state-branching decision, shared by preference_status and PreferenceResolver.
 
@@ -193,10 +267,11 @@ def _preference_status_from_rows(
 
     "Nothing set at all" (whole is None) is treated as an implicit whole-
     type row carrying event_type.default_state, rather than its own
-    separate branch - so a default_state of ancestors_only (yahrzeit's
-    own default) is resolved by the exact same is_ancestor check an
-    explicit override would use, just tagged "default" instead of
-    "type_ancestors_only" for display purposes.
+    separate branch - so a default_state of direct_family_only
+    (Yahrzeit's own default) is resolved by the exact same
+    is_direct_family check an explicit override would use, just tagged
+    "default" instead of "type_direct_family_only" for display
+    purposes.
     """
     if specific is not None:
         subscribed = specific.state == NotificationPreference.State.SUBSCRIBED
@@ -219,10 +294,10 @@ def _preference_status_from_rows(
             in_immediate_family=in_family,
         )
 
-    if state == NotificationPreference.State.ANCESTORS_ONLY:
-        in_ancestors = in_ancestors_fn()
+    if state == NotificationPreference.State.DIRECT_FAMILY_ONLY:
+        in_direct_family = in_direct_family_fn()
         return PreferenceStatus(
-            subscribed=in_ancestors, reason="type_ancestors_only" if is_explicit else "default"
+            subscribed=in_direct_family, reason="type_direct_family_only" if is_explicit else "default"
         )
 
     # Not reachable through the model's own choices= validation, but
@@ -257,7 +332,7 @@ def preference_status(
         whole=whole,
         event_type=event_type,
         in_family_fn=lambda: _in_immediate_family(account, person=person, union=union),
-        in_ancestors_fn=lambda: _in_ancestors(account, person=person, union=union),
+        in_direct_family_fn=lambda: _in_direct_family(account, person=person, union=union),
     )
 
 
@@ -317,11 +392,14 @@ class PreferenceResolver:
             )
         }
         # Lazily filled, not precomputed like the two sets above - an
-        # ancestor chain is per-viewer rather than per-pair, so there's no
-        # fixed-size set to build up front the way spouse pairs are; each
-        # viewer's chain is still only ever computed once regardless of
+        # ancestor/descendant chain, or a person's own spouse lookup, is
+        # per-viewer rather than a fixed-size per-pair set the way spouse
+        # pairs are; each is still only ever computed once regardless of
         # how many subjects it ends up checked against.
         self._ancestor_ids_by_viewer: dict[int, set[int]] = {}
+        self._descendant_ids_by_viewer: dict[int, set[int]] = {}
+        self._spouses_by_person: dict[int, list[Person]] = {}
+        self._person_by_id: dict[int, Person] = {}
 
     def _cached_spouse_check(self, a: Person, b: Person) -> bool:
         return frozenset((a.id, b.id)) in self._spouse_pairs
@@ -343,14 +421,51 @@ class PreferenceResolver:
             self._ancestor_ids_by_viewer[viewer.id] = ids
         return ids
 
-    def _in_ancestors(self, account_id: int, *, person: Person | None, union: Union | None) -> bool:
+    def _cached_descendant_ids(self, viewer: Person) -> set[int]:
+        ids = self._descendant_ids_by_viewer.get(viewer.id)
+        if ids is None:
+            ids = viewer.descendant_ids()
+            self._descendant_ids_by_viewer[viewer.id] = ids
+        return ids
+
+    def _cached_spouses_of(self, person: Person) -> list[Person]:
+        """Reuses the already-loaded _spouse_pairs (no extra query for the pairing itself).
+
+        Only fetches the actual Person rows on first request per person,
+        not up front - most resolved subjects never need their spouse
+        looked up at all (only is_direct_family does).
+        """
+        spouses = self._spouses_by_person.get(person.id)
+        if spouses is None:
+            partner_ids = [
+                other
+                for pair in self._spouse_pairs
+                if person.id in pair
+                for other in pair
+                if other != person.id
+            ]
+            missing_ids = [pid for pid in partner_ids if pid not in self._person_by_id]
+            if missing_ids:
+                for fetched in Person.objects.filter(pk__in=missing_ids):
+                    self._person_by_id[fetched.id] = fetched
+            spouses = [self._person_by_id[pid] for pid in partner_ids if pid in self._person_by_id]
+            self._spouses_by_person[person.id] = spouses
+        return spouses
+
+    def _in_direct_family(self, account_id: int, *, person: Person | None, union: Union | None) -> bool:
         viewer = self._viewer_by_account.get(account_id)
         if viewer is None:
             return False
+        kwargs = {
+            "spouse_check": self._cached_spouse_check,
+            "ancestor_ids_fn": self._cached_ancestor_ids,
+            "descendant_ids_fn": self._cached_descendant_ids,
+            "spouses_of_fn": self._cached_spouses_of,
+        }
         if person is not None:
-            return is_ancestor(viewer, person, ancestor_ids_fn=self._cached_ancestor_ids)
-        return is_ancestor(viewer, union.person_a, ancestor_ids_fn=self._cached_ancestor_ids) or is_ancestor(
-            viewer, union.person_b, ancestor_ids_fn=self._cached_ancestor_ids
+            return is_direct_family(viewer, person, **kwargs)
+        return is_direct_family(viewer, union.person_a, **kwargs) or is_direct_family(
+            viewer, union.person_b, **kwargs
         )
 
     def preference_status(
@@ -370,7 +485,7 @@ class PreferenceResolver:
             whole=whole,
             event_type=event_type,
             in_family_fn=lambda: self._in_immediate_family(account.id, person=person, union=union),
-            in_ancestors_fn=lambda: self._in_ancestors(account.id, person=person, union=union),
+            in_direct_family_fn=lambda: self._in_direct_family(account.id, person=person, union=union),
         )
 
     def channels_for_account(

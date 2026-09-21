@@ -59,8 +59,8 @@ class SubscriptionsView(FamilyRequiredMixin, TemplateView):
         )
 
         # One row per event type showing the account's circle setting for
-        # it (everyone / immediate family only / ancestors only / muted) -
-        # whatever isn't explicitly set here falls back to
+        # it (everyone / immediate family only / direct family only /
+        # muted) - whatever isn't explicitly set here falls back to
         # EventType.default_state.
         whole_type_overrides = {
             (p.event_type_id, p.channel): p
@@ -88,8 +88,8 @@ class SubscriptionsView(FamilyRequiredMixin, TemplateView):
                     "channels": channels_info,
                     # Which states this event type's own dropdown should
                     # offer at all - see EventType.allowed_states (e.g.
-                    # ANCESTORS_ONLY isn't offered for a union-anchored
-                    # type like Anniversary).
+                    # DIRECT_FAMILY_ONLY isn't offered for a
+                    # union-anchored type like Anniversary).
                     "allowed_states": event_type.allowed_states,
                 }
             )
