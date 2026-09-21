@@ -64,8 +64,13 @@
             <p id="marriage-hebrew-autofill-note"
                class="autofill-note warning-icon"
                hidden>Prefilled from the Gregorian date above - double check it, especially if the wedding was after sunset (the Hebrew date may have already advanced to the next day).</p>
-            {% if form.divorce_date_gregorian %}
-                <div class="form-row">
+            {% if object %}
+                {# Only UnionEditForm (editing an existing marriage) has this field at all - #}
+                {# UnionForm (adding a new spouse) doesn't, so this must stay nested inside #}
+                {# {% if object %}, not just hidden via the attribute below. #}
+                <div class="form-row"
+                     id="divorce-date-row"
+                     {% if object.status != "divorced" %}hidden{% endif %}>
                     <div class="form-field">{% field_label form.divorce_date_gregorian %}{{ form.divorce_date_gregorian }}</div>
                 </div>
             {% endif %}
@@ -95,4 +100,18 @@
       },
     ]);
     </script>
+    {% if object %}
+        <script>
+        (function () {
+          const statusSelect = document.getElementById("id_status");
+          const divorceRow = document.getElementById("divorce-date-row");
+          if (!statusSelect || !divorceRow) return;
+          const sync = () => {
+            divorceRow.hidden = statusSelect.value !== "divorced";
+          };
+          statusSelect.addEventListener("change", sync);
+          sync();
+        })();
+        </script>
+    {% endif %}
 {% endblock %}
