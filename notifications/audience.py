@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from django.db import models
 
 from accounts.models import Account
-from family.models import Person, Union
+from family.models import Person, Union, bfs_relative_ids
 from notifications.enums import ChannelEnum
 from notifications.models import EventType, NotificationPreference
 from tenants.models import Family
@@ -116,19 +116,18 @@ def _in_immediate_family(account: Account, *, person: Person | None, union: Unio
 def _ancestor_ids(person_id: int) -> set[int]:
     """Every id in person_id's own direct father/mother line, via BFS over father_id/mother_id.
 
-    Mirrors Person.descendant_ids()'s own BFS shape (one query per
-    generation) but climbs instead of descending. "Ancestor" here is
-    direct line only: a grandparent's own sibling isn't included, just
-    the grandparent (and their own parents, ...) themselves.
+    Built on the same bfs_relative_ids Person.descendant_ids() uses, just
+    climbing instead of descending - only the per-generation query
+    differs. "Ancestor" here is direct line only: a grandparent's own
+    sibling isn't included, just the grandparent (and their own
+    parents, ...) themselves.
     """
-    ids: set[int] = set()
-    frontier = {person_id}
-    while frontier:
+
+    def _parents(frontier: set[int]) -> set[int]:
         parent_ids = Person.objects.filter(pk__in=frontier).values_list("father_id", "mother_id")
-        parents = {pid for pair in parent_ids for pid in pair if pid is not None}
-        frontier = parents - ids
-        ids |= frontier
-    return ids
+        return {pid for pair in parent_ids for pid in pair if pid is not None}
+
+    return bfs_relative_ids({person_id}, _parents)
 
 
 def _ancestor_ids_for(viewer: Person) -> set[int]:
@@ -220,10 +219,18 @@ def _preference_status_from_rows(
             in_immediate_family=in_family,
         )
 
-    in_ancestors = in_ancestors_fn()
-    return PreferenceStatus(
-        subscribed=in_ancestors, reason="type_ancestors_only" if is_explicit else "default"
-    )
+    if state == NotificationPreference.State.ANCESTORS_ONLY:
+        in_ancestors = in_ancestors_fn()
+        return PreferenceStatus(
+            subscribed=in_ancestors, reason="type_ancestors_only" if is_explicit else "default"
+        )
+
+    # Not reachable through the model's own choices= validation, but
+    # nothing at the DB level stops a raw-written or corrupted row from
+    # holding something else - silently falling through to one of the
+    # branches above would misresolve it instead of surfacing the
+    # problem.
+    raise ValueError(f"Unrecognized NotificationPreference state: {state!r}")
 
 
 def preference_status(

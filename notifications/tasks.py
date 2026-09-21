@@ -193,6 +193,25 @@ def _subject_pairs() -> Iterator[tuple[Person | Union, EventType]]:
 
 
 def _event_types_for_person(person: Person) -> Iterator[EventType]:
+    if (
+        not person.notifications_enabled
+        and not EventType.objects.filter(
+            models.Q(family__isnull=True) | models.Q(family_id=person.family_id), always_schedule=True
+        )
+        .exclude(code__in=NON_SCHEDULED_CODES)
+        .exists()
+    ):
+        # Fast path for the common case - an untracked lineage-only stub
+        # with no always_schedule type in play has nothing to compute at
+        # all, so this skips building the full per-family EventType
+        # grouping below (_event_types_by_family fetches and buckets
+        # every row) in favor of one indexed existence check. Matters
+        # because compute_occurrences_for_person calls this on every
+        # single Person save via family.signals, tracked or not - a
+        # short-circuited `and` means this .exists() call never even
+        # runs for a tracked person, so it costs nothing in the common
+        # (tracked) case either.
+        return
     person_types, _union_types = _event_types_by_family()
     for event_type in person_types[None] + person_types.get(person.family_id, []):
         # Same always_schedule exception as _subject_pairs above.

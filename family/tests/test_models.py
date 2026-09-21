@@ -185,6 +185,59 @@ def test_parents_label_is_none_when_the_only_recorded_parent_is_deceased(family)
     assert person.parents_label is None
 
 
+def test_patronymic_label_uses_gendered_connector(family):
+    father = Person.objects.create(family=family, first_name_he="אברהם", last_name_en="Rokach")
+    son = Person.objects.create(
+        family=family, first_name_he="יעקב", last_name_en="Rokach", father=father, gender=Person.Gender.MALE
+    )
+    daughter = Person.objects.create(
+        family=family,
+        first_name_he="רבקה",
+        last_name_en="Rokach",
+        father=father,
+        gender=Person.Gender.FEMALE,
+    )
+
+    assert son.patronymic_label == "יעקב בן אברהם"
+    assert daughter.patronymic_label == "רבקה בת אברהם"
+
+
+def test_patronymic_label_ignores_untracked_and_deceased_status(family):
+    # Unlike parents_label, the whole point here is naming a real
+    # ancestor even when they're only a lineage stub or no longer living
+    # - see EventType.always_schedule and AGENTS.md.
+    father = Person.objects.create(
+        family=family,
+        first_name_he="אברהם",
+        last_name_en="Rokach",
+        notifications_enabled=False,
+        dod_gregorian=dt.date(2020, 1, 1),
+    )
+    person = Person.objects.create(family=family, first_name_he="יעקב", last_name_en="Rokach", father=father)
+
+    assert person.patronymic_label == "יעקב בן אברהם"
+
+
+def test_patronymic_label_is_none_without_a_hebrew_first_name(family):
+    father = Person.objects.create(family=family, first_name_he="אברהם", last_name_en="Rokach")
+    person = Person.objects.create(family=family, first_name_en="Jacob", last_name_en="Rokach", father=father)
+
+    assert person.patronymic_label is None
+
+
+def test_patronymic_label_is_none_without_the_fathers_hebrew_first_name(family):
+    father = Person.objects.create(family=family, first_name_en="Avraham", last_name_en="Rokach")
+    person = Person.objects.create(family=family, first_name_he="יעקב", last_name_en="Rokach", father=father)
+
+    assert person.patronymic_label is None
+
+
+def test_patronymic_label_is_none_without_a_recorded_father(family):
+    person = Person.objects.create(family=family, first_name_he="יעקב", last_name_en="Rokach")
+
+    assert person.patronymic_label is None
+
+
 def test_display_name_prefers_nickname(family):
     person = Person(family=family, first_name_en="Robert", last_name_en="Smith", nickname="Bobby")
     assert person.display_name == "Bobby"

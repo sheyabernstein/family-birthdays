@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 
 import reversion
 from django.core.exceptions import ValidationError
@@ -10,6 +11,29 @@ from hdate.hebrew_date import Months
 from family.hebrew import format_hebrew_date, hebrew_to_gregorian
 
 HEBREW_MONTH_CHOICES = [(m.value, m.name.replace("_", " ").title()) for m in Months]
+
+
+def bfs_relative_ids(seed_ids: set[int], expand: Callable[[set[int]], set[int]]) -> set[int]:
+    """Breadth-first traversal: repeatedly expands a frontier via `expand` until it's exhausted.
+
+    Shared by Person.descendant_ids() (frontier expands to children) and
+    notifications.audience's ancestor lookup (frontier expands to
+    parents) - same accumulate-until-empty shape either way, one query
+    per generation; only what counts as "next frontier" differs, which
+    is exactly what `expand` captures.
+
+    Args:
+        seed_ids: The starting frontier - typically one person's own id.
+        expand: Given the current frontier, returns the next one (already
+            expected to exclude ids already seen - the caller's query is
+            usually cheaper written that way than filtering here).
+    """
+    ids: set[int] = set()
+    frontier = set(seed_ids)
+    while frontier:
+        frontier = expand(frontier) - ids
+        ids |= frontier
+    return ids
 
 
 class AdarObservance(models.TextChoices):
@@ -318,17 +342,15 @@ class Person(models.Model):
         someone's own descendant as their parent, which would make them
         their own ancestor.
         """
-        ids: set[int] = set()
-        frontier = {self.pk}
-        while frontier:
-            children = set(
+
+        def _children(frontier: set[int]) -> set[int]:
+            return set(
                 Person.objects.filter(
                     models.Q(father_id__in=frontier) | models.Q(mother_id__in=frontier)
                 ).values_list("pk", flat=True)
             )
-            frontier = children - ids
-            ids |= frontier
-        return ids
+
+        return bfs_relative_ids({self.pk}, _children)
 
 
 @reversion.register()

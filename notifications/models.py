@@ -151,14 +151,17 @@ class EventType(models.Model):
 
         Explicit per built-in code (ALLOWED_STATES_BY_CODE below) so any
         future per-code exception is a one-line table edit, not a
-        scattered conditional - e.g. Broadcast has no per-person
-        targeting at all (see NotificationPreference.clean()), so
-        ANCESTORS_ONLY/IMMEDIATE_FAMILY_ONLY are meaningless for it
-        regardless of anchor. A family's own custom event type has no
-        matching BuiltinCode, so it falls back to a generic anchor-based
-        rule instead: ANCESTORS_ONLY only makes sense for a subject
-        reached by climbing father_id/mother_id, i.e. a person-anchored
-        type, not a union-anchored or unanchored one.
+        scattered conditional - e.g. Broadcast keeps IMMEDIATE_FAMILY_ONLY
+        (resolve_broadcast_audience unions the per-tied-person immediate
+        family, same as any other event type - see AGENTS.md) but not
+        ANCESTORS_ONLY, since a broadcast has no per-recipient targeting
+        at all (see NotificationPreference.clean()) and no anchor subject
+        to climb father_id/mother_id from in the first place. A family's
+        own custom event type has no matching BuiltinCode, so it falls
+        back to a generic anchor-based rule instead: ANCESTORS_ONLY only
+        makes sense for a subject reached by climbing father_id/mother_id,
+        i.e. a person-anchored type, not a union-anchored or unanchored
+        one.
         """
         by_code = ALLOWED_STATES_BY_CODE.get(self.code)
         if by_code is not None:

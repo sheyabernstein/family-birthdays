@@ -1081,11 +1081,10 @@ def test_help_shows_the_owner_by_name_and_email_when_they_have_a_person_record(c
     assert f"mailto:{owner.email}" in resp.content.decode()
 
 
-def test_help_joins_multiple_owners_with_commas_and_a_trailing_and(client, family):
+def test_help_lists_multiple_owners_as_bullet_points(client, family):
     owner_a = Account.objects.create_user(email="a-owner@example.com")
     owner_b = Account.objects.create_user(email="b-owner@example.com")
-    owner_c = Account.objects.create_user(email="c-owner@example.com")
-    for account, first_name in [(owner_a, "Alpha"), (owner_b, "Bravo"), (owner_c, "Charlie")]:
+    for account, first_name in [(owner_a, "Alpha"), (owner_b, "Bravo")]:
         FamilyMembership.objects.create(account=account, family=family, role=FamilyMembership.Role.OWNER)
         Person.objects.create(family=family, first_name_en=first_name, last_name_en="Owner", account=account)
     _login_as(client, owner_a, family)
@@ -1094,10 +1093,14 @@ def test_help_joins_multiple_owners_with_commas_and_a_trailing_and(client, famil
 
     text = " ".join(resp.content.decode().split())
     assert (
-        '<strong>Alpha Owner</strong> (<a href="mailto:a-owner@example.com">a-owner@example.com</a>), '
-        '<strong>Bravo Owner</strong> (<a href="mailto:b-owner@example.com">b-owner@example.com</a>) and '
-        "<strong>Charlie Owner</strong>"
-    ) in text
+        '<li><strong>Alpha Owner</strong> (<a href="mailto:a-owner@example.com">a-owner@example.com</a>)</li>'
+        in text
+    )
+    assert (
+        '<li><strong>Bravo Owner</strong> (<a href="mailto:b-owner@example.com">b-owner@example.com</a>)</li>'
+        in text
+    )
+    assert "Reach out to Test Family's owners for anything only an owner can do" in text
 
 
 def test_help_falls_back_to_the_owner_account_email_with_no_person_record(client, family):
@@ -1128,4 +1131,4 @@ def test_help_shows_nothing_owner_related_with_no_current_family(client):
     resp = client.get("/help/")
 
     assert resp.status_code == 200
-    assert "is managed by" not in resp.content.decode()
+    assert "Reach out to" not in resp.content.decode()
