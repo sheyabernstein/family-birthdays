@@ -290,6 +290,17 @@ main {
   border-radius: 999px;
   font-family: var(--font-body);
   font-weight: 600;
+
+  /* Fallback for a custom event type with no more specific .badge-<code>
+     rule (see EventType.badge_class - a blank-anchor custom type like a
+     family's own "Reunion" falls back to its own code, which has no
+     dedicated color) - every more specific .badge-birth/-death/-marriage/
+     -broadcast rule below still overrides this by simply coming later in
+     the cascade at equal specificity. Without this, an unmatched badge
+     had no background/color at all - a bare pill outline with
+     unstyled text, reading as broken rather than just uncategorized. */
+  background: var(--rule-soft);
+  color: var(--ink-soft);
 }
 
 .badge-birth {
