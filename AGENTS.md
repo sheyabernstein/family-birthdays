@@ -139,8 +139,12 @@ switching workspaces.
   separate, `recurs=True` Anniversary type) - it's computed only for the
   Hebrew year the anchor date actually fell in, not every year that
   month/day comes around. `notify_days_before` shifts the send date
-  ahead of the actual occurrence (0, the default, sends on the day
-  itself - right for a birthday or yahrzeit; Wedding uses 3). See
+  ahead of the actual occurrence (0, the field's own default, sends on
+  the day itself - still right for Yahrzeit and a custom family event
+  type with no established lead-time convention of its own; Birthday
+  uses 1, Bar/Bat Mitzvah 3, Wedding 7 - see the data migration in
+  `notifications/migrations/0006_default_notify_days_before.py` for
+  where these built-in overrides actually live). See
   `notifications/tasks._compute_for_subject`.
 - **A computed `send_date` can land in the past relative to "today" the
   moment the row is created, and every consumer of it has to treat that
@@ -448,9 +452,11 @@ switching workspaces.
     had been fixed to say "was ...", but the subject still
     unconditionally said "today" until the caller was updated to pass
     `is_late` through. Wedding's on-time wording is "coming up", not a
-    date, regardless of lateness - it's sent `notify_days_before=3` ahead
-    of the actual date, so "today" was never accurate for it even in the
-    normal case. **`naturalday` earns its place here for a second, later
+    date, regardless of lateness - it's sent several days
+    (`notify_days_before`, see the data migration in
+    `notifications/migrations/0006_default_notify_days_before.py`)
+    ahead of the actual date, so "today" was never accurate for it even
+    in the normal case. **`naturalday` earns its place here for a second, later
     bug, not just the first one**: `shifted_for_shabbat_or_yomtov`
     (`occurrence_date` moved *earlier* than the real anchor, on purpose)
     is deliberately not `is_late` - `is_late` only fires when

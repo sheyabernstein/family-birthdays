@@ -736,7 +736,10 @@ def test_compute_occurrences_for_union_creates_a_one_time_wedding_reminder(famil
     assert wedding_occurrences.count() == 1
     occurrence = wedding_occurrences.get()
     assert occurrence.hebrew_year == anchor_year
-    expected_send_date, _shifted = resolve_send_date(occurrence.occurrence_date - dt.timedelta(days=3))
+    notify_days_before = occurrence.event_type.notify_days_before
+    expected_send_date, _shifted = resolve_send_date(
+        occurrence.occurrence_date - dt.timedelta(days=notify_days_before)
+    )
     assert occurrence.send_date == expected_send_date
 
 

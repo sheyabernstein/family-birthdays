@@ -14,4 +14,6 @@ class NotificationsConfig(AppConfig):
         from django.conf import settings
         from django.utils.module_loading import import_string
 
+        from notifications import signals  # noqa: F401
+
         import_string(settings.SMS_BACKEND).validate_settings()
