@@ -12,6 +12,7 @@
         <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s yahrzeit is {{ occurrence.occurrence_date|weekday_naturalday:today }}.</p>
     {% endif %}
     {% include "notifications/email/_parents.html" with person=occurrence.person %}
+    {% include "notifications/email/_patronymic.html" with person=occurrence.person %}
     <p class="muted" style="font-size: 14px;">
         {{ occurrence.occurrence_date|hebrew_str }} · {{ occurrence.occurrence_date|date:"l, F j, Y" }}
     </p>

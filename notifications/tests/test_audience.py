@@ -34,11 +34,14 @@ def test_default_is_subscribed_when_nothing_is_set(family, birthday_event_type):
     assert channels_for_account(account, birthday_event_type, person=person) == [("email", account.email)]
 
 
-def test_default_follows_event_type_default_opt_in(family):
+def test_default_follows_event_type_default_state(family):
     person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
     account = _member(family)
     event_type = EventType.objects.create(
-        family=family, code="opt-in-thing", name="Opt In Thing", default_opt_in=False
+        family=family,
+        code="opt-in-thing",
+        name="Opt In Thing",
+        default_state=NotificationPreference.State.MUTED,
     )
 
     status = preference_status(account, event_type, person=person, channel="email")
@@ -92,11 +95,14 @@ def test_specific_subscribe_overrides_a_whole_type_mute(family, birthday_event_t
     assert status.reason == "specific_subscribed"
 
 
-def test_specific_mute_overrides_default_opt_in_false(family):
+def test_specific_subscribe_overrides_default_state_muted(family):
     person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
     account = _member(family)
     event_type = EventType.objects.create(
-        family=family, code="opt-in-thing", name="Opt In Thing", default_opt_in=False
+        family=family,
+        code="opt-in-thing",
+        name="Opt In Thing",
+        default_state=NotificationPreference.State.MUTED,
     )
     _preference(account, event_type, NotificationPreference.State.SUBSCRIBED, person=person)
 

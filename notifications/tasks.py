@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from html import unescape as unescape_html
 
 from celery import Task, shared_task
+from django.db import models
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.html import strip_tags
@@ -151,11 +152,24 @@ def _subject_pairs() -> Iterator[tuple[Person | Union, EventType]]:
     Union with a marriage anchor. This is deliberately not
     subscription-driven: who gets *notified* is a separate question (see
     notifications.audience) from whether the event happens at all.
+
+    An untracked (notifications_enabled=False) Person is normally
+    excluded entirely - a lineage-only stub, e.g. an in-law's own parent,
+    has nothing to schedule. The one exception is an EventType with
+    always_schedule=True (Yahrzeit): a real ancestor entered only as a
+    stub can still die, and their yahrzeit should still be computable for
+    whoever actually wants it (see AGENTS.md) - excluding untracked people
+    from the query outright would make that impossible regardless of what
+    happens later in this function, so the DB filter below only excludes
+    a *living* untracked person (always_schedule only ever matters for a
+    DEATH-anchored type, which needs is_living=False anyway).
     """
     person_types, union_types = _event_types_by_family()
 
-    for person in Person.objects.filter(notifications_enabled=True):
+    for person in Person.objects.filter(models.Q(notifications_enabled=True) | models.Q(is_living=False)):
         for event_type in person_types[None] + person_types.get(person.family_id, []):
+            if not event_type.always_schedule and not person.notifications_enabled:
+                continue
             if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
                 continue
             # Symmetric to the DEATH-anchor check above: once someone has
@@ -181,6 +195,9 @@ def _subject_pairs() -> Iterator[tuple[Person | Union, EventType]]:
 def _event_types_for_person(person: Person) -> Iterator[EventType]:
     person_types, _union_types = _event_types_by_family()
     for event_type in person_types[None] + person_types.get(person.family_id, []):
+        # Same always_schedule exception as _subject_pairs above.
+        if not event_type.always_schedule and not person.notifications_enabled:
+            continue
         if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
             continue
         if event_type.anchor == EventType.Anchor.BIRTH and not person.is_living:
@@ -421,14 +438,13 @@ def compute_occurrences_for_person(person: Person) -> None:
     horizon = timezone.localdate() + dt.timedelta(days=OCCURRENCE_HORIZON_DAYS)
     today_hebrew_year = gregorian_to_hebrew(timezone.localdate()).year
     applicable_event_type_ids = set()
-    if person.notifications_enabled:
-        for event_type in _event_types_for_person(person):
-            if _anchor_for(person, event_type)[0]:
-                applicable_event_type_ids.add(event_type.id)
-                _written, used_ids = _compute_for_subject(
-                    person, event_type, horizon=horizon, today_hebrew_year=today_hebrew_year
-                )
-                applicable_event_type_ids.update(used_ids)
+    for event_type in _event_types_for_person(person):
+        if _anchor_for(person, event_type)[0]:
+            applicable_event_type_ids.add(event_type.id)
+            _written, used_ids = _compute_for_subject(
+                person, event_type, horizon=horizon, today_hebrew_year=today_hebrew_year
+            )
+            applicable_event_type_ids.update(used_ids)
     _delete_stale_unsent_occurrences(person=person, keep_event_type_ids=applicable_event_type_ids)
     logger.debug(
         "person occurrences recomputed",

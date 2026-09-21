@@ -138,15 +138,17 @@
             <p>{{ person.notes|linebreaksbr }}</p>
         </div>
     {% endif %}
-    {% if person.notifications_enabled or request.family_permissions.can_edit %}
+    {% if person.notifications_enabled or request.family_permissions.can_edit or event_rows %}
         <div class="card">
             <h2>Notify me</h2>
-            {% if not person.notifications_enabled %}
-                <p class="muted">{{ person.display_name }} isn't tracked for notifications, so this is turned off - <a href="{% url 'family:person_update' person.uuid %}">turn it on from their edit page</a> to enable this.</p>
-            {% elif not has_any_channel %}
+            {% if not has_any_channel %}
                 <p class="muted">Add an email or phone number to your account before subscribing to notifications.</p>
             {% elif event_rows %}
-                <p class="muted">Each button shows what's actually in effect and why - click it to add an exception just for {{ person.display_name }}, overriding your usual setting for that event type. Change the usual setting itself on <a href="{% url 'notifications:subscriptions' %}">My Notifications</a>.</p>
+                {% if not person.notifications_enabled and request.family_permissions.can_edit %}
+                    <p class="muted">{{ person.display_name }} isn't tracked for notifications, so most toggles here are turned off - <a href="{% url 'family:person_update' person.uuid %}">turn it on from their edit page</a> to enable the rest. Yahrzeit still works either way, since it's honored regardless of tracking.</p>
+                {% else %}
+                    <p class="muted">Each button shows what's actually in effect and why - click it to add an exception just for {{ person.display_name }}, overriding your usual setting for that event type. Change the usual setting itself on <a href="{% url 'notifications:subscriptions' %}">My Notifications</a>.</p>
+                {% endif %}
                 <div class="table-scroll">
                     <table class="subscribe-table">
                         <thead>
@@ -169,6 +171,8 @@
                         </tbody>
                     </table>
                 </div>
+            {% elif not person.notifications_enabled %}
+                <p class="muted">{{ person.display_name }} isn't tracked for notifications, so this is turned off - <a href="{% url 'family:person_update' person.uuid %}">turn it on from their edit page</a> to enable this.</p>
             {% else %}
                 <p class="muted">No applicable life-cycle events yet - add a date of birth to enable birthday notifications.</p>
             {% endif %}

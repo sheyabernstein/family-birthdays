@@ -301,43 +301,49 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
         # off globally; "subscribed" reflects whether it's muted, not
         # whether anyone opted in.
         # An untracked person (notifications_enabled=False - a lineage-
-        # only stub, see AGENTS.md) never gets events computed for them
-        # at all (notifications.tasks._subject_pairs), so offering
-        # toggles here would just be dead controls - see the "Notify me"
-        # card's own untracked-specific message in person_detail.html for
-        # what an owner/editor sees instead.
+        # only stub, see AGENTS.md) never gets most events computed for
+        # them at all (notifications.tasks._subject_pairs), so offering
+        # most toggles here would just be dead controls - except an
+        # event_type.always_schedule type (Yahrzeit), which schedules
+        # regardless, so its toggle is real even for an untracked person
+        # (a real ancestor entered only as a lineage stub). This is
+        # checked per event type, not once for the whole card, for
+        # exactly that reason - see the "Notify me" card's own
+        # untracked-specific message in person_detail.html for what an
+        # owner/editor sees for the toggles that *are* still hidden.
         event_rows = []
-        if person.notifications_enabled:
-            for event_type in available_event_types.filter(applies_to_union=False):
-                # Broadcast has no per-person override - see
-                # NotificationPreference.clean() and AGENTS.md - so it
-                # never gets a toggle here, only the whole-type mute on
-                # My Notifications (notifications.views.SubscriptionsView).
-                if event_type.code == EventType.BuiltinCode.BROADCAST:
+        for event_type in available_event_types.filter(applies_to_union=False):
+            if not event_type.always_schedule and not person.notifications_enabled:
+                continue
+            # Broadcast has no per-person override - see
+            # NotificationPreference.clean() and AGENTS.md - so it
+            # never gets a toggle here, only the whole-type mute on
+            # My Notifications (notifications.views.SubscriptionsView).
+            if event_type.code == EventType.BuiltinCode.BROADCAST:
+                continue
+            if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
+                continue
+            # Symmetric to the DEATH-anchor check above: once someone has
+            # died there's no more birthday (or bar/bat mitzvah) to
+            # celebrate, only the yahrzeit - see notifications.tasks for
+            # the matching check in the actual scheduling logic.
+            if event_type.anchor == EventType.Anchor.BIRTH and not person.is_living:
+                continue
+            # These only ever apply to one gender, and stop being relevant
+            # once that birthday has already passed - no point offering a
+            # bar mitzvah toggle on a woman's page, or a 40-year-old's.
+            if event_type.code == EventType.BuiltinCode.BAR_MITZVAH:
+                if person.gender != Person.Gender.MALE:
                     continue
-                if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
+                if person_has_passed_coming_of_age(person):
                     continue
-                # Symmetric to the DEATH-anchor check above: once someone has
-                # died there's no more birthday (or bar/bat mitzvah) to
-                # celebrate, only the yahrzeit - see notifications.tasks for
-                # the matching check in the actual scheduling logic.
-                if event_type.anchor == EventType.Anchor.BIRTH and not person.is_living:
+            if event_type.code == EventType.BuiltinCode.BAT_MITZVAH:
+                if person.gender != Person.Gender.FEMALE:
                     continue
-                # These only ever apply to one gender, and stop being relevant
-                # once that birthday has already passed - no point offering a
-                # bar mitzvah toggle on a woman's page, or a 40-year-old's.
-                if event_type.code == EventType.BuiltinCode.BAR_MITZVAH:
-                    if person.gender != Person.Gender.MALE:
-                        continue
-                    if person_has_passed_coming_of_age(person):
-                        continue
-                if event_type.code == EventType.BuiltinCode.BAT_MITZVAH:
-                    if person.gender != Person.Gender.FEMALE:
-                        continue
-                    if person_has_passed_coming_of_age(person):
-                        continue
-                channels = channel_rows(request.user, event_type, my_channels, person=person)
-                event_rows.append({"event_type": event_type, "channels": channels})
+                if person_has_passed_coming_of_age(person):
+                    continue
+            channels = channel_rows(request.user, event_type, my_channels, person=person)
+            event_rows.append({"event_type": event_type, "channels": channels})
 
         union_event_types = list(available_event_types.filter(applies_to_union=True))
         union_rows = []

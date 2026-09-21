@@ -227,6 +227,26 @@ class Person(models.Model):
         return f"{parents}'s {self.nickname or self.first_name_en}"
 
     @property
+    def patronymic_label(self) -> str | None:
+        """The traditional yahrzeit naming form: Hebrew first name, בן/בת, father's Hebrew first name.
+
+        Patronymic only, never the mother's name - the traditional form
+        used for a yahrzeit/kaddish, deliberately narrower than
+        parents_label's own both-parents convention (see AGENTS.md).
+        Unlike parents_label, the father's name is used regardless of
+        is_living/notifications_enabled - the whole point of this label
+        is naming a real ancestor even when they're only a lineage stub
+        (see EventType.always_schedule), not just a living, tracked
+        relative. Returns None when either this person's own or the
+        father's Hebrew first name isn't recorded - there's nothing
+        accurate to construct otherwise.
+        """
+        if not self.first_name_he or self.father is None or not self.father.first_name_he:
+            return None
+        connector = "בת" if self.gender == Person.Gender.FEMALE else "בן"
+        return f"{self.first_name_he} {connector} {self.father.first_name_he}"
+
+    @property
     def dob_hebrew_anchor(self) -> tuple[Months, int] | None:
         if self.dob_hebrew_month and self.dob_hebrew_day:
             return Months(self.dob_hebrew_month), self.dob_hebrew_day
