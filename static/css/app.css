@@ -1346,10 +1346,12 @@ main.auth-main {
 /* --- Responsive --- */
 
 @media (width <= 40rem) {
-  .topbar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
+  /* Stays a flat single row (the base .topbar rule's own row layout,
+     align-items: center, justify-content: space-between) rather than
+     stacking the wordmark above the toggle - the collapsed nav below
+     already accounts for the extra vertical space a tall header would
+     otherwise cost on a phone screen; the wordmark and a compact
+     icon-only toggle comfortably share one row on their own. */
 
   main {
     padding: 1.5rem 1rem 3rem;
@@ -1389,17 +1391,24 @@ main.auth-main {
      inaccessible on mobile if a script fails to load, and this app
      otherwise avoids reaching for JS for simple show/hide toggles it
      doesn't need. */
+
+  /* Icon-only (a hamburger, flipping to a close mark when open) rather
+     than a bordered "Menu ▾" text button - the accessible name still
+     comes through via the label's own aria-label (see templates/
+     base.html), since generated ::before content isn't reliably exposed
+     to screen readers. */
   .nav-toggle-label {
     display: inline-flex;
     align-items: center;
-    align-self: flex-start;
-    margin-top: 0.5rem;
-    padding: 0.4rem 0.75rem;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
     border: 1px solid var(--rule);
     border-radius: var(--radius);
     background: var(--paper-raised);
     color: var(--ink-soft);
-    font-size: 0.85rem;
+    font-size: 1.1rem;
+    line-height: 1;
     cursor: pointer;
   }
 
@@ -1407,12 +1416,12 @@ main.auth-main {
     color: var(--ink);
   }
 
-  .nav-toggle-label::after {
-    content: " \25BE";
+  .nav-toggle-label::before {
+    content: "\2630";
   }
 
-  .nav-toggle-checkbox:checked ~ .nav-toggle-label::after {
-    content: " \25B4";
+  .nav-toggle-checkbox:checked ~ .nav-toggle-label::before {
+    content: "\2715";
   }
 
   .nav {
