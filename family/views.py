@@ -13,10 +13,12 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
+from hdate import HebrewDate
+from hdate.hebrew_date import Months
 
 from family.access import can_see_birth_year, person_is_visible, visible_people_queryset
 from family.forms import PersonForm, UnionEditForm, UnionForm
-from family.hebrew import gregorian_to_hebrew
+from family.hebrew import gregorian_to_hebrew, hebrew_to_gregorian
 from family.history import person_history
 from family.models import Person, Union
 from family.tree_chart import build_chart_data
@@ -119,6 +121,34 @@ class GregorianToHebrewView(LoginRequiredMixin, View):
                 "day": hebrew_date.day,
             }
         )
+
+
+class HebrewToGregorianView(LoginRequiredMixin, View):
+    """AJAX-only: converts a Hebrew date to its Gregorian equivalent.
+
+    The read half of the Hebrew/Gregorian mismatch warning
+    (hebrew_mismatch_warning.js) - GregorianToHebrewView above is the
+    write half (prefilling empty Hebrew fields). This view never writes
+    back into either date field; the JS only uses the returned date to
+    compare against whatever Gregorian date is already entered, and warn
+    if they're off by more than the one day sunset can plausibly explain
+    - see that file's own docstring. Login-required only, same reasoning
+    as GregorianToHebrewView: pure calendar math, not family data.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request: HttpRequest) -> JsonResponse:
+        try:
+            hebrew_date = HebrewDate(
+                int(request.POST.get("year")),
+                Months(int(request.POST.get("month"))),
+                int(request.POST.get("day")),
+            )
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "Invalid or missing Hebrew date."}, status=400)
+
+        return JsonResponse({"date": hebrew_to_gregorian(hebrew_date).isoformat()})
 
 
 class DashboardView(FamilyRequiredMixin, TemplateView):

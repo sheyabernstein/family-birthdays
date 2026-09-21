@@ -833,6 +833,59 @@ def test_gregorian_to_hebrew_rejects_get(client, family):
     assert resp.status_code == 405
 
 
+def test_hebrew_to_gregorian_returns_the_conversion(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+    hebrew = gregorian_to_hebrew(dt.date(1990, 9, 22))
+
+    resp = client.post(
+        "/ajax/hebrew-to-gregorian/",
+        {"year": hebrew.year, "month": hebrew.month.value, "day": hebrew.day},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"date": "1990-09-22"}
+
+
+def test_hebrew_to_gregorian_requires_login(client):
+    resp = client.post("/ajax/hebrew-to-gregorian/", {"year": 5751, "month": 1, "day": 3})
+
+    assert resp.status_code == 302
+
+
+@pytest.mark.parametrize(
+    ["payload"],
+    [
+        [{"year": 5751, "month": 2, "day": 31}],
+        [{"year": 5751, "month": 99, "day": 1}],
+        [{"year": "not-a-number", "month": 1, "day": 1}],
+        [{}],
+    ],
+    ids=[
+        "day out of range for the month",
+        "month out of range",
+        "unparseable year",
+        "missing fields entirely",
+    ],
+)
+def test_hebrew_to_gregorian_rejects_bad_input(client, family, payload):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    resp = client.post("/ajax/hebrew-to-gregorian/", payload)
+
+    assert resp.status_code == 400
+
+
+def test_hebrew_to_gregorian_rejects_get(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    resp = client.get("/ajax/hebrew-to-gregorian/")
+
+    assert resp.status_code == 405
+
+
 def test_dashboard_never_shows_broadcasts(client, family):
     # Broadcasts are deliberately not part of "Upcoming" - see AGENTS.md -
     # an owner/editor manages them from their own /broadcasts/ page.

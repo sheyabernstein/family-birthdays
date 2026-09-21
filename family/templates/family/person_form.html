@@ -60,6 +60,9 @@
             <p id="dob-hebrew-autofill-note"
                class="autofill-note warning-icon"
                hidden>Prefilled from the Gregorian date above - double check it, especially if the birth was after sunset (the Hebrew date may have already advanced to the next day).</p>
+            <p id="dob-hebrew-mismatch-warning"
+               class="autofill-note warning-icon"
+               hidden>This Hebrew date doesn't match the Gregorian date above by more than a day - double check them, unless the birth was after sunset and this is intentional.</p>
         </div>
         <div class="card form-section">
             <h2>Death</h2>
@@ -78,6 +81,9 @@
             <p id="dod-hebrew-autofill-note"
                class="autofill-note warning-icon"
                hidden>Prefilled from the Gregorian date above - double check it, especially if the death was after sunset (the Hebrew date may have already advanced to the next day).</p>
+            <p id="dod-hebrew-mismatch-warning"
+               class="autofill-note warning-icon"
+               hidden>This Hebrew date doesn't match the Gregorian date above by more than a day - double check them, unless the death was after sunset and this is intentional.</p>
             <div class="form-row">
                 <div class="form-field">{% field_label form.yahrzeit_adar_observance %}{{ form.yahrzeit_adar_observance }}</div>
                 <div class="form-field">{% field_label form.yahrzeit_day30_observance %}{{ form.yahrzeit_day30_observance }}</div>
@@ -120,6 +126,7 @@
     <script src="https://cdn.jsdelivr.net/npm/intl-tel-input@29.2.3/dist/js/intlTelInputWithUtils.min.js"></script>
     <script src="{% static 'family/js/person_picker.js' %}"></script>
     <script src="{% static 'family/js/hebrew_autofill.js' %}"></script>
+    <script src="{% static 'family/js/hebrew_mismatch_warning.js' %}"></script>
     <script src="{% static 'accounts/js/phone_input.js' %}"></script>
     <script src="{% static 'accounts/js/email_input.js' %}"></script>
     <script>
@@ -147,6 +154,27 @@
         monthId: "id_dod_hebrew_month",
         dayId: "id_dod_hebrew_day",
         noteId: "dod-hebrew-autofill-note",
+      },
+    ]);
+
+    // Warns (never blocks saving) when an already-entered Hebrew date
+    // doesn't correspond to the Gregorian date next to it by more than
+    // the one day sunset can plausibly explain - see
+    // hebrew_mismatch_warning.js's own docstring.
+    initHebrewMismatchWarning("{% url 'family:hebrew_to_gregorian' %}", [
+      {
+        gregorianId: "id_dob_gregorian",
+        yearId: "id_dob_hebrew_year",
+        monthId: "id_dob_hebrew_month",
+        dayId: "id_dob_hebrew_day",
+        warningId: "dob-hebrew-mismatch-warning",
+      },
+      {
+        gregorianId: "id_dod_gregorian",
+        yearId: "id_dod_hebrew_year",
+        monthId: "id_dod_hebrew_month",
+        dayId: "id_dod_hebrew_day",
+        warningId: "dod-hebrew-mismatch-warning",
       },
     ]);
     </script>
