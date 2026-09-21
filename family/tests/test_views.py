@@ -9,7 +9,7 @@ from django.utils import timezone
 from accounts.models import Account
 from family.hebrew import gregorian_to_hebrew
 from family.models import Person, Union
-from notifications.models import Broadcast, EventType, Occurrence
+from notifications.models import Broadcast, EventType, NotificationPreference, Occurrence
 from notifications.tasks import compute_occurrences_for_union
 from tenants.models import Family, FamilyMembership
 
@@ -863,6 +863,16 @@ def test_dashboard_groups_same_date_occurrences_under_one_timeline_entry(client,
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    # Yahrzeit defaults to ancestors_only (see AGENTS.md) - the owner
+    # isn't related to this person at all, so without an explicit
+    # override the yahrzeit occurrence below wouldn't show up in
+    # "Upcoming" and this test would have nothing to group.
+    NotificationPreference.objects.create(
+        account=owner,
+        event_type=EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT),
+        channel="email",
+        state=NotificationPreference.State.SUBSCRIBED,
+    )
     same_date = timezone.localdate() + dt.timedelta(days=3)
     _occurrence(person, EventType.BuiltinCode.BIRTHDAY, occurrence_date=same_date)
     _occurrence(person, EventType.BuiltinCode.YAHRZEIT, occurrence_date=same_date)
@@ -881,6 +891,15 @@ def test_dashboard_does_not_group_occurrences_sharing_only_send_date(client, fam
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    # Same reason as the test above - the owner isn't related to this
+    # person, so yahrzeit's ancestors_only default would otherwise hide
+    # its occurrence entirely.
+    NotificationPreference.objects.create(
+        account=owner,
+        event_type=EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT),
+        channel="email",
+        state=NotificationPreference.State.SUBSCRIBED,
+    )
     shared_send_date = timezone.localdate() + dt.timedelta(days=3)
     _occurrence(
         person,
