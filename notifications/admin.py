@@ -12,7 +12,8 @@ class EventTypeAdmin(VersionAdmin):
         "anchor",
         "family",
         "applies_to_union",
-        "default_opt_in",
+        "default_state",
+        "always_schedule",
         "recurs",
         "notify_days_before",
     )

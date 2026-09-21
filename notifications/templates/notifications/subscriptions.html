@@ -58,6 +58,7 @@
                 <ul>
                     <li><strong>Everyone</strong> in the family</li>
                     <li>Only your <strong>immediate family</strong> (spouse, parents, children, and siblings - nobody further out)</li>
+                    <li>Only your own <strong>ancestors</strong> (parents, grandparents, and further back - available for Yahrzeit)</li>
                     <li><strong>Muted</strong> entirely</li>
                 </ul>
                 <p>
@@ -101,6 +102,10 @@
                                                             {% if channel.state == "subscribed" %}selected{% endif %}>Everyone</option>
                                                     <option value="immediate_family_only"
                                                             {% if channel.state == "immediate_family_only" %}selected{% endif %}>Immediate family only</option>
+                                                    {% if "ancestors_only" in row.allowed_states %}
+                                                        <option value="ancestors_only"
+                                                                {% if channel.state == "ancestors_only" %}selected{% endif %}>Ancestors only</option>
+                                                    {% endif %}
                                                     <option value="muted"
                                                             {% if channel.state == "muted" %}selected{% endif %}>Muted</option>
                                                 </select>

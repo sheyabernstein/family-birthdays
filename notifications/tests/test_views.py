@@ -121,7 +121,7 @@ def test_toggle_mute_creates_a_person_override_when_none_exists(client, family, 
     preference = NotificationPreference.objects.get(
         account=owner, person=person, event_type=birthday_event_type, channel="email"
     )
-    # Subscribed by default (EventType.default_opt_in), so toggling flips
+    # Subscribed by default (EventType.default_state), so toggling flips
     # it to an explicit mute for just this person.
     assert preference.state == NotificationPreference.State.MUTED
 

@@ -59,8 +59,9 @@ class SubscriptionsView(FamilyRequiredMixin, TemplateView):
         )
 
         # One row per event type showing the account's circle setting for
-        # it (everyone / immediate family only / muted) - whatever isn't
-        # explicitly set here falls back to EventType.default_opt_in.
+        # it (everyone / immediate family only / ancestors only / muted) -
+        # whatever isn't explicitly set here falls back to
+        # EventType.default_state.
         whole_type_overrides = {
             (p.event_type_id, p.channel): p
             for p in NotificationPreference.objects.filter(
@@ -72,15 +73,7 @@ class SubscriptionsView(FamilyRequiredMixin, TemplateView):
             channels_info = []
             for code in my_channels:
                 override = whole_type_overrides.get((event_type.id, code))
-                state = (
-                    override.state
-                    if override
-                    else (
-                        NotificationPreference.State.SUBSCRIBED
-                        if event_type.default_opt_in
-                        else NotificationPreference.State.MUTED
-                    )
-                )
+                state = override.state if override else event_type.default_state
                 channels_info.append(
                     {
                         "code": code,
@@ -89,7 +82,17 @@ class SubscriptionsView(FamilyRequiredMixin, TemplateView):
                         "is_override": override is not None,
                     }
                 )
-            event_type_rows.append({"event_type": event_type, "channels": channels_info})
+            event_type_rows.append(
+                {
+                    "event_type": event_type,
+                    "channels": channels_info,
+                    # Which states this event type's own dropdown should
+                    # offer at all - see EventType.allowed_states (e.g.
+                    # ANCESTORS_ONLY isn't offered for a union-anchored
+                    # type like Anniversary).
+                    "allowed_states": event_type.allowed_states,
+                }
+            )
 
         context["event_type_rows"] = event_type_rows
         context["has_any_channel"] = bool(my_channels)
@@ -134,7 +137,7 @@ class UpdateEventTypePreferenceView(FamilyRequiredMixin, View):
             messages.success(request, f"Reset {event_type.name.lower()} ({channel}) to the family default.")
         else:
             state = request.POST.get("state")
-            if state not in NotificationPreference.State.values:
+            if state not in event_type.allowed_states:
                 raise Http404
             NotificationPreference.objects.update_or_create(
                 account=request.user,

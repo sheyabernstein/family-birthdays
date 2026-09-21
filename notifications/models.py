@@ -12,6 +12,23 @@ from notifications.enums import ChannelEnum, ShiftReason
 from tenants.models import Family
 
 
+class NotificationState(models.TextChoices):
+    """Every way an account can express interest in an event type - and what its default is.
+
+    Defined at module level, not nested inside NotificationPreference,
+    since EventType.default_state (below) needs it too and EventType is
+    defined before NotificationPreference in this file;
+    NotificationPreference.State is kept as a plain alias to this so
+    every existing `NotificationPreference.State.X` call site keeps
+    working unchanged.
+    """
+
+    MUTED = "muted", "Muted"
+    SUBSCRIBED = "subscribed", "Subscribed"
+    IMMEDIATE_FAMILY_ONLY = "immediate_family_only", "Immediate family only"
+    ANCESTORS_ONLY = "ancestors_only", "Ancestors only"
+
+
 @reversion.register()
 class EventType(models.Model):
     class Anchor(models.TextChoices):
@@ -63,10 +80,21 @@ class EventType(models.Model):
     applies_to_union = models.BooleanField(
         default=False, help_text="Subject is a Union (e.g. anniversary) rather than a Person"
     )
-    default_opt_in = models.BooleanField(
-        default=True,
-        help_text="Whether people are subscribed to this event type unless they say otherwise. "
-        "A family adding a more sensitive custom event type may want it to start opted out instead.",
+    default_state = models.CharField(
+        max_length=25,
+        choices=NotificationState.choices,
+        default=NotificationState.SUBSCRIBED,
+        help_text="What people are set to for this event type unless they say otherwise - subscribed, "
+        "muted, or scoped to their immediate family/ancestors by default. A family adding a more "
+        "sensitive custom event type may want it to start muted instead.",
+    )
+    always_schedule = models.BooleanField(
+        default=False,
+        help_text="Whether this event type's occurrences are computed even for an untracked "
+        "(notifications_enabled=False) subject - e.g. Yahrzeit, so a real ancestor entered only as a "
+        "lineage stub can still have their yahrzeit surfaced to whoever actually wants it (see "
+        "AGENTS.md). Only affects whether the Occurrence gets computed at all, not who's notified - "
+        "that's still resolved per-account, same as any other event type.",
     )
     recurs = models.BooleanField(
         default=True,
@@ -90,6 +118,20 @@ class EventType(models.Model):
     def __str__(self) -> str:
         return self.name
 
+    def clean(self) -> None:
+        # Only catches ModelForm/admin saves (both call full_clean()) -
+        # a raw .create()/.update() bypasses this the same way
+        # NotificationPreference's own clean() does (see that model's
+        # own docstring note). allowed_states is defined *after* this
+        # class in the file (it needs ALLOWED_STATES_BY_CODE, which
+        # needs EventType.BuiltinCode), but that's fine here - clean()
+        # only runs at save time, long after the module has finished
+        # loading.
+        if self.default_state not in self.allowed_states:
+            raise ValidationError(
+                f"{self.get_default_state_display()} isn't a valid default for {self.name or self.code}."
+            )
+
     @property
     def badge_class(self) -> str:
         """The `badge-*` CSS class suffix for this event type (see app.css).
@@ -103,31 +145,87 @@ class EventType(models.Model):
         """
         return self.anchor or self.code
 
+    @property
+    def allowed_states(self) -> frozenset[str]:
+        """Which NotificationState values make sense as a whole-type setting for this event type.
+
+        Explicit per built-in code (ALLOWED_STATES_BY_CODE below) so any
+        future per-code exception is a one-line table edit, not a
+        scattered conditional - e.g. Broadcast keeps IMMEDIATE_FAMILY_ONLY
+        (resolve_broadcast_audience unions the per-tied-person immediate
+        family, same as any other event type - see AGENTS.md) but not
+        ANCESTORS_ONLY, since a broadcast has no per-recipient targeting
+        at all (see NotificationPreference.clean()) and no anchor subject
+        to climb father_id/mother_id from in the first place. A family's
+        own custom event type has no matching BuiltinCode, so it falls
+        back to a generic anchor-based rule instead: ANCESTORS_ONLY only
+        makes sense for a subject reached by climbing father_id/mother_id,
+        i.e. a person-anchored type, not a union-anchored or unanchored
+        one.
+        """
+        by_code = ALLOWED_STATES_BY_CODE.get(self.code)
+        if by_code is not None:
+            return by_code
+        base = {
+            NotificationState.MUTED,
+            NotificationState.SUBSCRIBED,
+            NotificationState.IMMEDIATE_FAMILY_ONLY,
+        }
+        if self.anchor and not self.applies_to_union:
+            base.add(NotificationState.ANCESTORS_ONLY)
+        return frozenset(base)
+
+
+# Every built-in event type's own explicit allowed-state set - see
+# EventType.allowed_states. Kept as one small table here rather than a
+# property-only computation so a future built-in's exception (e.g. some
+# new type that shouldn't offer immediate-family scoping) is a one-line
+# edit, matching the NON_SCHEDULED_CODES/COMING_OF_AGE_CODES convention
+# in notifications/tasks.py.
+_PERSON_STATES = frozenset(NotificationState)
+_UNION_STATES = frozenset(
+    {NotificationState.MUTED, NotificationState.SUBSCRIBED, NotificationState.IMMEDIATE_FAMILY_ONLY}
+)
+ALLOWED_STATES_BY_CODE: dict[str, frozenset[str]] = {
+    EventType.BuiltinCode.BIRTHDAY: _PERSON_STATES,
+    EventType.BuiltinCode.YAHRZEIT: _PERSON_STATES,
+    EventType.BuiltinCode.BAR_MITZVAH: _PERSON_STATES,
+    EventType.BuiltinCode.BAT_MITZVAH: _PERSON_STATES,
+    EventType.BuiltinCode.ANNIVERSARY: _UNION_STATES,
+    EventType.BuiltinCode.WEDDING: _UNION_STATES,
+    EventType.BuiltinCode.BROADCAST: _UNION_STATES,
+}
+
 
 @reversion.register()
 class NotificationPreference(models.Model):
     """Every way an account can depart from a family's default notification opt-in.
 
     Everyone in a family is notified about everything by default (per
-    EventType.default_opt_in - see notifications.audience for the full
+    EventType.default_state - see notifications.audience for the full
     resolution order). This table holds every way an account can depart
     from that default, at two levels of scope:
 
     - A row with person and union both null applies to the whole event
       type for that account. Its state can mute it entirely, force it
-      on (overriding a default_opt_in=False event type), or restrict it
-      to the account's immediate family (spouse/parent/child/sibling -
-      see notifications.audience.is_immediate_family) for everyone else.
+      on (overriding a default_state of muted), or restrict it to the
+      account's immediate family (spouse/parent/child/sibling - see
+      notifications.audience.is_immediate_family) or direct ancestors
+      (notifications.audience.is_ancestor) for everyone else - see
+      EventType.allowed_states for which of these a given event type
+      actually supports.
     - A row with person or union set narrows or overrides that down to
       one specific person's or union's event - including forcing one
-      person back on despite an immediate-family-only restriction, or
-      muting one person despite an otherwise-open subscription.
+      person back on despite an immediate-family/ancestors-only
+      restriction, or muting one person despite an otherwise-open
+      subscription.
     """
 
-    class State(models.TextChoices):
-        MUTED = "muted", "Muted"
-        SUBSCRIBED = "subscribed", "Subscribed"
-        IMMEDIATE_FAMILY_ONLY = "immediate_family_only", "Immediate family only"
+    # A plain alias, not a redeclared TextChoices - every existing
+    # NotificationPreference.State.X call site keeps working unchanged.
+    # See NotificationState's own docstring for why the enum itself lives
+    # at module level instead of nested here.
+    State = NotificationState
 
     # Not currently referenced over HTTP anywhere, but every model gets one
     # regardless (see EventType.uuid) so any future view/URL added against
@@ -155,9 +253,9 @@ class NotificationPreference(models.Model):
                 name="preference_not_both_person_and_union",
             ),
             models.CheckConstraint(
-                condition=~models.Q(state="immediate_family_only")
+                condition=~models.Q(state__in=["immediate_family_only", "ancestors_only"])
                 | (models.Q(person__isnull=True) & models.Q(union__isnull=True)),
-                name="immediate_family_only_is_whole_type_only",
+                name="family_scope_states_are_whole_type_only",
             ),
             models.UniqueConstraint(
                 fields=["account", "event_type", "channel"],
@@ -195,6 +293,20 @@ class NotificationPreference(models.Model):
                 raise ValidationError(
                     "Broadcasts can only be muted for the whole event type, not per person."
                 )
+
+        # A person/union-scoped override is always just SUBSCRIBED/MUTED
+        # (see the whole-type-only constraints above) - only a whole-type
+        # row's state actually needs checking against
+        # EventType.allowed_states.
+        if (
+            self.event_type_id
+            and self.person_id is None
+            and self.union_id is None
+            and self.state not in self.event_type.allowed_states
+        ):
+            raise ValidationError(
+                f"{self.get_state_display()} isn't a valid setting for {self.event_type.name}."
+            )
 
 
 class OccurrenceManager(models.Manager):

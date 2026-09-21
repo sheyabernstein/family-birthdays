@@ -183,14 +183,20 @@
         // Wider spacing to match the bigger card size set below.
         .setCardXSpacing(320)
         .setCardYSpacing(180)
-        // Keep the initial view narrow - a couple of ancestor generations,
-        // but only one generation of descendants. Progeny fans out across
-        // every child's own children, so depth 2 here doesn't just show
-        // the focused person's grandchildren, it also shows their
-        // siblings' branches two levels deep - the mini-tree icon
-        // (setMiniTree below) is how people drill into one branch at a
-        // time instead of getting all of it at once.
-        .setAncestryDepth(2)
+        // Ancestry and progeny aren't symmetric risks, so they're capped
+        // differently. Ancestry is a strict binary line - 2 parents, 4
+        // grandparents, ... - that never fans out across siblings, so a
+        // deep cap (6 generations), costs little and matters for real
+        // use: seeing a great-great-grandparent's own "+ Add" cards
+        // matters now that a distant, otherwise-untracked ancestor's
+        // yahrzeit can still be surfaced (see EventType.always_schedule
+        // in AGENTS.md) - someone can't add what they can't see. Progeny
+        // fans out across every child's own children *and*, since
+        // setShowSiblingsOfMain is on, every sibling's own full subtree
+        // too - so depth 1 here already shows more than it looks like;
+        // the mini-tree icon (setMiniTree below) is how people drill
+        // into one branch at a time instead of getting all of it at once.
+        .setAncestryDepth(6)
         .setProgenyDepth(1)
         .setShowSiblingsOfMain(true)
         .setSortChildrenFunction(sortByBirth);

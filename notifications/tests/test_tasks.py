@@ -519,6 +519,45 @@ def test_compute_occurrences_for_person_creates_rows_immediately(family):
     assert Occurrence.objects.filter(person=person, event_type__code=EventType.BuiltinCode.BIRTHDAY).exists()
 
 
+def test_compute_occurrences_for_person_creates_yahrzeit_for_an_untracked_person(family):
+    # EventType.always_schedule (set on Yahrzeit) bypasses the tracked
+    # gate - a real ancestor entered only as a lineage stub should still
+    # get a yahrzeit Occurrence computed, unlike every other event type.
+    person = Person.objects.create(
+        family=family,
+        first_name_en="Ancestor",
+        last_name_en="Person",
+        notifications_enabled=False,
+        dod_hebrew_year=5780,
+        dod_hebrew_month=1,
+        dod_hebrew_day=3,
+    )
+
+    compute_occurrences_for_person(person)
+
+    assert Occurrence.objects.filter(person=person, event_type__code=EventType.BuiltinCode.YAHRZEIT).exists()
+
+
+def test_compute_occurrences_for_person_skips_birthday_for_an_untracked_person(family):
+    # Symmetric check: an untracked person still gets nothing for an
+    # event type that isn't always_schedule.
+    person = Person.objects.create(
+        family=family,
+        first_name_en="Stub",
+        last_name_en="Person",
+        notifications_enabled=False,
+        dob_hebrew_year=5751,
+        dob_hebrew_month=1,
+        dob_hebrew_day=3,
+    )
+
+    compute_occurrences_for_person(person)
+
+    assert not Occurrence.objects.filter(
+        person=person, event_type__code=EventType.BuiltinCode.BIRTHDAY
+    ).exists()
+
+
 def test_compute_occurrences_for_union_creates_rows_immediately(family):
     person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
     person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")

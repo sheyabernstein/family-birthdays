@@ -60,6 +60,68 @@ def test_broadcast_mute_rejects_a_person_specific_override(family):
         preference.full_clean()
 
 
+# --- EventType.allowed_states gates which NotificationState values make
+# sense for a given event type - checked both on a NotificationPreference
+# row (clean()) and on the EventType's own default_state (clean()). See
+# AGENTS.md and EventType.allowed_states' own docstring. ---
+
+
+def _anniversary_event_type():
+    return EventType.objects.get(family=None, code=EventType.BuiltinCode.ANNIVERSARY)
+
+
+def _yahrzeit_event_type():
+    return EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT)
+
+
+def test_preference_rejects_ancestors_only_for_a_union_anchored_type(family):
+    account = Account.objects.create_user(email="a@example.com")
+    preference = NotificationPreference(
+        account=account,
+        event_type=_anniversary_event_type(),
+        channel="email",
+        state=NotificationPreference.State.ANCESTORS_ONLY,
+    )
+    with pytest.raises(ValidationError):
+        preference.full_clean()
+
+
+def test_preference_allows_ancestors_only_for_yahrzeit(family):
+    account = Account.objects.create_user(email="a@example.com")
+    preference = NotificationPreference(
+        account=account,
+        event_type=_yahrzeit_event_type(),
+        channel="email",
+        state=NotificationPreference.State.ANCESTORS_ONLY,
+    )
+    preference.full_clean()  # does not raise
+
+
+def test_event_type_clean_rejects_a_default_state_outside_allowed_states(family):
+    event_type = EventType(
+        family=family,
+        code="anniversary-test",
+        name="Test Anniversary",
+        anchor=EventType.Anchor.MARRIAGE,
+        applies_to_union=True,
+        default_state=NotificationPreference.State.ANCESTORS_ONLY,
+    )
+    with pytest.raises(ValidationError):
+        event_type.full_clean()
+
+
+def test_event_type_clean_allows_a_default_state_within_allowed_states(family):
+    event_type = EventType(
+        family=family,
+        code="anniversary-test",
+        name="Test Anniversary",
+        anchor=EventType.Anchor.MARRIAGE,
+        applies_to_union=True,
+        default_state=NotificationPreference.State.IMMEDIATE_FAMILY_ONLY,
+    )
+    event_type.full_clean()  # does not raise
+
+
 # --- Broadcast.save() sanitizes unconditionally (nh3), not just the
 # form - see notifications.models.BROADCAST_ALLOWED_TAGS. Trix's own
 # default toolbar can't produce a <script> or an onerror attribute in

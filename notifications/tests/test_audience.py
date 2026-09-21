@@ -5,6 +5,7 @@ from django.test.utils import CaptureQueriesContext
 from family.models import Person, Union
 from notifications.audience import (
     channels_for_account,
+    is_ancestor,
     is_immediate_family,
     preference_status,
     resolve_audience,
@@ -34,11 +35,14 @@ def test_default_is_subscribed_when_nothing_is_set(family, birthday_event_type):
     assert channels_for_account(account, birthday_event_type, person=person) == [("email", account.email)]
 
 
-def test_default_follows_event_type_default_opt_in(family):
+def test_default_follows_event_type_default_state(family):
     person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
     account = _member(family)
     event_type = EventType.objects.create(
-        family=family, code="opt-in-thing", name="Opt In Thing", default_opt_in=False
+        family=family,
+        code="opt-in-thing",
+        name="Opt In Thing",
+        default_state=NotificationPreference.State.MUTED,
     )
 
     status = preference_status(account, event_type, person=person, channel="email")
@@ -92,11 +96,14 @@ def test_specific_subscribe_overrides_a_whole_type_mute(family, birthday_event_t
     assert status.reason == "specific_subscribed"
 
 
-def test_specific_mute_overrides_default_opt_in_false(family):
+def test_specific_subscribe_overrides_default_state_muted(family):
     person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
     account = _member(family)
     event_type = EventType.objects.create(
-        family=family, code="opt-in-thing", name="Opt In Thing", default_opt_in=False
+        family=family,
+        code="opt-in-thing",
+        name="Opt In Thing",
+        default_state=NotificationPreference.State.MUTED,
     )
     _preference(account, event_type, NotificationPreference.State.SUBSCRIBED, person=person)
 
@@ -166,6 +173,102 @@ def test_cousin_is_not_immediate_family(family):
     )
 
     assert is_immediate_family(cousin_a, cousin_b) is False
+
+
+def test_parent_is_an_ancestor(family):
+    parent = Person.objects.create(family=family, first_name_en="Parent", last_name_en="Person")
+    child = Person.objects.create(family=family, first_name_en="Child", last_name_en="Person", father=parent)
+
+    assert is_ancestor(child, parent) is True
+    assert is_ancestor(parent, child) is False
+
+
+def test_grandparent_via_mother_line_is_an_ancestor(family):
+    grandparent = Person.objects.create(family=family, first_name_en="G", last_name_en="Person")
+    parent = Person.objects.create(
+        family=family, first_name_en="Parent", last_name_en="Person", mother=grandparent
+    )
+    grandchild = Person.objects.create(
+        family=family, first_name_en="Child", last_name_en="Person", mother=parent
+    )
+
+    assert is_ancestor(grandchild, grandparent) is True
+
+
+def test_sibling_is_not_an_ancestor(family):
+    parent = Person.objects.create(family=family, first_name_en="Parent", last_name_en="Person")
+    a = Person.objects.create(family=family, first_name_en="A", last_name_en="Person", father=parent)
+    b = Person.objects.create(family=family, first_name_en="B", last_name_en="Person", father=parent)
+
+    assert is_ancestor(a, b) is False
+
+
+def test_person_is_not_their_own_ancestor(family):
+    person = Person.objects.create(family=family, first_name_en="Solo", last_name_en="Person")
+
+    assert is_ancestor(person, person) is False
+
+
+def test_ancestors_only_includes_ancestor_and_excludes_others(family, yahrzeit_event_type):
+    viewer_person = Person.objects.create(family=family, first_name_en="Viewer", last_name_en="Person")
+    account = _member(family)
+    viewer_person.account = account
+    viewer_person.save(update_fields=["account"])
+
+    unrelated = Person.objects.create(family=family, first_name_en="Unrelated", last_name_en="Person")
+
+    grandparent = Person.objects.create(family=family, first_name_en="G", last_name_en="Person")
+    parent = Person.objects.create(
+        family=family, first_name_en="Parent", last_name_en="Person", father=grandparent
+    )
+    viewer_person.father = parent
+    viewer_person.save(update_fields=["father"])
+
+    _preference(account, yahrzeit_event_type, NotificationPreference.State.ANCESTORS_ONLY)
+
+    grandparent_status = preference_status(account, yahrzeit_event_type, person=grandparent, channel="email")
+    unrelated_status = preference_status(account, yahrzeit_event_type, person=unrelated, channel="email")
+
+    assert grandparent_status.subscribed is True
+    assert grandparent_status.reason == "type_ancestors_only"
+    assert unrelated_status.subscribed is False
+    assert unrelated_status.reason == "type_ancestors_only"
+
+
+def test_ancestors_only_can_still_be_overridden_per_person(family, yahrzeit_event_type):
+    viewer_person = Person.objects.create(family=family, first_name_en="Viewer", last_name_en="Person")
+    account = _member(family)
+    viewer_person.account = account
+    viewer_person.save(update_fields=["account"])
+
+    unrelated = Person.objects.create(family=family, first_name_en="Unrelated", last_name_en="Person")
+    _preference(account, yahrzeit_event_type, NotificationPreference.State.ANCESTORS_ONLY)
+    _preference(account, yahrzeit_event_type, NotificationPreference.State.SUBSCRIBED, person=unrelated)
+
+    status = preference_status(account, yahrzeit_event_type, person=unrelated, channel="email")
+
+    assert status.subscribed is True
+    assert status.reason == "specific_subscribed"
+
+
+def test_yahrzeit_defaults_to_ancestors_only_with_nothing_set(family, yahrzeit_event_type):
+    viewer_person = Person.objects.create(family=family, first_name_en="Viewer", last_name_en="Person")
+    account = _member(family)
+    viewer_person.account = account
+    viewer_person.save(update_fields=["account"])
+
+    parent = Person.objects.create(family=family, first_name_en="Parent", last_name_en="Person")
+    viewer_person.father = parent
+    viewer_person.save(update_fields=["father"])
+    unrelated = Person.objects.create(family=family, first_name_en="Unrelated", last_name_en="Person")
+
+    parent_status = preference_status(account, yahrzeit_event_type, person=parent, channel="email")
+    unrelated_status = preference_status(account, yahrzeit_event_type, person=unrelated, channel="email")
+
+    assert parent_status.subscribed is True
+    assert parent_status.reason == "default"
+    assert unrelated_status.subscribed is False
+    assert unrelated_status.reason == "default"
 
 
 def test_immediate_family_only_includes_immediate_and_excludes_others(family):

@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 
 import reversion
 from django.core.exceptions import ValidationError
@@ -10,6 +11,29 @@ from hdate.hebrew_date import Months
 from family.hebrew import format_hebrew_date, hebrew_to_gregorian
 
 HEBREW_MONTH_CHOICES = [(m.value, m.name.replace("_", " ").title()) for m in Months]
+
+
+def bfs_relative_ids(seed_ids: set[int], expand: Callable[[set[int]], set[int]]) -> set[int]:
+    """Breadth-first traversal: repeatedly expands a frontier via `expand` until it's exhausted.
+
+    Shared by Person.descendant_ids() (frontier expands to children) and
+    notifications.audience's ancestor lookup (frontier expands to
+    parents) - same accumulate-until-empty shape either way, one query
+    per generation; only what counts as "next frontier" differs, which
+    is exactly what `expand` captures.
+
+    Args:
+        seed_ids: The starting frontier - typically one person's own id.
+        expand: Given the current frontier, returns the next one (already
+            expected to exclude ids already seen - the caller's query is
+            usually cheaper written that way than filtering here).
+    """
+    ids: set[int] = set()
+    frontier = set(seed_ids)
+    while frontier:
+        frontier = expand(frontier) - ids
+        ids |= frontier
+    return ids
 
 
 class AdarObservance(models.TextChoices):
@@ -227,6 +251,26 @@ class Person(models.Model):
         return f"{parents}'s {self.nickname or self.first_name_en}"
 
     @property
+    def patronymic_label(self) -> str | None:
+        """The traditional yahrzeit naming form: Hebrew first name, בן/בת, father's Hebrew first name.
+
+        Patronymic only, never the mother's name - the traditional form
+        used for a yahrzeit/kaddish, deliberately narrower than
+        parents_label's own both-parents convention (see AGENTS.md).
+        Unlike parents_label, the father's name is used regardless of
+        is_living/notifications_enabled - the whole point of this label
+        is naming a real ancestor even when they're only a lineage stub
+        (see EventType.always_schedule), not just a living, tracked
+        relative. Returns None when either this person's own or the
+        father's Hebrew first name isn't recorded - there's nothing
+        accurate to construct otherwise.
+        """
+        if not self.first_name_he or self.father is None or not self.father.first_name_he:
+            return None
+        connector = "בת" if self.gender == Person.Gender.FEMALE else "בן"
+        return f"{self.first_name_he} {connector} {self.father.first_name_he}"
+
+    @property
     def dob_hebrew_anchor(self) -> tuple[Months, int] | None:
         if self.dob_hebrew_month and self.dob_hebrew_day:
             return Months(self.dob_hebrew_month), self.dob_hebrew_day
@@ -298,17 +342,15 @@ class Person(models.Model):
         someone's own descendant as their parent, which would make them
         their own ancestor.
         """
-        ids: set[int] = set()
-        frontier = {self.pk}
-        while frontier:
-            children = set(
+
+        def _children(frontier: set[int]) -> set[int]:
+            return set(
                 Person.objects.filter(
                     models.Q(father_id__in=frontier) | models.Q(mother_id__in=frontier)
                 ).values_list("pk", flat=True)
             )
-            frontier = children - ids
-            ids |= frontier
-        return ids
+
+        return bfs_relative_ids({self.pk}, _children)
 
 
 @reversion.register()

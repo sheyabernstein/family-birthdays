@@ -6,10 +6,14 @@ Resolution order, most specific wins:
    family only, but I also want this one cousin" or "everyone, but not
    this one person".
 2. A whole-event-type row (person and union both null). "muted" and
-   "subscribed" are decisive; "immediate_family_only" defers to
-   is_immediate_family() to decide per person/union.
-3. EventType.default_opt_in - the family-wide default for this event
-   type when the account hasn't said anything about it at all.
+   "subscribed" are decisive; "immediate_family_only"/"ancestors_only"
+   defer to is_immediate_family()/is_ancestor() to decide per
+   person/union.
+3. EventType.default_state - the family-wide default for this event
+   type when the account hasn't said anything about it at all. Resolved
+   through the exact same state-branching as an explicit whole-type row
+   (see _preference_status_from_rows) - "nothing set" is just treated as
+   an implicit row carrying default_state.
 
 The account-wide channel toggle (Account.email_notifications_enabled
 etc.) is a separate, coarser gate checked by available_channels() - it
@@ -22,7 +26,7 @@ from dataclasses import dataclass
 from django.db import models
 
 from accounts.models import Account
-from family.models import Person, Union
+from family.models import Person, Union, bfs_relative_ids
 from notifications.enums import ChannelEnum
 from notifications.models import EventType, NotificationPreference
 from tenants.models import Family
@@ -109,6 +113,53 @@ def _in_immediate_family(account: Account, *, person: Person | None, union: Unio
     return is_immediate_family(viewer, union.person_a) or is_immediate_family(viewer, union.person_b)
 
 
+def _ancestor_ids(person_id: int) -> set[int]:
+    """Every id in person_id's own direct father/mother line, via BFS over father_id/mother_id.
+
+    Built on the same bfs_relative_ids Person.descendant_ids() uses, just
+    climbing instead of descending - only the per-generation query
+    differs. "Ancestor" here is direct line only: a grandparent's own
+    sibling isn't included, just the grandparent (and their own
+    parents, ...) themselves.
+    """
+
+    def _parents(frontier: set[int]) -> set[int]:
+        parent_ids = Person.objects.filter(pk__in=frontier).values_list("father_id", "mother_id")
+        return {pid for pair in parent_ids for pid in pair if pid is not None}
+
+    return bfs_relative_ids({person_id}, _parents)
+
+
+def _ancestor_ids_for(viewer: Person) -> set[int]:
+    return _ancestor_ids(viewer.id)
+
+
+def is_ancestor(
+    viewer: Person, subject: Person, *, ancestor_ids_fn: Callable[[Person], set[int]] = _ancestor_ids_for
+) -> bool:
+    """Whether subject is somewhere in viewer's own direct father/mother line.
+
+    Used for the ancestors_only preference. `ancestor_ids_fn` defaults to
+    a live BFS-by-recursive-query (_ancestor_ids_for), but callers
+    resolving this for many (account, subject) pairs at once - see
+    PreferenceResolver below - pass in a cache-backed version instead, so
+    the same viewer's ancestor chain is only ever computed once
+    regardless of how many subjects it's checked against.
+    """
+    if viewer.id == subject.id:
+        return False
+    return subject.id in ancestor_ids_fn(viewer)
+
+
+def _in_ancestors(account: Account, *, person: Person | None, union: Union | None) -> bool:
+    viewer = _viewer_person(account, person=person, union=union)
+    if viewer is None:
+        return False
+    if person is not None:
+        return is_ancestor(viewer, person)
+    return is_ancestor(viewer, union.person_a) or is_ancestor(viewer, union.person_b)
+
+
 @dataclass
 class PreferenceStatus:
     """Enough detail for the UI to explain *why* someone is or isn't subscribed, not just whether they are."""
@@ -116,10 +167,12 @@ class PreferenceStatus:
     subscribed: bool
     # What's actually driving the result, for display purposes:
     # "specific_subscribed" / "specific_muted" - a person/union override
-    # "type_subscribed" / "type_muted" - a whole-type row
-    # "type_immediate_only" - a whole-type immediate_family_only row
+    # "type_subscribed" / "type_muted" - an explicit whole-type row
+    # "type_immediate_only" - an explicit whole-type immediate_family_only row
     #   (in_immediate_family tells you which way it landed)
-    # "default" - nothing set, using EventType.default_opt_in
+    # "type_ancestors_only" - an explicit whole-type ancestors_only row
+    # "default" - nothing set, using EventType.default_state (whichever
+    #   of the above states that resolves to)
     reason: str
     in_immediate_family: bool | None = None
 
@@ -130,12 +183,20 @@ def _preference_status_from_rows(
     whole: NotificationPreference | None,
     event_type: EventType,
     in_family_fn: Callable[[], bool],
+    in_ancestors_fn: Callable[[], bool],
 ) -> PreferenceStatus:
-    """The actual three-tier decision, shared by preference_status and PreferenceResolver.
+    """The actual state-branching decision, shared by preference_status and PreferenceResolver.
 
     Both already have `specific`/`whole` in hand (one query each for the
     plain function; a dict lookup for the resolver) - this is just what to
     do with them, kept in one place so the two never drift apart.
+
+    "Nothing set at all" (whole is None) is treated as an implicit whole-
+    type row carrying event_type.default_state, rather than its own
+    separate branch - so a default_state of ancestors_only (yahrzeit's
+    own default) is resolved by the exact same is_ancestor check an
+    explicit override would use, just tagged "default" instead of
+    "type_ancestors_only" for display purposes.
     """
     if specific is not None:
         subscribed = specific.state == NotificationPreference.State.SUBSCRIBED
@@ -143,16 +204,33 @@ def _preference_status_from_rows(
             subscribed=subscribed, reason="specific_subscribed" if subscribed else "specific_muted"
         )
 
-    if whole is None:
-        return PreferenceStatus(subscribed=event_type.default_opt_in, reason="default")
+    is_explicit = whole is not None
+    state = whole.state if is_explicit else event_type.default_state
 
-    if whole.state == NotificationPreference.State.MUTED:
-        return PreferenceStatus(subscribed=False, reason="type_muted")
-    if whole.state == NotificationPreference.State.SUBSCRIBED:
-        return PreferenceStatus(subscribed=True, reason="type_subscribed")
+    if state == NotificationPreference.State.MUTED:
+        return PreferenceStatus(subscribed=False, reason="type_muted" if is_explicit else "default")
+    if state == NotificationPreference.State.SUBSCRIBED:
+        return PreferenceStatus(subscribed=True, reason="type_subscribed" if is_explicit else "default")
+    if state == NotificationPreference.State.IMMEDIATE_FAMILY_ONLY:
+        in_family = in_family_fn()
+        return PreferenceStatus(
+            subscribed=in_family,
+            reason="type_immediate_only" if is_explicit else "default",
+            in_immediate_family=in_family,
+        )
 
-    in_family = in_family_fn()
-    return PreferenceStatus(subscribed=in_family, reason="type_immediate_only", in_immediate_family=in_family)
+    if state == NotificationPreference.State.ANCESTORS_ONLY:
+        in_ancestors = in_ancestors_fn()
+        return PreferenceStatus(
+            subscribed=in_ancestors, reason="type_ancestors_only" if is_explicit else "default"
+        )
+
+    # Not reachable through the model's own choices= validation, but
+    # nothing at the DB level stops a raw-written or corrupted row from
+    # holding something else - silently falling through to one of the
+    # branches above would misresolve it instead of surfacing the
+    # problem.
+    raise ValueError(f"Unrecognized NotificationPreference state: {state!r}")
 
 
 def preference_status(
@@ -179,6 +257,7 @@ def preference_status(
         whole=whole,
         event_type=event_type,
         in_family_fn=lambda: _in_immediate_family(account, person=person, union=union),
+        in_ancestors_fn=lambda: _in_ancestors(account, person=person, union=union),
     )
 
 
@@ -237,6 +316,12 @@ class PreferenceResolver:
                 person_b__family_id__in=family_ids,
             )
         }
+        # Lazily filled, not precomputed like the two sets above - an
+        # ancestor chain is per-viewer rather than per-pair, so there's no
+        # fixed-size set to build up front the way spouse pairs are; each
+        # viewer's chain is still only ever computed once regardless of
+        # how many subjects it ends up checked against.
+        self._ancestor_ids_by_viewer: dict[int, set[int]] = {}
 
     def _cached_spouse_check(self, a: Person, b: Person) -> bool:
         return frozenset((a.id, b.id)) in self._spouse_pairs
@@ -250,6 +335,23 @@ class PreferenceResolver:
         return is_immediate_family(
             viewer, union.person_a, spouse_check=self._cached_spouse_check
         ) or is_immediate_family(viewer, union.person_b, spouse_check=self._cached_spouse_check)
+
+    def _cached_ancestor_ids(self, viewer: Person) -> set[int]:
+        ids = self._ancestor_ids_by_viewer.get(viewer.id)
+        if ids is None:
+            ids = _ancestor_ids(viewer.id)
+            self._ancestor_ids_by_viewer[viewer.id] = ids
+        return ids
+
+    def _in_ancestors(self, account_id: int, *, person: Person | None, union: Union | None) -> bool:
+        viewer = self._viewer_by_account.get(account_id)
+        if viewer is None:
+            return False
+        if person is not None:
+            return is_ancestor(viewer, person, ancestor_ids_fn=self._cached_ancestor_ids)
+        return is_ancestor(viewer, union.person_a, ancestor_ids_fn=self._cached_ancestor_ids) or is_ancestor(
+            viewer, union.person_b, ancestor_ids_fn=self._cached_ancestor_ids
+        )
 
     def preference_status(
         self,
@@ -268,6 +370,7 @@ class PreferenceResolver:
             whole=whole,
             event_type=event_type,
             in_family_fn=lambda: self._in_immediate_family(account.id, person=person, union=union),
+            in_ancestors_fn=lambda: self._in_ancestors(account.id, person=person, union=union),
         )
 
     def channels_for_account(
