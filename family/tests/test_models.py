@@ -216,6 +216,13 @@ def test_parents_label_prefers_a_parents_nickname(family):
     assert person.parents_label == "Shloimy's Blimi"
 
 
+def test_parents_label_falls_back_to_hebrew_first_names_without_english_ones(family):
+    father = Person.objects.create(family=family, last_name_en="Rokach", first_name_he="שלמה")
+    person = Person.objects.create(family=family, last_name_en="Rokach", first_name_he="בלומא", father=father)
+
+    assert person.parents_label == "שלמה's בלומא"
+
+
 def test_parents_label_is_none_without_any_recorded_parent(family):
     person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach")
 
@@ -289,6 +296,40 @@ def test_patronymic_label_is_none_without_a_recorded_father(family):
 def test_display_name_prefers_nickname(family):
     person = Person(family=family, first_name_en="Robert", last_name_en="Smith", nickname="Bobby")
     assert person.display_name == "Bobby"
+
+
+def test_display_name_falls_back_to_hebrew_name_without_a_first_name_en(family):
+    # first_name_en/last_name_en are both optional now (first_name_he is
+    # the one required name) - a person known only by their Hebrew name
+    # still has a real last_name_en on file here, which used to make
+    # "{first} {last}".strip() truthy on its own (a bare "Rokach") and
+    # never reach this fallback at all.
+    person = Person(family=family, last_name_en="Rokach", first_name_he="בלומא", last_name_he="ראקאך")
+    assert person.display_name == "בלומא ראקאך"
+
+
+def test_display_name_falls_back_to_bare_hebrew_first_name_with_no_names_at_all(family):
+    person = Person(family=family, first_name_he="בלומא")
+    assert person.display_name == "בלומא"
+
+
+def test_default_ordering_falls_back_to_hebrew_names_without_an_english_surname(family):
+    # last_name_en is the primary sort key (the common case), but it's
+    # optional now - someone with none should still sort predictably
+    # against others in the same boat, via last_name_he/first_name_he,
+    # rather than arbitrary pk order. An empty last_name_en still sorts
+    # before every real one (see the model's own ordering docstring for
+    # why this is a lexicographic chain, not a true coalesce) - only the
+    # relative order among the empty-last_name_en people is asserted
+    # here, not where they land relative to "Rokach".
+    with_english_surname = Person.objects.create(family=family, last_name_en="Rokach", first_name_he="א")
+    z_hebrew_first_name = Person.objects.create(family=family, first_name_he="ת")
+    a_hebrew_first_name = Person.objects.create(family=family, first_name_he="א")
+
+    ordered = list(Person.objects.filter(family=family).values_list("pk", flat=True))
+
+    assert ordered.index(a_hebrew_first_name.pk) < ordered.index(z_hebrew_first_name.pk)
+    assert ordered.index(z_hebrew_first_name.pk) < ordered.index(with_english_surname.pk)
 
 
 def test_descendant_ids_includes_grandchildren_but_not_unrelated_people(family):

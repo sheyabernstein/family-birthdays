@@ -13,6 +13,27 @@ def test_phone_field_renders_as_a_tel_input_for_the_intl_tel_input_widget(family
     assert form.fields["phone"].widget.input_type == "tel"
 
 
+def test_first_name_he_is_required_but_first_name_en_is_not(family):
+    form = PersonForm(data={"first_name_en": "New", "last_name_en": "Person"}, family=family)
+
+    assert not form.is_valid()
+    assert "first_name_he" in form.errors
+    assert "first_name_en" not in form.errors
+
+
+def test_a_person_can_be_added_with_only_a_hebrew_first_name(family):
+    form = PersonForm(
+        data={
+            "first_name_he": "חדש",
+            "yahrzeit_adar_observance": "adar_ii",
+            "yahrzeit_day30_observance": "start_of_next_month",
+        },
+        family=family,
+    )
+
+    assert form.is_valid(), form.errors
+
+
 def test_matching_an_account_already_tracked_in_another_family_is_rejected(family):
     # Without this check, save()'s "already linked" branch would overwrite
     # the other family's real login email/phone the next time this family
@@ -44,6 +65,7 @@ def test_matching_a_fresh_account_still_auto_links_and_can_grant_a_role(family):
         data={
             "first_name_en": "New",
             "last_name_en": "Person",
+            "first_name_he": "חדש",
             "email": "brand-new@example.com",
             "family_role": "member",
             "yahrzeit_adar_observance": "adar_ii",

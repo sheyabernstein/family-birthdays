@@ -75,9 +75,9 @@ class Person(models.Model):
         help_text="If this person has their own login, the account that is them.",
     )
 
-    first_name_en = models.CharField(max_length=100, verbose_name="first name (English)")
-    last_name_en = models.CharField(max_length=100, verbose_name="last name (English)")
-    first_name_he = models.CharField(max_length=100, blank=True, verbose_name="first name (Hebrew)")
+    first_name_en = models.CharField(max_length=100, blank=True, verbose_name="first name (English)")
+    last_name_en = models.CharField(max_length=100, blank=True, verbose_name="last name (English)")
+    first_name_he = models.CharField(max_length=100, verbose_name="first name (Hebrew)")
     last_name_he = models.CharField(max_length=100, blank=True, verbose_name="last name (Hebrew)")
     nickname = models.CharField(max_length=100, blank=True)
     gender = models.CharField(max_length=1, choices=Gender.choices, blank=True)
@@ -190,7 +190,18 @@ class Person(models.Model):
     class Meta:
         # pk tiebreaker - duplicate names are the norm here, not the
         # exception (see AGENTS.md's "three Blimi Rokachs" example).
-        ordering = ["last_name_en", "first_name_en", "pk"]
+        # last_name_en is the common case (nearly everyone has one) and
+        # groups by family surname, matching how a genealogy list is
+        # normally read - last_name_he/first_name_he/first_name_en are
+        # fallback tiebreakers for the rare person known only by a
+        # Hebrew name, so they sort sensibly among themselves rather
+        # than in undifferentiated pk order. This is a lexicographic
+        # chain, not a true "whichever surname exists" coalesce - an
+        # empty last_name_en still sorts before every real one, a
+        # deliberately accepted trade rather than a
+        # Coalesce(NullIf(...)) query expression for what's a rare edge
+        # case in this app's actual data.
+        ordering = ["last_name_en", "last_name_he", "first_name_en", "first_name_he", "pk"]
         constraints = [
             # A given Account should only ever represent one Person within
             # a single family's ledger - two Persons here sharing a login
@@ -209,7 +220,17 @@ class Person(models.Model):
 
     @property
     def display_name(self) -> str:
-        return self.nickname or f"{self.first_name_en} {self.last_name_en}".strip() or self.hebrew_name or "?"
+        # first_name_en is checked explicitly, not just the concatenated
+        # "{first} {last}".strip() truthiness - first_name_en/last_name_en
+        # are both optional now (first_name_he is the one required name),
+        # so a person with no first_name_en but a real last_name_en would
+        # otherwise strip down to a truthy bare surname ("Rokach") and
+        # never reach the hebrew_name fallback at all.
+        if self.nickname:
+            return self.nickname
+        if self.first_name_en:
+            return f"{self.first_name_en} {self.last_name_en}".strip()
+        return self.hebrew_name or "?"
 
     @property
     def parents_label(self) -> str | None:
@@ -241,14 +262,14 @@ class Person(models.Model):
         Rokach") would be the opposite of concise.
         """
         living_parent_names = [
-            p.nickname or p.first_name_en
+            p.nickname or p.first_name_en or p.first_name_he
             for p in (self.father, self.mother)
             if p is not None and p.is_living and p.notifications_enabled
         ]
         if not living_parent_names:
             return None
         parents = " & ".join(living_parent_names)
-        return f"{parents}'s {self.nickname or self.first_name_en}"
+        return f"{parents}'s {self.nickname or self.first_name_en or self.first_name_he}"
 
     @property
     def patronymic_label(self) -> str | None:
