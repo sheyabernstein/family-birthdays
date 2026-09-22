@@ -20,6 +20,12 @@
                         passwordless-by-design bullet), so autofilling a stale/wrong saved value
                         here is just a wrong-account paper cut, not a security issue - worth
                         discouraging, not worth fighting harder than this over.
+
+                        autocapitalize="none"/autocorrect="off"/spellcheck="false" stop a mobile
+                        keyboard from capitalizing/correcting/underlining an email or phone number
+                        as if it were a misspelled sentence - type="text" (not type="email") is
+                        deliberate (a phone number is also valid here), so the browser has no other
+                        signal that this isn't prose.
                     {% endcomment %}
                     <input type="text"
                            name="identifier"
@@ -27,6 +33,9 @@
                            required
                            autofocus
                            autocomplete="off"
+                           autocapitalize="none"
+                           autocorrect="off"
+                           spellcheck="false"
                            data-lpignore="true"
                            data-1p-ignore
                            data-bwignore
