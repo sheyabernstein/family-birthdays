@@ -45,8 +45,21 @@ def html_to_plain_text(html_content: str) -> str:
     via a family name with an "&" in it rendering as literal "&amp;" in
     the SMS body once the HTML source's own (correct, expected)
     autoescaping was baked in ahead of this step.
+
+    strip_tags() only removes tag *markup* - it has no concept of block
+    vs. inline elements, so adjacent block-level content is otherwise
+    concatenated with zero separation at all ("systemthis is boldthis
+    is a header" instead of three separate lines) - found for real in
+    a Broadcast's own rich text (Trix produces <div>/<br>/<h1>/<li>
+    for what reads as separate lines to whoever wrote it). A newline is
+    inserted wherever a block boundary actually was, before strip_tags
+    runs, so those still read as separate lines here - a caller that
+    wants them flattened to one line anyway (the SMS budget) still can,
+    via `" ".join(text.split())` on this function's own output.
     """
     text = re.sub(r"<(style|script)\b[^>]*>.*?</\1>", "", html_content, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(div|p|li|h[1-6]|blockquote|pre)>", "\n", text, flags=re.IGNORECASE)
     return html.unescape(re.sub(r"\n\s*\n+", "\n\n", strip_tags(text)).strip())
 
 
