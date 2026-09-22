@@ -5,8 +5,7 @@
     <div class="person-header">
         <span class="avatar {% if not person.is_living %}avatar-deceased{% endif %}">{{ person|initials }}</span>
         <div>
-            <h1>{{ person.display_name }}{% if not person.is_living %} <span class="muted"
-       style="font-size: 1rem">of blessed memory</span>{% endif %}</h1>
+            <h1>{{ person.display_name }}<span class="hebrew-suffix">{{ person.memorial_marker }}</span></h1>
             {% if person.hebrew_name and person.hebrew_name != person.display_name %}<div class="hebrew-name">{{ person.hebrew_name }}</div>{% endif %}
             <div class="dates-row">
                 {% if person.dob_gregorian or person.dob_hebrew_display %}
@@ -61,13 +60,13 @@
                         {% if person.father %}
                             <a class="tree-node"
                                href="{% url 'family:person_detail' person.father.uuid %}">
-                                <span class="role">Father</span>{{ person.father.display_name }}
+                                <span class="role">Father</span>{{ person.father.display_name }}<span class="hebrew-suffix">{{ person.father.memorial_marker }}</span>
                             </a>
                         {% endif %}
                         {% if person.mother %}
                             <a class="tree-node"
                                href="{% url 'family:person_detail' person.mother.uuid %}">
-                                <span class="role">Mother</span>{{ person.mother.display_name }}
+                                <span class="role">Mother</span>{{ person.mother.display_name }}<span class="hebrew-suffix">{{ person.mother.memorial_marker }}</span>
                             </a>
                         {% endif %}
                     </div>
@@ -85,7 +84,7 @@
                             <a href="{% url 'family:person_detail' union.other_person.uuid %}"
                                style="color: inherit">
                                 <span class="role">Spouse{% if union.status != "married" %} · {{ union.get_status_display }}{% endif %}</span>
-                                {{ union.other_person.display_name }}
+                                {{ union.other_person.display_name }}<span class="hebrew-suffix">{{ union.other_person.memorial_marker }}</span>
                             </a>
                             {% if request.family_permissions.can_edit %}
                                 <div>
@@ -117,8 +116,7 @@
                     <span class="tree-generation-label">Children</span>
                     <div class="tree-generation">
                         {% for child in children %}
-                            <a class="tree-node"
-                               href="{% url 'family:person_detail' child.uuid %}">{{ child.display_name }}</a>
+                            <a class="tree-node" href="{% url 'family:person_detail' child.uuid %}">{{ child.display_name }}<span class="hebrew-suffix">{{ child.memorial_marker }}</span></a>
                         {% endfor %}
                     </div>
                 </div>

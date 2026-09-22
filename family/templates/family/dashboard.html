@@ -32,7 +32,7 @@
                                     {% endcomment %}
                                     {% if occurrence.person %}
                                         <a class="who-name"
-                                           href="{% url 'family:person_detail' occurrence.person.uuid %}">{{ occurrence.person.display_name }}
+                                           href="{% url 'family:person_detail' occurrence.person.uuid %}">{{ occurrence.person.display_name }}<span class="hebrew-suffix">{{ occurrence.person.memorial_marker }}</span>
                                         </a>
                                         {% if occurrence.person.first_name_he and occurrence.person.first_name_he != occurrence.person.display_name %}
                                             <br>
@@ -45,10 +45,10 @@
                                     {% elif occurrence.union %}
                                         <span>
                                             <a class="who-name"
-                                               href="{% url 'family:person_detail' occurrence.union.person_a.uuid %}">{{ occurrence.union.person_a.display_name }}</a>
+                                               href="{% url 'family:person_detail' occurrence.union.person_a.uuid %}">{{ occurrence.union.person_a.display_name }}<span class="hebrew-suffix">{{ occurrence.union.person_a.memorial_marker }}</span></a>
                                             &amp;
                                             <a class="who-name"
-                                               href="{% url 'family:person_detail' occurrence.union.person_b.uuid %}">{{ occurrence.union.person_b.display_name }}</a>
+                                               href="{% url 'family:person_detail' occurrence.union.person_b.uuid %}">{{ occurrence.union.person_b.display_name }}<span class="hebrew-suffix">{{ occurrence.union.person_b.memorial_marker }}</span></a>
                                         </span>
                                         {% if not group.send_note and occurrence.send_note %}
                                             <br>

@@ -112,9 +112,13 @@ def _person_option_label(person: Person) -> str:
     repeated names (two "Blimi Rokach"s is normal in a family this
     size), so every option also shows a birth year, or says there isn't
     one, plus a relations hint (parents/spouse/children - see
-    _relations_hint) when any of those are on file.
+    _relations_hint) when any of those are on file. person.memorial_marker
+    is exactly this kind of disambiguation too - a picker like this one
+    routinely shows a deceased ancestor alongside a living, same-named
+    relative (adding someone's already-deceased grandfather as a
+    father, say), so it's real signal here, not just memorial styling.
     """
-    label = f"{person.display_name} ({_year_label(person)})"
+    label = f"{person.display_name}{person.memorial_marker} ({_year_label(person)})"
     relations_hint = _relations_hint(person)
     return f"{label} - {relations_hint}" if relations_hint else label
 
@@ -153,7 +157,7 @@ class _PersonOptionMixin:
         option = super().create_option(name, value, label, selected, index, subindex, attrs)
         person = getattr(value, "instance", None)
         if isinstance(person, Person):
-            option["attrs"]["data-display-name"] = person.display_name
+            option["attrs"]["data-display-name"] = f"{person.display_name}{person.memorial_marker}"
             option["attrs"]["data-birth-year"] = _year_label(person)
             if person.first_name_he and person.display_name != person.first_name_he:
                 option["attrs"]["data-hebrew-first-name"] = person.first_name_he

@@ -31,6 +31,11 @@
       const PERSON_DETAIL_URL_TEMPLATE = "{% url 'family:person_detail' '00000000-0000-0000-0000-000000000000' %}";
       const UNION_CREATE_URL_TEMPLATE = "{% url 'family:union_create' '00000000-0000-0000-0000-000000000000' %}";
       const REL_PREFIX = "placeholder-";
+      // Matches Person.memorial_marker (family/models.py) - the chart
+      // gets a plain "living" boolean per node (see tree_chart.py), not
+      // a pre-rendered marker string, so this is the one place that
+      // string needs to also live in JS.
+      const MEMORIAL_MARKER = " ע״ה";
 
       function sortByBirth(a, b) {
         const av = a.data.birth_sort, bv = b.data.birth_sort;
@@ -379,8 +384,10 @@
           const fullName = `${person["first name"] || ""} ${person["last name"] || ""}`.trim();
           const hebrewName = person.hebrew_name;
           const upcomingPartner = person.upcoming_wedding_partner;
+          const deceased = person.living === false;
+          const marker = deceased ? `<span class="hebrew-suffix">${MEMORIAL_MARKER}</span>` : "";
           return `
-            <div class="card-inner card-rect">
+            <div class="card-inner card-rect${deceased ? " card-deceased" : ""}">
               <a class="card-view-profile"
                  href="${personDetailUrlFor(d.data.id)}"
                  title="View ${escapeHtml(fullName)}'s profile"
@@ -390,7 +397,7 @@
                   <path d="M6.5 5H11V9.5" />
                 </svg>
               </a>
-              <div class="card-name">${escapeHtml(fullName)}</div>
+              <div class="card-name">${escapeHtml(fullName)}${marker}</div>
               ${hebrewName ? `<div class="card-hebrew-name">${escapeHtml(hebrewName)}</div>` : ""}
               ${upcomingPartner ? `<div class="card-upcoming-wedding">Engaged to ${escapeHtml(upcomingPartner)}</div>` : ""}
             </div>
