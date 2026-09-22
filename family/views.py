@@ -12,6 +12,7 @@ from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.utils import dateformat, timezone
+from django.utils.http import urlencode
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 from hdate import HebrewDate
@@ -387,6 +388,42 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
         )
         for union in unions:
             union.other_person = union.other(person)
+
+        # Same "+ Add father/mother/child" placeholders as the family
+        # tree (see family_tree.html's own goAddRelative()), landing on
+        # the same PersonCreateView query-param contract - link_as/
+        # link_of for father/mother (the new person doesn't own the
+        # relationship), a plain father/mother param for a child (a real
+        # field on the person being created). Built server-side here,
+        # not in JS, since this page already has person/unions as real
+        # objects with no anchor-lookup step needed the way the tree's
+        # flat JSON does. Gated the same way "+ Add spouse" already is -
+        # only for someone in the viewer's own editable family.
+        context["can_add_relatives"] = (
+            person.family_id == request.family.id and request.family_permissions.can_edit
+        )
+        if context["can_add_relatives"]:
+            next_param = urlencode({"next": request.path})
+            if not person.father:
+                context["add_father_url"] = (
+                    f"{reverse('family:person_create')}?link_as=father&link_of={person.uuid}&{next_param}"
+                )
+            if not person.mother:
+                context["add_mother_url"] = (
+                    f"{reverse('family:person_create')}?link_as=mother&link_of={person.uuid}&{next_param}"
+                )
+            # The other parent is prefilled too, same as the tree does,
+            # when this person has a recorded spouse - whichever union
+            # comes first, matching the tree's own "any spouse found"
+            # simplification rather than picking a specific one.
+            child_parent_field = "mother" if person.gender == Person.Gender.FEMALE else "father"
+            add_child_params = {child_parent_field: str(person.uuid), "next": request.path}
+            if unions:
+                spouse = unions[0].other_person
+                spouse_field = "mother" if spouse.gender == Person.Gender.FEMALE else "father"
+                if spouse_field != child_parent_field:
+                    add_child_params[spouse_field] = str(spouse.uuid)
+            context["add_child_url"] = f"{reverse('family:person_create')}?{urlencode(add_child_params)}"
 
         my_channels = available_channels(request.user)
 

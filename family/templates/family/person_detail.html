@@ -53,7 +53,7 @@
     <div class="card">
         <h2>Family</h2>
         <div class="tree">
-            {% if person.father or person.mother %}
+            {% if person.father or person.mother or add_father_url or add_mother_url %}
                 <div>
                     <span class="tree-generation-label">Parents</span>
                     <div class="tree-generation">
@@ -62,12 +62,20 @@
                                href="{% url 'family:person_detail' person.father.uuid %}">
                                 <span class="role">Father</span>{{ person.father.display_name }}<span class="hebrew-suffix">{{ person.father.memorial_marker }}</span>
                             </a>
+                        {% elif add_father_url %}
+                            <a class="tree-node tree-node-add"
+                               href="{{ add_father_url }}"
+                               title="Add {{ person.display_name }}'s father">+ Add father</a>
                         {% endif %}
                         {% if person.mother %}
                             <a class="tree-node"
                                href="{% url 'family:person_detail' person.mother.uuid %}">
                                 <span class="role">Mother</span>{{ person.mother.display_name }}<span class="hebrew-suffix">{{ person.mother.memorial_marker }}</span>
                             </a>
+                        {% elif add_mother_url %}
+                            <a class="tree-node tree-node-add"
+                               href="{{ add_mother_url }}"
+                               title="Add {{ person.display_name }}'s mother">+ Add mother</a>
                         {% endif %}
                     </div>
                 </div>
@@ -101,27 +109,30 @@
                         </div>
                     {% endfor %}
                 </div>
-                {% if person.family_id == request.family.id %}
-                    {% if request.family_permissions.can_edit %}
-                        <a class="btn btn-outline btn-sm"
-                           href="{% url 'family:union_create' person.uuid %}"
-                           style="margin-top: 0.5rem;
-                                  display: inline-block"
-                           title="Add a spouse for {{ person.display_name }}">+ Add spouse</a>
-                    {% endif %}
+                {% if can_add_relatives %}
+                    <a class="btn btn-outline btn-sm"
+                       href="{% url 'family:union_create' person.uuid %}"
+                       style="margin-top: 0.5rem;
+                              display: inline-block"
+                       title="Add a spouse for {{ person.display_name }}">+ Add spouse</a>
                 {% endif %}
             </div>
-            {% if children %}
+            {% if children or can_add_relatives %}
                 <div>
                     <span class="tree-generation-label">Children</span>
                     <div class="tree-generation">
                         {% for child in children %}
                             <a class="tree-node" href="{% url 'family:person_detail' child.uuid %}">{{ child.display_name }}<span class="hebrew-suffix">{{ child.memorial_marker }}</span></a>
                         {% endfor %}
+                        {% if can_add_relatives %}
+                            <a class="tree-node tree-node-add"
+                               href="{{ add_child_url }}"
+                               title="Add a child for {{ person.display_name }}">+ Add child</a>
+                        {% endif %}
                     </div>
                 </div>
             {% endif %}
-            {% if not person.father and not person.mother and not unions and not children %}
+            {% if not person.father and not person.mother and not unions and not children and not can_add_relatives %}
                 <p class="muted">No relations recorded yet.</p>
             {% endif %}
         </div>
