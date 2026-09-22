@@ -28,6 +28,7 @@
       const PLACEHOLDER_UUID = "00000000-0000-0000-0000-000000000000";
       const PERSON_CREATE_URL = "{% url 'family:person_create' %}";
       const TREE_URL_TEMPLATE = "{% url 'family:family_tree' '00000000-0000-0000-0000-000000000000' %}";
+      const PERSON_DETAIL_URL_TEMPLATE = "{% url 'family:person_detail' '00000000-0000-0000-0000-000000000000' %}";
       const UNION_CREATE_URL_TEMPLATE = "{% url 'family:union_create' '00000000-0000-0000-0000-000000000000' %}";
       const REL_PREFIX = "placeholder-";
 
@@ -83,6 +84,10 @@
 
       function treeUrlFor(personUuid) {
         return TREE_URL_TEMPLATE.replace(PLACEHOLDER_UUID, personUuid);
+      }
+
+      function personDetailUrlFor(personUuid) {
+        return PERSON_DETAIL_URL_TEMPLATE.replace(PLACEHOLDER_UUID, personUuid);
       }
 
       // Injects/removes dashed "+ add relative" placeholder nodes around
@@ -238,6 +243,15 @@
           const upcomingPartner = person.upcoming_wedding_partner;
           return `
             <div class="card-inner card-rect">
+              <a class="card-view-profile"
+                 href="${personDetailUrlFor(d.data.id)}"
+                 title="View ${escapeHtml(fullName)}'s profile"
+                 onclick="event.stopPropagation()">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 11 11 5" />
+                  <path d="M6.5 5H11V9.5" />
+                </svg>
+              </a>
               <div class="card-name">${escapeHtml(fullName)}</div>
               ${hebrewName ? `<div class="card-hebrew-name">${escapeHtml(hebrewName)}</div>` : ""}
               ${upcomingPartner ? `<div class="card-upcoming-wedding">Engaged to ${escapeHtml(upcomingPartner)}</div>` : ""}
