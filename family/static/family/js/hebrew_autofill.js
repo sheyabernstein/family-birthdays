@@ -34,7 +34,17 @@ function initHebrewAutofill(url, fields) {
       el.addEventListener("input", clearNoteIfEditedByHand),
     );
 
-    gregorianInput.addEventListener("change", async () => {
+    // blur, not change - a native date input's segmented keyboard entry
+    // (day, then month, then year one digit at a time) can fire change
+    // more than once while the user is still mid-edit, since some
+    // browsers treat an intermediate, not-yet-fully-typed year as a
+    // momentarily "complete" value (found for real: typing a year one
+    // digit at a time produced a garbage Hebrew year from an
+    // intermediate state, then silently never corrected itself once
+    // the real year finished, since the fields were no longer empty by
+    // then - see the allEmpty guard below). blur only fires once, when
+    // the user has actually finished with the field.
+    gregorianInput.addEventListener("blur", async () => {
       const allEmpty = !yearInput.value && !monthInput.value && !dayInput.value;
       if (!allEmpty || !gregorianInput.value) return;
 
