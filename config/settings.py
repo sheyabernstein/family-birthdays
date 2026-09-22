@@ -269,6 +269,15 @@ CELERY_TASK_RESULT_EXPIRES = get_env_int("CELERY_TASK_RESULT_EXPIRES", 60 * 60 *
 # is all this needs.
 CELERY_BEAT_SCHEDULER = "redbeat.RedBeatScheduler"
 REDBEAT_REDIS_URL = REDIS_URL
+# RedBeat currently falls back to CELERY_BROKER_TRANSPORT_OPTIONS
+# (queue_order_strategy, below - a kombu/broker-only option, not a real
+# Redis client kwarg) when this isn't set explicitly, logging a
+# deprecation warning every time beat starts - confirmed directly
+# against the installed redbeat package that this fallback value is
+# silently discarded anyway (it isn't a recognized redis-py connection
+# option), so an explicit empty dict here is a no-op today and avoids a
+# hard break once redbeat 2.5.0 drops the fallback.
+REDBEAT_REDIS_OPTIONS = {}
 
 # Task priority is three real Celery queues (high/normal/low - see
 # config.enums.TaskPriority), consumed by the single worker process in
