@@ -29,10 +29,16 @@ function initPersonPicker(selector) {
       // so it only ever bit browsing the full list with no search text
       // typed yet.
       maxOptions: 10000,
+      // Search only ever matches the person's own name - never "text"
+      // (the full rendered label, which also contains the birth year and
+      // the relations hint). A relations hint names *other* people
+      // ("spouse of Bruchele Rokach"), so searching against it would
+      // surface someone whose own name isn't what was typed at all -
+      // exactly the kind of ambiguity this picker exists to prevent.
       // Hebrew first name is real search text too, not just a subtitle -
       // typing it should filter the list the same as typing the English
       // name does.
-      searchField: ["text", "hebrewFirstName"],
+      searchField: ["displayName", "hebrewFirstName"],
       render: {
         option: (data, escape) => renderRow(data, escape),
         item: (data, escape) =>

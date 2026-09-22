@@ -1161,6 +1161,54 @@ main.full-bleed {
   flex-direction: column;
   justify-content: center;
   gap: 0.15rem;
+
+  /* !important: family-chart's own CDN stylesheet sets position on this
+     same element (confirmed directly - disabling that stylesheet is
+     what makes this take effect), and it isn't beaten by this selector's
+     own #id+class specificity alone the way the sibling rules just above
+     (width/padding/etc, which the vendor CSS never touches) already are. */
+  position: relative !important;
+}
+
+/* Navigates to the person's own detail page - a plain card click
+   re-centers the tree on them instead (see setOnCardClick in
+   family_tree.html), so this needs its own distinct, deliberately
+   small affordance rather than overloading that click with a second
+   meaning. stopPropagation() in the inline handler is what keeps a
+   click here from also re-centering the tree underneath it. */
+#family-chart-mount .card-view-profile {
+  position: absolute !important;
+  top: 0.35rem;
+  right: 0.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  color: rgb(255 255 255 / 75%);
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background-color 0.15s,
+    color 0.15s;
+}
+
+#family-chart-mount .card-view-profile svg {
+  width: 0.65rem;
+  height: 0.65rem;
+}
+
+#family-chart-mount .card-view-profile:hover {
+  background: rgb(255 255 255 / 20%);
+  color: #fff;
+}
+
+/* Only shown on hover of the card itself, not permanently visible -
+   a small icon sitting on every one of a couple hundred cards at once
+   (see AGENTS.md) would be more visual noise than help. */
+#family-chart-mount .card:hover .card-view-profile {
+  opacity: 1;
 }
 
 #family-chart-mount .card-name {
