@@ -5,6 +5,7 @@ helpers.py note).
 """
 
 import html
+import itertools
 import re
 
 from django.utils.html import strip_tags
@@ -45,8 +46,37 @@ def html_to_plain_text(html_content: str) -> str:
     via a family name with an "&" in it rendering as literal "&amp;" in
     the SMS body once the HTML source's own (correct, expected)
     autoescaping was baked in ahead of this step.
+
+    strip_tags() only removes tag *markup* - it has no concept of block
+    vs. inline elements, so adjacent block-level content is otherwise
+    concatenated with zero separation at all ("systemthis is boldthis
+    is a header" instead of three separate lines) - found for real in
+    a Broadcast's own rich text (Trix produces <div>/<br>/<h1>/<li>
+    for what reads as separate lines to whoever wrote it). A newline is
+    inserted wherever a block boundary actually was, before strip_tags
+    runs, so those still read as separate lines here - a caller that
+    wants them flattened to one line anyway (the SMS budget) still can,
+    via `" ".join(text.split())` on this function's own output.
+
+    A <li> inside an <ol> gets a "1. "/"2. "/... prefix (numbered fresh
+    per <ol> - handled before the generic <ul> case below, so a <li>
+    already consumed by this pass never also picks up a bullet), any
+    other <li> (a plain <ul>, or one with no list wrapper at all) gets a
+    "- " prefix - <ul>/<ol> themselves need no treatment of their own,
+    since every <li> they contain already gets a leading marker and a
+    trailing line break (the general block-tag rule below still applies
+    to <li> for that).
     """
     text = re.sub(r"<(style|script)\b[^>]*>.*?</\1>", "", html_content, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+
+    def _numbered_list_items(match: re.Match[str]) -> str:
+        counter = itertools.count(1)
+        return re.sub(r"<li\b[^>]*>", lambda _m: f"{next(counter)}. ", match.group(0), flags=re.IGNORECASE)
+
+    text = re.sub(r"<ol\b[^>]*>.*?</ol>", _numbered_list_items, text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<li\b[^>]*>", "- ", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(div|p|li|h[1-6]|blockquote|pre)>", "\n", text, flags=re.IGNORECASE)
     return html.unescape(re.sub(r"\n\s*\n+", "\n\n", strip_tags(text)).strip())
 
 

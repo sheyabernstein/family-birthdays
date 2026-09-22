@@ -687,6 +687,24 @@ def test_broadcast_sms_strips_html_and_stays_within_budget(family):
     assert body.endswith("…")
 
 
+def test_broadcast_sms_separates_words_across_block_level_tags(family):
+    # strip_tags() only removes tag markup - it has no concept of block
+    # vs. inline elements, so adjacent block-level content used to be
+    # concatenated with zero separation at all: found for real, a
+    # Broadcast's <div>.../<br>.../<h1> (Trix's own output for what reads
+    # as separate lines to whoever wrote it) rendered as one word with no
+    # spaces between what were three separate lines.
+    owner = Account.objects.create_user(email="owner@example.com")
+    html = "<div>testing broadcasts in the new system<br><strong>this is bold</strong></div><h1>this is a header</h1>"
+    broadcast = Broadcast.objects.create(family=family, text=html, created_by=owner)
+
+    _subject, body, _html = _render_broadcast_message(broadcast, [], channel=ChannelEnum.SMS)
+
+    assert "systemthis" not in body
+    assert "boldthis" not in body
+    assert "system this is bold this is a header" in body
+
+
 def test_broadcast_sms_does_not_html_escape_the_authors_own_text(family):
     # Regression: Broadcast.save() sanitizes text through nh3, which
     # re-serializes it as valid HTML - an author's own literal "&"
