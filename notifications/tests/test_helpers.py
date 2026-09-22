@@ -58,8 +58,18 @@ def test_inserts_a_line_break_across_adjacent_block_level_tags():
         ["<div>First</div><div>Second</div>", "First\nSecond"],
         ["<p>First</p><p>Second</p>", "First\nSecond"],
         ["First<br>Second", "First\nSecond"],
-        ["<ul><li>First</li><li>Second</li></ul>", "First\nSecond"],
-        ["<ol><li>First</li><li>Second</li></ol>", "First\nSecond"],
+        ["<ul><li>First</li><li>Second</li></ul>", "- First\n- Second"],
+        ["<ol><li>First</li><li>Second</li></ol>", "1. First\n2. Second"],
+        # <ul>/<ol> themselves are never converted to a line break (only
+        # <li> is) - these two rely on each </li>'s own trailing break
+        # already sitting right up against the list's own closing tag,
+        # which strip_tags then removes with no text of its own to
+        # separate - not a special case in the implementation, but worth
+        # locking in given the wrapper tag itself gets no treatment.
+        ["<p>Intro</p><ul><li>Only item</li></ul><p>Outro</p>", "Intro\n- Only item\nOutro"],
+        # Numbering restarts at 1 for each separate <ol> - not a single
+        # counter running across the whole document.
+        ["<ol><li>A</li></ol><ol><li>B</li></ol>", "1. A\n1. B"],
         ["<h1>First</h1><h6>Second</h6>", "First\nSecond"],
         ["<blockquote>First</blockquote><pre>Second</pre>", "First\nSecond"],
         # Inline tags never get their own line break - only the block
@@ -72,8 +82,10 @@ def test_inserts_a_line_break_across_adjacent_block_level_tags():
         "adjacent divs",
         "adjacent paragraphs",
         "a line break tag",
-        "an unordered list",
-        "an ordered list",
+        "an unordered list gets bullet markers",
+        "an ordered list gets numbered markers",
+        "a bulleted list boundary against surrounding content",
+        "numbering restarts for each separate ordered list",
         "headings from h1 to h6",
         "a blockquote followed by a pre block",
         "inline formatting tags stay on one line",
