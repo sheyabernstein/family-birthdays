@@ -743,6 +743,56 @@ def test_compute_occurrences_for_union_creates_a_one_time_wedding_reminder(famil
     assert occurrence.send_date == expected_send_date
 
 
+def test_compute_occurrences_for_union_creates_a_one_time_engagement_reminder(family):
+    anchor_year, month, day = _future_anchor()
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    union = Union.objects.create(
+        person_a=person_a,
+        person_b=person_b,
+        engagement_hebrew_year=anchor_year,
+        engagement_hebrew_month=month,
+        engagement_hebrew_day=day,
+    )
+
+    compute_occurrences_for_union(union)
+
+    engagement_occurrences = Occurrence.objects.filter(
+        union=union, event_type__code=EventType.BuiltinCode.ENGAGEMENT
+    )
+    # recurs=False - exactly one row, for the actual engagement year, not
+    # one per year in the horizon.
+    assert engagement_occurrences.count() == 1
+    assert engagement_occurrences.get().hebrew_year == anchor_year
+
+
+def test_compute_occurrences_for_union_does_not_fire_engagement_anniversary_before_the_engagement_year(
+    family,
+):
+    # Mirrors the marriage/Anniversary equivalent above - a
+    # forward-dated engagement anchor shouldn't get an "engagement
+    # anniversary" occurrence just because this year's month/day
+    # happens to match.
+    anchor_year, month, day = _future_anchor()
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    union = Union.objects.create(
+        person_a=person_a,
+        person_b=person_b,
+        engagement_hebrew_year=anchor_year + 1,
+        engagement_hebrew_month=month,
+        engagement_hebrew_day=day,
+    )
+
+    compute_occurrences_for_union(union)
+
+    anniversaries = Occurrence.objects.filter(
+        union=union, event_type__code=EventType.BuiltinCode.ENGAGEMENT_ANNIVERSARY
+    )
+    assert anniversaries.exists()
+    assert all(o.hebrew_year >= anchor_year + 1 for o in anniversaries)
+
+
 def test_compute_occurrences_for_union_skips_anniversary_once_a_spouse_has_died(family):
     person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
     person_b = Person.objects.create(

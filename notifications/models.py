@@ -40,6 +40,7 @@ class EventType(models.Model):
         BIRTH = "birth", "Date of birth"
         DEATH = "death", "Date of death (yahrzeit)"
         MARRIAGE = "marriage", "Marriage date"
+        ENGAGEMENT = "engagement", "Engagement date"
 
     class BuiltinCode(models.TextChoices):
         """The `code`s seeded by notifications/migrations/0001_initial.py for every family.
@@ -57,6 +58,8 @@ class EventType(models.Model):
         BAR_MITZVAH = "bar_mitzvah", "Bar Mitzvah"
         BAT_MITZVAH = "bat_mitzvah", "Bat Mitzvah"
         WEDDING = "wedding", "Wedding"
+        ENGAGEMENT = "engagement", "Engagement"
+        ENGAGEMENT_ANNIVERSARY = "engagement_anniversary", "Engagement Anniversary"
         BROADCAST = "broadcast", "Broadcast"
 
     # Identifies this record over HTTP (form fields, etc.) - never the
@@ -198,6 +201,8 @@ ALLOWED_STATES_BY_CODE: dict[str, frozenset[str]] = {
     EventType.BuiltinCode.BAT_MITZVAH: _PERSON_STATES,
     EventType.BuiltinCode.ANNIVERSARY: _UNION_STATES,
     EventType.BuiltinCode.WEDDING: _UNION_STATES,
+    EventType.BuiltinCode.ENGAGEMENT: _UNION_STATES,
+    EventType.BuiltinCode.ENGAGEMENT_ANNIVERSARY: _UNION_STATES,
     EventType.BuiltinCode.BROADCAST: _UNION_STATES,
 }
 

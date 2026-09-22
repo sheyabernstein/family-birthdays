@@ -258,9 +258,14 @@ class UnionForm(forms.ModelForm):
             "marriage_hebrew_year",
             "marriage_hebrew_month",
             "marriage_hebrew_day",
+            "engagement_date_gregorian",
+            "engagement_hebrew_year",
+            "engagement_hebrew_month",
+            "engagement_hebrew_day",
         ]
         widgets = {
             "marriage_date_gregorian": forms.DateInput(attrs={"type": "date"}),
+            "engagement_date_gregorian": forms.DateInput(attrs={"type": "date"}),
         }
 
     def __init__(self, *args, person_a: Person, family: Family, **kwargs) -> None:
@@ -331,9 +336,14 @@ class UnionEditForm(forms.ModelForm):
             "marriage_hebrew_year",
             "marriage_hebrew_month",
             "marriage_hebrew_day",
+            "engagement_date_gregorian",
+            "engagement_hebrew_year",
+            "engagement_hebrew_month",
+            "engagement_hebrew_day",
             "divorce_date_gregorian",
         ]
         widgets = {
             "marriage_date_gregorian": forms.DateInput(attrs={"type": "date"}),
+            "engagement_date_gregorian": forms.DateInput(attrs={"type": "date"}),
             "divorce_date_gregorian": forms.DateInput(attrs={"type": "date"}),
         }
