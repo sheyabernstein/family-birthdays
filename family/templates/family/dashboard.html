@@ -15,17 +15,32 @@
                             <span class="hebrew-date">{{ group.occurrence_date|hebrew_str }}</span>
                             <span>{{ group.occurrence_date|date:"l, F j, Y" }}</span>
                         </div>
+                        {% if group.send_note %}
+                            <p class="timeline-send-note">{{ group.send_note }}</p>
+                        {% endif %}
                         <div class="timeline-card">
                             {% for occurrence in group.occurrences %}
                                 <div class="timeline-who">
                                     <span class="badge badge-{{ occurrence.event_type.badge_class }}">{{ occurrence.event_type.name }}</span>
+                                    {% comment %}
+                                        occurrence.send_note is only ever set when this group's
+                                        occurrences don't all share one reason - see DashboardView's
+                                        own comment - so each occurrence states its own, right under
+                                        its name, instead of the shared line above (which isn't
+                                        rendered at all in that case) stating just one of them as if
+                                        it applied to every occurrence in the group.
+                                    {% endcomment %}
                                     {% if occurrence.person %}
                                         <a class="who-name"
                                            href="{% url 'family:person_detail' occurrence.person.uuid %}">{{ occurrence.person.display_name }}
                                         </a>
-                                        {% if occurrence.person.first_name_he != occurrence.person.display_name %}
+                                        {% if occurrence.person.first_name_he and occurrence.person.first_name_he != occurrence.person.display_name %}
                                             <br>
                                             <small class="muted">{{ occurrence.person.first_name_he }}</small>
+                                        {% endif %}
+                                        {% if not group.send_note and occurrence.send_note %}
+                                            <br>
+                                            <small class="timeline-send-note-inline">{{ occurrence.send_note }}</small>
                                         {% endif %}
                                     {% elif occurrence.union %}
                                         <span>
@@ -35,6 +50,10 @@
                                             <a class="who-name"
                                                href="{% url 'family:person_detail' occurrence.union.person_b.uuid %}">{{ occurrence.union.person_b.display_name }}</a>
                                         </span>
+                                        {% if not group.send_note and occurrence.send_note %}
+                                            <br>
+                                            <small class="timeline-send-note-inline">{{ occurrence.send_note }}</small>
+                                        {% endif %}
                                     {% endif %}
                                     {% if request.family_permissions.can_edit %}
                                         <button type="button"
