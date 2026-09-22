@@ -1155,6 +1155,22 @@ label {
   margin-bottom: 0.15rem;
 }
 
+/* Same dashed-border "add a relative" affordance as the family tree's
+   own #family-chart-mount .card-add-relative placeholder, scaled down
+   to this page's plain .tree-node sizing instead of the chart's fixed
+   card dimensions. */
+.tree-node.tree-node-add {
+  background: transparent;
+  border: 2px dashed var(--rule);
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.tree-node.tree-node-add:hover {
+  border-color: var(--ink-soft);
+  color: var(--ink);
+}
+
 /* --- Full family tree (family-chart library) ---
    The library itself handles layout/pan/zoom; this just gives its
    container a concrete size, which it requires. */

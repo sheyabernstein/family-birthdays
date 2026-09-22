@@ -383,6 +383,73 @@ def test_person_detail_shows_birth_year_to_a_member_viewing_their_own_record(cli
     assert b"1990" in resp.content
 
 
+def test_person_detail_offers_add_father_mother_child_links_to_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    _login_as(client, editor, family)
+
+    resp = client.get(f"/people/{person.uuid}/")
+
+    assert resp.context["can_add_relatives"] is True
+    assert f"link_as=father&link_of={person.uuid}" in resp.context["add_father_url"]
+    assert f"link_as=mother&link_of={person.uuid}" in resp.context["add_mother_url"]
+    assert f"father={person.uuid}" in resp.context["add_child_url"]
+
+
+def test_person_detail_add_child_prefills_the_recorded_spouse_as_the_other_parent(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    husband = Person.objects.create(
+        family=family, first_name_en="Shimon", last_name_en="Test", gender=Person.Gender.MALE
+    )
+    wife = Person.objects.create(
+        family=family, first_name_en="Rivka", last_name_en="Test", gender=Person.Gender.FEMALE
+    )
+    Union.objects.create(person_a=husband, person_b=wife, status=Union.Status.MARRIED)
+    _login_as(client, owner, family)
+
+    resp = client.get(f"/people/{husband.uuid}/")
+
+    add_child_url = resp.context["add_child_url"]
+    assert f"father={husband.uuid}" in add_child_url
+    assert f"mother={wife.uuid}" in add_child_url
+
+
+def test_person_detail_omits_add_father_url_once_a_father_is_recorded(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    father = Person.objects.create(family=family, first_name_en="Dad", last_name_en="Test")
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person", father=father)
+    _login_as(client, owner, family)
+
+    resp = client.get(f"/people/{person.uuid}/")
+
+    assert "add_father_url" not in resp.context
+    assert "add_mother_url" in resp.context
+
+
+def test_person_detail_hides_add_relative_links_from_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{person.uuid}/")
+
+    assert resp.context["can_add_relatives"] is False
+    assert b"+ Add father" not in resp.content
+    assert b"+ Add child" not in resp.content
+
+
+def test_person_detail_hides_add_relative_links_for_an_in_law_outside_your_own_family(client, two_families):
+    family_a, family_b, account_a, _ = two_families
+    person_b = Person.objects.create(family=family_b, first_name_en="In", last_name_en="Law")
+    spouse_a = Person.objects.create(family=family_a, first_name_en="My", last_name_en="Relative")
+    Union.objects.create(person_a=spouse_a, person_b=person_b, status=Union.Status.MARRIED)
+    _login_as(client, account_a, family_a)
+
+    resp = client.get(f"/people/{person_b.uuid}/")
+
+    assert resp.context["can_add_relatives"] is False
+
+
 @pytest.mark.parametrize(
     ["gender", "event_code", "dob_kind", "years_ago", "expected_present"],
     [
