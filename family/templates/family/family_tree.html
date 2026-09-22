@@ -57,6 +57,84 @@
         return data.find((n) => n.id === id);
       }
 
+      function isReal(id) {
+        return !id.startsWith(REL_PREFIX);
+      }
+
+      function siblingIdsOf(mainId) {
+        const mainNode = findNode(mainId);
+        if (!mainNode) return new Set();
+        const parentIds = (mainNode.rels.parents || []).filter(isReal);
+        const siblingIds = new Set();
+        parentIds.forEach((pid) => {
+          const parent = findNode(pid);
+          (parent?.rels.children || []).filter(isReal).forEach((cid) => {
+            if (cid !== mainId) siblingIds.add(cid);
+          });
+        });
+        return siblingIds;
+      }
+
+      // Every card's own spouse doubles up its row for no real benefit
+      // in a wide family (a 9-child couple means 9 siblings *and* 9
+      // spouses in one row, and each of those children's own spouses do
+      // the same again a level down) - only the focused (main) person's
+      // own spouse actually shows; every other progeny person (siblings,
+      // children, grandchildren, ...) gets their spouse relationship
+      // stripped just for this render, freeing real width (and
+      // progeny-depth budget, see computeProgenyDepth below, which reads
+      // this same rels.spouses field) for something more useful. Never
+      // touches ancestry - an ancestor's own spouse is the point of that
+      // row (they're a couple whose marriage produced the next
+      // generation down), so hiding it there would look broken, not
+      // decluttered. Mutates the shared node objects directly (not a
+      // fresh copy) so every reader (this function, computeProgenyDepth,
+      // refreshPlaceholders' own chart.updateData(data) call) sees the
+      // same picture - restoreNonMainSpouses() always runs first so a
+      // later recenter (different main, different progeny set) doesn't
+      // leave the previous main's own relatives permanently stripped.
+      let strippedSpouseLinks = [];
+
+      function restoreNonMainSpouses() {
+        strippedSpouseLinks.forEach(({ nodeId, spouseIds }) => {
+          const node = findNode(nodeId);
+          if (node) node.rels.spouses = spouseIds;
+        });
+        strippedSpouseLinks = [];
+      }
+
+      // Every progeny person reachable from main or a sibling, at any
+      // depth - not just the ones that'll end up within the computed
+      // budget, since stripping a spouse that wouldn't render anyway is
+      // harmless, and this has to run *before* computeProgenyDepth (its
+      // budget math should already see the freed-up space).
+      function nonMainProgenyIds(mainId) {
+        const roots = [mainId, ...siblingIdsOf(mainId)];
+        const visited = new Set(roots);
+        const queue = [...roots];
+        while (queue.length) {
+          const node = findNode(queue.shift());
+          (node?.rels.children || []).filter(isReal).forEach((cid) => {
+            if (!visited.has(cid)) {
+              visited.add(cid);
+              queue.push(cid);
+            }
+          });
+        }
+        visited.delete(mainId);
+        return visited;
+      }
+
+      function hideNonMainSpouses(mainId) {
+        nonMainProgenyIds(mainId).forEach((id) => {
+          const node = findNode(id);
+          if (node && node.rels.spouses && node.rels.spouses.length) {
+            strippedSpouseLinks.push({ nodeId: id, spouseIds: node.rels.spouses });
+            node.rels.spouses = [];
+          }
+        });
+      }
+
       // This family's data is wide, not deep - several couples here have
       // 7-9 children each (see AGENTS.md) - so a flat generation cap
       // either hides too much for a small branch or explodes into
@@ -69,29 +147,21 @@
       // render as their own card), without being descended into further
       // - a spouse's children are already reachable via the blood
       // relative's own children list, so double-descending would double
-      // count them.
+      // count them. Call hideNonMainSpouses(mainId) before this, not
+      // after - this reads rels.spouses too, so the budget should
+      // already reflect whatever got freed up by hiding them.
       const PROGENY_CARD_BUDGET = 60;
 
       function computeProgenyDepth(mainId) {
         const mainNode = findNode(mainId);
         if (!mainNode) return 1;
-        const isReal = (id) => !id.startsWith(REL_PREFIX);
         const cardWeight = (id) => {
           const node = findNode(id);
           if (!node) return 1;
           return 1 + (node.rels.spouses || []).filter(isReal).length;
         };
 
-        const parentIds = (mainNode.rels.parents || []).filter(isReal);
-        const siblingIds = new Set();
-        parentIds.forEach((pid) => {
-          const parent = findNode(pid);
-          (parent?.rels.children || []).filter(isReal).forEach((cid) => {
-            if (cid !== mainId) siblingIds.add(cid);
-          });
-        });
-        const roots = [mainId, ...siblingIds];
-
+        const roots = [mainId, ...siblingIdsOf(mainId)];
         let total = roots.reduce((sum, id) => sum + cardWeight(id), 0);
         let depth = 0;
         let frontier = new Set(roots);
@@ -280,6 +350,8 @@
             return;
           }
           chart.updateMainId(d.data.id);
+          restoreNonMainSpouses();
+          hideNonMainSpouses(d.data.id);
           chart.setProgenyDepth(computeProgenyDepth(d.data.id));
           refreshPlaceholders();
           centerOnMain({ transition_time: 600 });
@@ -354,6 +426,7 @@
       // it as the default focus) - so the depth budget can be computed
       // before the chart has rendered anything at all, same as every
       // later recenter.
+      hideNonMainSpouses(data[0].id);
       chart.setProgenyDepth(computeProgenyDepth(data[0].id));
       chart.updateTree({ initial: true });
       refreshPlaceholders();
