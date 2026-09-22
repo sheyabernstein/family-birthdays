@@ -714,7 +714,11 @@ def _broadcast_event_type(family_id: int) -> EventType:
 def _broadcast_subject(broadcast: Broadcast, people: list[Person]) -> str:
     family_name = broadcast.family.name
     if people:
-        names = ", ".join(person.display_name for person in people)
+        # A broadcast isn't "about" a person's own event the way an
+        # occurrence is (see Person.memorial_marker's own callers) - a
+        # tagged person here is a passing mention, not this message's
+        # subject in that sense, so their memorial_marker still applies.
+        names = ", ".join(f"{person.display_name}{person.memorial_marker}" for person in people)
         return f"{family_name} update - {names}"
     return f"{family_name} update"
 

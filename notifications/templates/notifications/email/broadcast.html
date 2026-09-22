@@ -10,7 +10,7 @@
         <p class="muted" style="font-size: 14px;">
             About
             {% for person in people %}
-                <strong>{{ person.display_name }}</strong>{% if not forloop.last %}, {% endif %}
+                <strong>{{ person.display_name }}{{ person.memorial_marker }}</strong>{% if not forloop.last %}, {% endif %}
             {% endfor %}
         </p>
     {% endif %}
