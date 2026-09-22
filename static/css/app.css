@@ -1175,7 +1175,9 @@ main.full-bleed {
    family_tree.html), so this needs its own distinct, deliberately
    small affordance rather than overloading that click with a second
    meaning. stopPropagation() in the inline handler is what keeps a
-   click here from also re-centering the tree underneath it. */
+   click here from also re-centering the tree underneath it. Always
+   visible, not just on hover - hover has no equivalent on a touch
+   device, and this tree is very much used on mobile. */
 #family-chart-mount .card-view-profile {
   position: absolute !important;
   top: 0.35rem;
@@ -1186,10 +1188,8 @@ main.full-bleed {
   width: 1.25rem;
   height: 1.25rem;
   border-radius: 50%;
-  color: rgb(255 255 255 / 75%);
-  opacity: 0;
+  color: rgb(255 255 255 / 55%);
   transition:
-    opacity 0.15s,
     background-color 0.15s,
     color 0.15s;
 }
@@ -1202,13 +1202,6 @@ main.full-bleed {
 #family-chart-mount .card-view-profile:hover {
   background: rgb(255 255 255 / 20%);
   color: #fff;
-}
-
-/* Only shown on hover of the card itself, not permanently visible -
-   a small icon sitting on every one of a couple hundred cards at once
-   (see AGENTS.md) would be more visual noise than help. */
-#family-chart-mount .card:hover .card-view-profile {
-  opacity: 1;
 }
 
 #family-chart-mount .card-name {
