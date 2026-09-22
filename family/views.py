@@ -392,9 +392,17 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
                 # to celebrate the anniversary of yet. Same "stop/start
                 # being relevant" pattern as the bar/bat mitzvah gating
                 # above, just keyed on the wedding date instead of age.
+                # Engagement follows Wedding's own gating (only relevant
+                # pre-wedding), but Engagement Anniversary is deliberately
+                # not gated on is_upcoming at all - unlike Wedding's own
+                # Anniversary, it's meant to keep recurring indefinitely
+                # alongside the real anniversary once married, not stop
+                # and get replaced by it.
                 if event_type.code == EventType.BuiltinCode.WEDDING and not union.is_upcoming:
                     continue
                 if event_type.code == EventType.BuiltinCode.ANNIVERSARY and union.is_upcoming:
+                    continue
+                if event_type.code == EventType.BuiltinCode.ENGAGEMENT and not union.is_upcoming:
                     continue
                 channels = channel_rows(request.user, event_type, my_channels, union=union)
                 union_rows.append({"union": union, "event_type": event_type, "channels": channels})

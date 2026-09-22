@@ -687,6 +687,85 @@ def test_wedding_vs_anniversary_toggle_visibility(
     assert unexpected_code not in codes
 
 
+@pytest.mark.parametrize(
+    ["engagement_days_offset"],
+    [[30], [-30]],
+    ids=["engagement date in the future", "engagement date in the past"],
+)
+def test_engagement_toggle_shows_without_a_marriage_date_regardless_of_engagement_date(
+    client, family, engagement_days_offset
+):
+    # Engagement follows Wedding's own is_upcoming gating - see
+    # family.views.PersonDetailView. With no marriage_date at all,
+    # is_upcoming falls back to "an engagement date is on file" (see
+    # Union.is_upcoming) - true either way here, since a stale engagement
+    # date with no recorded marriage date most plausibly still means
+    # "not yet married", not "definitely still engaged as of that date".
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    Union.objects.create(
+        person_a=person_a,
+        person_b=person_b,
+        engagement_date_gregorian=timezone.localdate() + dt.timedelta(days=engagement_days_offset),
+    )
+    _login_as(client, owner, family)
+
+    resp = client.get(f"/people/{person_a.uuid}/")
+
+    codes = {row["event_type"].code for row in resp.context["union_rows"]}
+    assert EventType.BuiltinCode.ENGAGEMENT in codes
+
+
+def test_engagement_toggle_hides_once_a_marriage_date_is_recorded(client, family):
+    # marriage_date is authoritative once it's actually known - a past
+    # engagement date shouldn't keep the Engagement toggle showing once
+    # there's a real recorded wedding date to say otherwise.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    Union.objects.create(
+        person_a=person_a,
+        person_b=person_b,
+        marriage_date_gregorian=timezone.localdate() - dt.timedelta(days=30),
+        engagement_date_gregorian=timezone.localdate() - dt.timedelta(days=400),
+    )
+    _login_as(client, owner, family)
+
+    resp = client.get(f"/people/{person_a.uuid}/")
+
+    codes = {row["event_type"].code for row in resp.context["union_rows"]}
+    assert EventType.BuiltinCode.ENGAGEMENT not in codes
+
+
+@pytest.mark.parametrize(
+    ["marriage_days_offset"],
+    [[30], [-30]],
+    ids=["before the wedding", "after the wedding"],
+)
+def test_engagement_anniversary_toggle_shows_regardless_of_marriage_date(
+    client, family, marriage_days_offset
+):
+    # Unlike Wedding/Anniversary's own mutual exclusivity, Engagement
+    # Anniversary is meant to keep recurring indefinitely alongside the
+    # real Anniversary once married, not stop and get replaced by it.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    Union.objects.create(
+        person_a=person_a,
+        person_b=person_b,
+        marriage_date_gregorian=timezone.localdate() + dt.timedelta(days=marriage_days_offset),
+        engagement_date_gregorian=timezone.localdate() - dt.timedelta(days=400),
+    )
+    _login_as(client, owner, family)
+
+    resp = client.get(f"/people/{person_a.uuid}/")
+
+    codes = {row["event_type"].code for row in resp.context["union_rows"]}
+    assert EventType.BuiltinCode.ENGAGEMENT_ANNIVERSARY in codes
+
+
 def test_untracked_person_has_no_notify_me_toggles(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)

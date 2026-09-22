@@ -25,6 +25,13 @@
   --wine-ink: #5c2129;
   --slate: #3b4a5a;
   --slate-ink: #2a3542;
+
+  /* Engagement's own color (badge, timeline dot) - distinct from --wine
+     (death/yahrzeit's pale pink is already close to a rose tone, so
+     plum reaches for a different hue entirely rather than risking the
+     two reading as the same color at a glance). */
+  --plum: #6b4a6b;
+  --plum-ink: #4a3350;
   --danger: #a3352b;
   --font-display: "Spectral", georgia, "Times New Roman", serif;
   --font-body: "Work Sans", -apple-system, blinkmacsystemfont, "Segoe UI",
@@ -291,6 +298,15 @@ main {
   font-family: var(--font-body);
   font-weight: 600;
 
+  /* A longer event-type name ("Engagement Anniversary" - the longest
+     built-in name so far) would otherwise wrap inside the pill shape,
+     producing a broken, stretched oval instead of a clean capsule -
+     found for real on /notifications/'s event-types table, where the
+     EMAIL/SMS columns' own min-width (see .subscribe-table select)
+     leaves the EVENT column too narrow for a two-word name to fit on
+     one line without this. */
+  white-space: nowrap;
+
   /* Fallback for a custom event type with no more specific .badge-<code>
      rule (see EventType.badge_class - a blank-anchor custom type like a
      family's own "Reunion" falls back to its own code, which has no
@@ -321,6 +337,14 @@ main {
 .badge-broadcast {
   background: #f0e6d2;
   color: var(--brass-ink);
+}
+
+/* Engagement and Engagement Anniversary share this one rule - both have
+   anchor="engagement" (see EventType.badge_class), the same way Wedding
+   and Anniversary already share .badge-marriage above. */
+.badge-engagement {
+  background: #eadfe7;
+  color: var(--plum-ink);
 }
 
 /* --- Ledger list (dashboard) --- */
@@ -434,6 +458,10 @@ main {
 
 .timeline-entry.event-marriage::before {
   border-color: var(--slate);
+}
+
+.timeline-entry.event-engagement::before {
+  border-color: var(--plum);
 }
 
 .timeline-entry.timeline-scheduled::before {

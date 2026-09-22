@@ -1,0 +1,26 @@
+{% extends "email/_base.html" %}
+{% load family_extras notifications_extras %}
+{% block title %}{{ occurrence.union.person_a.display_name }} &amp; {{ occurrence.union.person_b.display_name }}'s engagement{% endblock %}
+{% block icon %}
+    {% event_icon_url "notifications/img/event-icons/marriage.png" %}
+{% endblock %}
+{% block icon_alt %}Engagement{% endblock %}
+{% block body %}
+    {% if is_late %}
+        <p>
+            <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
+            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }} got engaged on
+            {{ occurrence.occurrence_date|date:"l, F j" }}. Mazal tov!
+        </p>
+    {% else %}
+        <p>
+            <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
+            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }} are engaged! Mazal tov!
+        </p>
+    {% endif %}
+    {% include "notifications/email/_parents.html" with person=occurrence.union.person_a %}
+    {% include "notifications/email/_parents.html" with person=occurrence.union.person_b %}
+    <p class="muted" style="font-size: 14px;">
+        {{ occurrence.occurrence_date|hebrew_str }} · {{ occurrence.occurrence_date|date:"l, F j, Y" }}
+    </p>
+{% endblock %}

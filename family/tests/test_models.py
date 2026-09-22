@@ -3,6 +3,7 @@ import datetime as dt
 import pytest
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from hdate.hebrew_date import Months
 
 from family.models import Person, Union
 
@@ -331,3 +332,58 @@ def test_union_is_upcoming(family, marriage_days_offset, status, expected):
     )
 
     assert union.is_upcoming is expected
+
+
+def test_union_is_upcoming_falls_back_to_engagement_date_without_a_marriage_date(family):
+    # marriage_date is authoritative whenever it's known - this fallback
+    # only ever kicks in when it's entirely blank, which is exactly the
+    # state a couple who's engaged but hasn't set a wedding date yet is
+    # in (see Union.is_upcoming's own docstring).
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    union = Union.objects.create(
+        person_a=person_a,
+        person_b=person_b,
+        status=Union.Status.MARRIED,
+        engagement_date_gregorian=timezone.localdate() - dt.timedelta(days=30),
+    )
+
+    assert union.is_upcoming is True
+
+
+def test_union_is_upcoming_ignores_engagement_date_once_a_marriage_date_is_known(family):
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    union = Union.objects.create(
+        person_a=person_a,
+        person_b=person_b,
+        status=Union.Status.MARRIED,
+        marriage_date_gregorian=timezone.localdate() - dt.timedelta(days=1),
+        engagement_date_gregorian=timezone.localdate() - dt.timedelta(days=400),
+    )
+
+    assert union.is_upcoming is False
+
+
+def test_engagement_hebrew_display_formats_the_full_engagement_date(family):
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    union = Union.objects.create(
+        person_a=person_a,
+        person_b=person_b,
+        engagement_hebrew_year=5783,
+        engagement_hebrew_month=Months.ADAR,
+        engagement_hebrew_day=10,
+    )
+
+    assert union.engagement_hebrew_anchor == (Months.ADAR, 10)
+    assert union.engagement_hebrew_display == "י' אדר תשפ\"ג"
+
+
+def test_engagement_hebrew_display_is_none_without_a_full_engagement_date(family):
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    union = Union.objects.create(person_a=person_a, person_b=person_b, engagement_hebrew_year=5784)
+
+    assert union.engagement_hebrew_anchor is None
+    assert union.engagement_hebrew_display is None

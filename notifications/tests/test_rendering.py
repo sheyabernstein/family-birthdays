@@ -101,8 +101,13 @@ def test_occurrence_email_renders_the_persons_own_template_with_an_icon(family, 
 
 @pytest.mark.parametrize(
     ["code"],
-    [[EventType.BuiltinCode.ANNIVERSARY], [EventType.BuiltinCode.WEDDING]],
-    ids=["anniversary", "wedding"],
+    [
+        [EventType.BuiltinCode.ANNIVERSARY],
+        [EventType.BuiltinCode.WEDDING],
+        [EventType.BuiltinCode.ENGAGEMENT],
+        [EventType.BuiltinCode.ENGAGEMENT_ANNIVERSARY],
+    ],
+    ids=["anniversary", "wedding", "engagement", "engagement anniversary"],
 )
 def test_occurrence_email_renders_a_union_occurrence_with_both_spouses(family, code):
     occurrence = _union_occurrence_for(family, code)
@@ -215,8 +220,13 @@ def test_occurrence_sms_renders_the_persons_own_short_plain_text(family, code):
 
 @pytest.mark.parametrize(
     ["code"],
-    [[EventType.BuiltinCode.ANNIVERSARY], [EventType.BuiltinCode.WEDDING]],
-    ids=["anniversary", "wedding"],
+    [
+        [EventType.BuiltinCode.ANNIVERSARY],
+        [EventType.BuiltinCode.WEDDING],
+        [EventType.BuiltinCode.ENGAGEMENT],
+        [EventType.BuiltinCode.ENGAGEMENT_ANNIVERSARY],
+    ],
+    ids=["anniversary", "wedding", "engagement", "engagement anniversary"],
 )
 def test_occurrence_sms_renders_a_union_occurrence_with_both_spouses(family, code):
     occurrence = _union_occurrence_for(family, code)
@@ -377,8 +387,14 @@ def test_person_occurrence_email_wording_by_lateness(family, code, today_phrase,
     [
         [EventType.BuiltinCode.ANNIVERSARY, "anniversary is today", "anniversary was"],
         [EventType.BuiltinCode.WEDDING, "is coming up", "took place on"],
+        [EventType.BuiltinCode.ENGAGEMENT, "are engaged", "got engaged on"],
+        [
+            EventType.BuiltinCode.ENGAGEMENT_ANNIVERSARY,
+            "engagement anniversary is today",
+            "engagement anniversary was",
+        ],
     ],
-    ids=["anniversary", "wedding"],
+    ids=["anniversary", "wedding", "engagement", "engagement anniversary"],
 )
 def test_union_occurrence_email_wording_by_lateness(family, code, on_time_phrase, late_phrase):
     on_time = _union_occurrence_for(family, code, days_ago=0)

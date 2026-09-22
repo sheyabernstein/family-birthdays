@@ -104,6 +104,13 @@ def _anchor_for(
         )
     if event_type.anchor == EventType.Anchor.MARRIAGE:
         return subject.marriage_hebrew_anchor, "adar_ii", "start_of_next_month", subject.marriage_hebrew_year
+    if event_type.anchor == EventType.Anchor.ENGAGEMENT:
+        return (
+            subject.engagement_hebrew_anchor,
+            "adar_ii",
+            "start_of_next_month",
+            subject.engagement_hebrew_year,
+        )
     return None, "adar_ii", "start_of_next_month", None
 
 

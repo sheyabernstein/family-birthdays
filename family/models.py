@@ -419,6 +419,33 @@ class Union(models.Model):
         null=True, blank=True, verbose_name="Hebrew marriage day", help_text="Hebrew day of the month."
     )
 
+    engagement_date_gregorian = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="engagement date (Gregorian)",
+        help_text="Civil calendar date. Enter directly if known.",
+    )
+    engagement_hebrew_year = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Hebrew engagement year",
+        help_text=(
+            "Hebrew year. Enter this directly if known, rather than letting it be computed from the "
+            "Gregorian date - especially if the engagement was after sunset, when the Hebrew date has "
+            "already advanced to the next day."
+        ),
+    )
+    engagement_hebrew_month = models.PositiveSmallIntegerField(
+        choices=HEBREW_MONTH_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name="Hebrew engagement month",
+        help_text="Hebrew month.",
+    )
+    engagement_hebrew_day = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name="Hebrew engagement day", help_text="Hebrew day of the month."
+    )
+
     divorce_date_gregorian = models.DateField(null=True, blank=True, verbose_name="divorce date (Gregorian)")
 
     class Meta:
@@ -457,6 +484,24 @@ class Union(models.Model):
             )
         return None
 
+    @property
+    def engagement_hebrew_anchor(self) -> tuple[Months, int] | None:
+        if self.engagement_hebrew_month and self.engagement_hebrew_day:
+            return Months(self.engagement_hebrew_month), self.engagement_hebrew_day
+        return None
+
+    @property
+    def engagement_hebrew_display(self) -> str | None:
+        if self.engagement_hebrew_year and self.engagement_hebrew_month and self.engagement_hebrew_day:
+            return format_hebrew_date(
+                HebrewDate(
+                    self.engagement_hebrew_year,
+                    Months(self.engagement_hebrew_month),
+                    self.engagement_hebrew_day,
+                )
+            )
+        return None
+
     def other(self, person: Person) -> Person:
         return self.person_b if person.pk == self.person_a_id else self.person_a
 
@@ -470,6 +515,14 @@ class Union(models.Model):
         stored. The Hebrew anchor is only converted for this one-off
         runtime comparison, never persisted, so it doesn't run afoul of
         the never-derive-one-calendar-from-the-other rule.
+
+        marriage_date (either calendar) is authoritative whenever it's
+        actually known. When it isn't - no wedding date recorded at all
+        yet - an engagement date on file is still a strong signal that
+        the wedding genuinely hasn't happened yet, since an engagement
+        necessarily precedes it: a couple wouldn't normally have an
+        engagement date but no marriage date recorded if they were
+        already fully married with only the wedding date missing.
         """
         if self.status != Union.Status.MARRIED:
             return False
@@ -480,7 +533,7 @@ class Union(models.Model):
         if anchor and self.marriage_hebrew_year:
             month, day = anchor
             return hebrew_to_gregorian(HebrewDate(self.marriage_hebrew_year, month, day)) > today
-        return False
+        return bool(self.engagement_date_gregorian or self.engagement_hebrew_anchor)
 
     def clean(self) -> None:
         if self.person_a_id == self.person_b_id:

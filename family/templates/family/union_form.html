@@ -45,6 +45,23 @@
             </div>
         {% endif %}
         <div class="card form-section">
+            <h2>Engagement</h2>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.engagement_date_gregorian %}{{ form.engagement_date_gregorian }}</div>
+            </div>
+            <div class="form-row">
+                <div class="form-field">
+                    {% field_label form.engagement_hebrew_year %}{{ form.engagement_hebrew_year }}
+                    <p class="help-text">{{ form.engagement_hebrew_year.help_text }}</p>
+                </div>
+                <div class="form-field">{% field_label form.engagement_hebrew_month %}{{ form.engagement_hebrew_month }}</div>
+                <div class="form-field">{% field_label form.engagement_hebrew_day %}{{ form.engagement_hebrew_day }}</div>
+            </div>
+            <p id="engagement-hebrew-autofill-note"
+               class="autofill-note warning-icon"
+               hidden>Prefilled from the Gregorian date above - double check it, especially if the engagement was after sunset (the Hebrew date may have already advanced to the next day).</p>
+        </div>
+        <div class="card form-section">
             <h2>Marriage</h2>
             <div class="form-row">
                 <div class="form-field">
@@ -97,6 +114,13 @@
         monthId: "id_marriage_hebrew_month",
         dayId: "id_marriage_hebrew_day",
         noteId: "marriage-hebrew-autofill-note",
+      },
+      {
+        gregorianId: "id_engagement_date_gregorian",
+        yearId: "id_engagement_hebrew_year",
+        monthId: "id_engagement_hebrew_month",
+        dayId: "id_engagement_hebrew_day",
+        noteId: "engagement-hebrew-autofill-note",
       },
     ]);
     </script>
