@@ -101,7 +101,9 @@ class Command(BaseCommand):
                 logger.error("timed out waiting for migration lock", elapsed_seconds=elapsed)
                 return False
 
-            owner = _redis_client.get(LOCK_KEY)
+            if owner := _redis_client.get(LOCK_KEY):
+                owner = owner.decode()
+
             remaining = LOCK_WAIT_TIMEOUT - elapsed
 
             if not lock_owner_logged:
