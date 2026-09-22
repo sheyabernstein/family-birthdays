@@ -743,11 +743,15 @@ def _render_broadcast_message(
     # html_to_plain_text handles both the entity-unescaping (a broadcast
     # author's "&" survives nh3-sanitized storage as "&amp;") and the
     # block-tag-to-newline conversion strip_tags alone doesn't do (see
-    # that function's own docstring) - flattened to one line here since
-    # SMS has no real use for the line breaks it'd otherwise preserve.
-    plain = " ".join(html_to_plain_text(broadcast.text).split())
+    # that function's own docstring) - kept as real newlines here, not
+    # flattened to one line: \n is part of the standard GSM-7 alphabet
+    # (doesn't push the message into UCS-2 or cost extra budget), and a
+    # real device renders it as an actual line break, so collapsing a
+    # broadcast's paragraphs/list items into a run-on line was discarding
+    # formatting the author actually wrote for no real technical reason.
+    plain = html_to_plain_text(broadcast.text)
     text = render_to_string("notifications/sms/broadcast.txt", {"text": plain})
-    text = _truncate_for_sms(" ".join(text.split()))
+    text = _truncate_for_sms(text.strip())
     return "", text, ""
 
 
