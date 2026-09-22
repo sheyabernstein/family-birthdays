@@ -247,8 +247,9 @@ class UnionForm(forms.ModelForm):
         required=False,
         label="Already in the family",
     )
-    new_spouse_first_name_en = forms.CharField(required=False, label="First name")
-    new_spouse_last_name_en = forms.CharField(required=False, label="Last name")
+    new_spouse_first_name_en = forms.CharField(required=False, label="First name (English)")
+    new_spouse_last_name_en = forms.CharField(required=False, label="Last name (English)")
+    new_spouse_first_name_he = forms.CharField(required=False, label="First name (Hebrew)")
 
     class Meta:
         model = Union
@@ -285,32 +286,52 @@ class UnionForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
+        # Set unconditionally, before any validation below can raise and
+        # exit early - Union.clean()'s "not the same person" check
+        # (person_a_id == person_b_id) runs regardless of whether this
+        # method raises, since ModelForm._post_clean() calls
+        # instance.full_clean() as its own separate step after this one.
+        # An early raise below used to leave both person_a and person_b
+        # unset (None == None), which spuriously tripped that check on
+        # top of whatever validation error actually raised here - found
+        # for real via the new first_name_he check below, but the bug
+        # predates it (any of this method's other early raises could
+        # already trigger the exact same spurious second error).
+        self.instance.person_a = self.person_a
         existing = cleaned_data.get("existing_spouse")
-        new_first = cleaned_data.get("new_spouse_first_name_en", "").strip()
-        new_last = cleaned_data.get("new_spouse_last_name_en", "").strip()
+        new_first_en = cleaned_data.get("new_spouse_first_name_en", "").strip()
+        new_last_en = cleaned_data.get("new_spouse_last_name_en", "").strip()
+        new_first_he = cleaned_data.get("new_spouse_first_name_he", "").strip()
+        entering_new_person = bool(new_first_en or new_last_en or new_first_he)
 
-        if existing and (new_first or new_last):
+        if existing and entering_new_person:
             raise forms.ValidationError(
                 "Pick someone already in the family, or enter a new person's name - not both."
             )
-        if not existing and not (new_first and new_last):
-            raise forms.ValidationError(
-                "Pick someone already in the family, or enter a new person's first and last name."
-            )
+        if not existing and not entering_new_person:
+            raise forms.ValidationError("Pick someone already in the family, or enter a new person's name.")
+        # This inline mini-form bypasses PersonForm entirely (see
+        # save() below, which .save()s the unsaved Person built here
+        # directly rather than going through PersonForm/full_clean()),
+        # so Person's own first_name_he requirement has to be enforced
+        # by hand here too - otherwise this would stay a live gap even
+        # after that requirement was added to the model, silently
+        # creating a spouse with no Hebrew first name.
+        if not existing and not new_first_he:
+            raise forms.ValidationError("A new person's first name (Hebrew) is required.")
 
-        # Set on the instance now (not in save()) so it's already correct
-        # by the time ModelForm._post_clean() calls instance.full_clean() -
-        # otherwise Union.clean()'s "not the same person" check compares
-        # two still-unset fields and always raises. The new-person case
-        # gets an unsaved Person here (not .create()'d) so validation
-        # never has a database side effect - it's persisted for real in
-        # save() instead.
-        self.instance.person_a = self.person_a
+        # person_a is already set, at the top of this method. The
+        # new-person case gets an unsaved Person here (not .create()'d)
+        # so validation never has a database side effect - it's
+        # persisted for real in save() instead.
         if existing:
             self.instance.person_b = existing
         else:
             self.instance.person_b = Person(
-                family=self.family, first_name_en=new_first, last_name_en=new_last
+                family=self.family,
+                first_name_en=new_first_en,
+                last_name_en=new_last_en,
+                first_name_he=new_first_he,
             )
 
         return cleaned_data

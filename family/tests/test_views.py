@@ -44,6 +44,7 @@ def test_owner_can_create_a_person(client, family):
         {
             "first_name_en": "New",
             "last_name_en": "Person",
+            "first_name_he": "חדש",
             "is_living": "on",
             "yahrzeit_adar_observance": "adar_ii",
             "yahrzeit_day30_observance": "start_of_next_month",
@@ -65,6 +66,7 @@ def test_editor_can_create_a_person(client, family):
         {
             "first_name_en": "New",
             "last_name_en": "Person",
+            "first_name_he": "חדש",
             "is_living": "on",
             "yahrzeit_adar_observance": "adar_ii",
             "yahrzeit_day30_observance": "start_of_next_month",
@@ -443,13 +445,16 @@ def test_person_create_link_as_father_auto_links_the_new_person(client, family):
     # relationship, so this has to happen as a side effect of the save.
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)
-    child = Person.objects.create(family=family, first_name_en="Kid", last_name_en="Test")
+    child = Person.objects.create(
+        family=family, first_name_en="Kid", last_name_en="Test", first_name_he="ילד"
+    )
 
     resp = client.post(
         f"/people/new/?link_as=father&link_of={child.uuid}",
         {
             "first_name_en": "New",
             "last_name_en": "Father",
+            "first_name_he": "חדש",
             "gender": Person.Gender.MALE,
             "link_as": "father",
             "link_of": str(child.uuid),
@@ -483,6 +488,7 @@ def test_person_create_link_as_mother_rejects_a_cycle_created_via_the_new_person
         {
             "first_name_en": "New",
             "last_name_en": "Mother",
+            "first_name_he": "חדשה",
             "gender": Person.Gender.FEMALE,
             "mother": anchor.pk,
             "link_as": "mother",
@@ -536,6 +542,7 @@ def test_person_create_redirects_to_next_when_given(client, family):
         {
             "first_name_en": "New",
             "last_name_en": "Person",
+            "first_name_he": "חדש",
             "next": "/some/place/",
             "yahrzeit_adar_observance": "adar_ii",
             "yahrzeit_day30_observance": "start_of_next_month",
@@ -645,6 +652,7 @@ def test_recording_a_death_clears_the_persons_future_anniversary_occurrences(cli
         {
             "first_name_en": "A",
             "last_name_en": "Test",
+            "first_name_he": "א",
             "dod_gregorian": (timezone.localdate() - dt.timedelta(days=1)).isoformat(),
             "yahrzeit_adar_observance": "adar_ii",
             "yahrzeit_day30_observance": "start_of_next_month",
@@ -885,6 +893,7 @@ def test_owner_can_add_a_brand_new_spouse(client, family):
         {
             "new_spouse_first_name_en": "Rivka",
             "new_spouse_last_name_en": "Rokach",
+            "new_spouse_first_name_he": "רבקה",
             "status": "married",
         },
     )
@@ -892,7 +901,34 @@ def test_owner_can_add_a_brand_new_spouse(client, family):
     assert resp.status_code == 302
     union = Union.objects.get(person_a=person_a)
     assert union.person_b.first_name_en == "Rivka"
+    assert union.person_b.first_name_he == "רבקה"
     assert union.person_b.family_id == family.id
+
+
+def test_adding_a_new_spouse_requires_a_hebrew_first_name(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person_a = Person.objects.create(family=family, first_name_en="Elchanan", last_name_en="Rokach")
+    _login_as(client, owner, family)
+
+    resp = client.post(
+        f"/people/{person_a.uuid}/spouse/new/",
+        {
+            "new_spouse_first_name_en": "Rivka",
+            "new_spouse_last_name_en": "Rokach",
+            "status": "married",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert not Union.objects.filter(person_a=person_a).exists()
+    # Regression: an early raise in UnionForm.clean() used to leave
+    # person_a/person_b both unset on the instance, so
+    # ModelForm._post_clean()'s own instance.full_clean() call spuriously
+    # tripped Union.clean()'s "not the same person" check (None ==
+    # None) on top of the real validation error - only the real error
+    # should show.
+    form = resp.context["form"]
+    assert "A person cannot be in a union with themselves." not in form.non_field_errors()
 
 
 def test_existing_spouse_choices_exclude_the_same_gender(client, family):

@@ -37,10 +37,19 @@
                 <div class="form-field">
                     {% field_label form.existing_spouse %}{{ form.existing_spouse }}{{ form.existing_spouse.errors }}
                 </div>
-                <p class="help-text">Already in this family? Pick them above. Otherwise, enter their name below and a new record will be created for them.</p>
+                <p class="help-text">Already in this family? Pick them above. Otherwise, enter their name below and a new record will be created for them - first name (Hebrew) is required, same as anywhere else a person is added.</p>
                 <div class="form-row" style="margin-top: 0.75rem;">
                     <div class="form-field">{% field_label form.new_spouse_first_name_en %}{{ form.new_spouse_first_name_en }}</div>
                     <div class="form-field">{% field_label form.new_spouse_last_name_en %}{{ form.new_spouse_last_name_en }}</div>
+                </div>
+                <div class="form-row">
+                    <div class="form-field">
+                        <label for="{{ form.new_spouse_first_name_he.id_for_label }}">
+                            <span class="required-marker"
+                                  aria-hidden="true">*</span> {{ form.new_spouse_first_name_he.label }}
+                        </label>
+                        {{ form.new_spouse_first_name_he }}
+                    </div>
                 </div>
             </div>
         {% endif %}
