@@ -26,10 +26,10 @@
   --slate: #3b4a5a;
   --slate-ink: #2a3542;
 
-  /* Engagement's own badge color - distinct from --wine (death/yahrzeit's
-     pale pink is already close to a rose tone, so plum reaches for a
-     different hue entirely rather than risking the two reading as the
-     same color at a glance). */
+  /* Engagement's own color (badge, timeline dot) - distinct from --wine
+     (death/yahrzeit's pale pink is already close to a rose tone, so
+     plum reaches for a different hue entirely rather than risking the
+     two reading as the same color at a glance). */
   --plum: #6b4a6b;
   --plum-ink: #4a3350;
   --danger: #a3352b;
@@ -458,6 +458,10 @@ main {
 
 .timeline-entry.event-marriage::before {
   border-color: var(--slate);
+}
+
+.timeline-entry.event-engagement::before {
+  border-color: var(--plum);
 }
 
 .timeline-entry.timeline-scheduled::before {
