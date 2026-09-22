@@ -140,16 +140,29 @@ class HebrewToGregorianView(LoginRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request: HttpRequest) -> JsonResponse:
+        # Both the HebrewDate construction and the actual conversion can
+        # raise ValueError - constructing one only validates that
+        # year/month/day are individually sensible (e.g. a real month
+        # for that year), not that the resulting date is convertible to
+        # a real Gregorian one at all. Found for real via Sentry: a
+        # year far outside any plausible lifetime (a typo, or a still-
+        # mid-edit value read too early - see hebrew_mismatch_warning.js)
+        # constructs a perfectly valid HebrewDate, but hdate's own
+        # to_gdate() then underflows Python's date.fromordinal and
+        # raises "ordinal must be >= 1" - a real crash for what's
+        # supposed to be a purely assistive, never-authoritative check
+        # (see this view's own docstring).
         try:
             hebrew_date = HebrewDate(
                 int(request.POST.get("year")),
                 Months(int(request.POST.get("month"))),
                 int(request.POST.get("day")),
             )
+            gregorian_date = hebrew_to_gregorian(hebrew_date)
         except (TypeError, ValueError):
             return JsonResponse({"error": "Invalid or missing Hebrew date."}, status=400)
 
-        return JsonResponse({"date": hebrew_to_gregorian(hebrew_date).isoformat()})
+        return JsonResponse({"date": gregorian_date.isoformat()})
 
 
 def _occurrence_send_note(occurrence: Occurrence) -> str | None:

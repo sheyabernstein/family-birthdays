@@ -1125,12 +1125,20 @@ def test_hebrew_to_gregorian_requires_login(client):
         [{"year": 5751, "month": 99, "day": 1}],
         [{"year": "not-a-number", "month": 1, "day": 1}],
         [{}],
+        [{"year": 3747, "month": 13, "day": 30}],
     ],
     ids=[
         "day out of range for the month",
         "month out of range",
         "unparseable year",
         "missing fields entirely",
+        # A structurally valid HebrewDate (real year/month/day
+        # combination) that's still too early to convert to a real
+        # Gregorian one - hdate's own to_gdate() raises ValueError here
+        # (Python's date.fromordinal underflows), which used to escape
+        # this view entirely as an unhandled 500 - found for real via
+        # Sentry (FAMILY-BIRTHDAYS-3).
+        "structurally valid but unconvertibly early year",
     ],
 )
 def test_hebrew_to_gregorian_rejects_bad_input(client, family, payload):
