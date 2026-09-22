@@ -57,6 +57,66 @@
         return data.find((n) => n.id === id);
       }
 
+      // This family's data is wide, not deep - several couples here have
+      // 7-9 children each (see AGENTS.md) - so a flat generation cap
+      // either hides too much for a small branch or explodes into
+      // hundreds of cards for a wide one. This picks the deepest progeny
+      // depth that keeps the branch actually in view under a card
+      // budget, walking rels.children level by level from mainId - and,
+      // since setShowSiblingsOfMain is on below, from each of main's own
+      // siblings too, since their subtrees render alongside main's. Each
+      // counted person's own spouse(s) count toward the budget too (they
+      // render as their own card), without being descended into further
+      // - a spouse's children are already reachable via the blood
+      // relative's own children list, so double-descending would double
+      // count them.
+      const PROGENY_CARD_BUDGET = 60;
+
+      function computeProgenyDepth(mainId) {
+        const mainNode = findNode(mainId);
+        if (!mainNode) return 1;
+        const isReal = (id) => !id.startsWith(REL_PREFIX);
+        const cardWeight = (id) => {
+          const node = findNode(id);
+          if (!node) return 1;
+          return 1 + (node.rels.spouses || []).filter(isReal).length;
+        };
+
+        const parentIds = (mainNode.rels.parents || []).filter(isReal);
+        const siblingIds = new Set();
+        parentIds.forEach((pid) => {
+          const parent = findNode(pid);
+          (parent?.rels.children || []).filter(isReal).forEach((cid) => {
+            if (cid !== mainId) siblingIds.add(cid);
+          });
+        });
+        const roots = [mainId, ...siblingIds];
+
+        let total = roots.reduce((sum, id) => sum + cardWeight(id), 0);
+        let depth = 0;
+        let frontier = new Set(roots);
+        const visited = new Set(roots);
+        while (total <= PROGENY_CARD_BUDGET) {
+          const next = new Set();
+          frontier.forEach((id) => {
+            const node = findNode(id);
+            (node?.rels.children || []).filter(isReal).forEach((cid) => {
+              if (!visited.has(cid)) {
+                next.add(cid);
+                visited.add(cid);
+              }
+            });
+          });
+          if (next.size === 0) break;
+          const addWeight = Array.from(next).reduce((sum, id) => sum + cardWeight(id), 0);
+          if (total + addWeight > PROGENY_CARD_BUDGET) break;
+          total += addWeight;
+          depth += 1;
+          frontier = next;
+        }
+        return Math.max(depth, 1);
+      }
+
       // Which spouse pairs have an upcoming (not-yet-happened) wedding -
       // keyed by the two people's ids sorted and joined, so it matches
       // regardless of which side f3 lists first on the link's own datum.
@@ -198,9 +258,14 @@
         // in AGENTS.md) - someone can't add what they can't see. Progeny
         // fans out across every child's own children *and*, since
         // setShowSiblingsOfMain is on, every sibling's own full subtree
-        // too - so depth 1 here already shows more than it looks like;
-        // the mini-tree icon (setMiniTree below) is how people drill
-        // into one branch at a time instead of getting all of it at once.
+        // too - a flat depth here used to be 1 for everyone, which
+        // either hid a small branch's own grandchildren for no reason or
+        // still exploded for a wide one; it's now recomputed per main
+        // person by computeProgenyDepth() (see its own comment) on every
+        // recenter, so this initial value is just a placeholder until
+        // the first call sets a real one. The mini-tree icon (setMiniTree
+        // below) is still how people drill further into one branch once
+        // the budget caps them.
         .setAncestryDepth(6)
         .setProgenyDepth(1)
         .setShowSiblingsOfMain(true)
@@ -215,6 +280,7 @@
             return;
           }
           chart.updateMainId(d.data.id);
+          chart.setProgenyDepth(computeProgenyDepth(d.data.id));
           refreshPlaceholders();
           centerOnMain({ transition_time: 600 });
         })
@@ -283,6 +349,12 @@
         centerOnMain({ transition_time: 0 });
       });
 
+      // data[0] is always main_person - see build_chart_data's own
+      // docstring (it's sorted first specifically so the library picks
+      // it as the default focus) - so the depth budget can be computed
+      // before the chart has rendered anything at all, same as every
+      // later recenter.
+      chart.setProgenyDepth(computeProgenyDepth(data[0].id));
       chart.updateTree({ initial: true });
       refreshPlaceholders();
       // The initial render always fits the whole visible subtree - follow
