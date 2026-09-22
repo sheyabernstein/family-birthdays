@@ -159,6 +159,14 @@ def test_person_option_label_includes_the_parents_hint(family):
     assert _person_option_label(person) == "Blimi Rokach (birth year unknown) - child of Shloime Rokach"
 
 
+def test_person_option_label_marks_a_deceased_candidate(family):
+    person = Person.objects.create(
+        family=family, first_name_en="Blimi", last_name_en="Rokach", dod_gregorian=dt.date(2020, 1, 1)
+    )
+
+    assert _person_option_label(person) == "Blimi Rokach ע״ה (birth year unknown)"
+
+
 def _choice_value(field, person: Person):
     """ModelChoiceField's own iterator wraps each choice in a
     ModelChoiceIteratorValue carrying `.instance` - that's what
@@ -196,6 +204,21 @@ def test_person_picker_option_carries_display_data(family):
     assert attrs["data-birth-year"] == "b. 1952"
     assert attrs["data-hebrew-first-name"] == "אלחנן"
     assert "data-warning" not in attrs
+
+
+def test_person_picker_option_display_name_carries_the_memorial_marker(family):
+    father = Person.objects.create(
+        family=family,
+        first_name_en="Elchanan",
+        last_name_en="Rokach",
+        gender=Person.Gender.MALE,
+        dod_gregorian=dt.date(1990, 1, 1),
+    )
+    form = PersonForm(family=family)
+
+    attrs = _father_option_attrs(form, father)
+
+    assert attrs["data-display-name"] == "Elchanan Rokach ע״ה"
 
 
 def test_person_picker_option_carries_the_relations_hint(family):

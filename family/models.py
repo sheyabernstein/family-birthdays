@@ -212,6 +212,20 @@ class Person(models.Model):
         return self.nickname or f"{self.first_name_en} {self.last_name_en}".strip() or self.hebrew_name or "?"
 
     @property
+    def memorial_marker(self) -> str:
+        """Trailing " ע״ה" for a deceased person, or "" for a living one.
+
+        עליו/עליה השלום ("peace be upon him/her") - the same two letters
+        cover both genders in their abbreviated written form (only the
+        spelled-out word inflects: alav/aleha), so this needs no gender
+        branching. Meant to follow right after a person's own name
+        wherever it's shown, the same "trailing suffix filter" shape as
+        with_hebrew_first_name - e.g. `{{ person.display_name
+        }}{{ person.memorial_marker }}`.
+        """
+        return "" if self.is_living else " ע״ה"
+
+    @property
     def parents_label(self) -> str | None:
         """A short "Parent & Parent's FirstName" label - the way people actually get told apart.
 
@@ -268,7 +282,7 @@ class Person(models.Model):
         if not self.first_name_he or self.father is None or not self.father.first_name_he:
             return None
         connector = "בת" if self.gender == Person.Gender.FEMALE else "בן"
-        return f"{self.first_name_he} {connector} {self.father.first_name_he}"
+        return f"{self.first_name_he} {connector} {self.father.first_name_he}{self.father.memorial_marker}"
 
     @property
     def dob_hebrew_anchor(self) -> tuple[Months, int] | None:

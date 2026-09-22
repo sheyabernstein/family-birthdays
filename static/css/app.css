@@ -954,6 +954,27 @@ label {
   unicode-bidi: isolate;
 }
 
+/* ע״ה, right after a deceased person's name wherever it's shown - see
+   Person.memorial_marker. Sized relative (0.75em) rather than a fixed
+   rem so it reads right whether it's trailing a large <h1> or a small
+   card caption, without a separate rule per context.
+
+   margin-left (not the marker string's own leading space) is what
+   actually separates it from the preceding English name - found for
+   real on the family tree card: with direction: rtl set here, the
+   browser's bidi reordering moves that leading space to the far
+   (right) side of the Hebrew run instead of the boundary next to the
+   English text it's meant to separate from, so the two ran together
+   with no visible gap at all. */
+.hebrew-suffix {
+  font-family: var(--font-hebrew);
+  font-size: 0.75em;
+  color: var(--ink-soft);
+  direction: rtl;
+  unicode-bidi: isolate;
+  margin-left: 0.35em;
+}
+
 .dates-row {
   display: flex;
   gap: 1rem;
@@ -1249,6 +1270,25 @@ main.full-bleed {
 #family-chart-mount .card-view-profile:hover {
   background: rgb(255 255 255 / 20%);
   color: #fff;
+}
+
+/* Matches the --wine/.event-death convention used everywhere else a
+   death is color-coded (badges, timeline dots) - a left accent rather
+   than recoloring the whole card, since family-chart's own CDN
+   stylesheet already colors the card by gender and this needs to layer
+   on top of that, not replace it. */
+#family-chart-mount .card-deceased {
+  border-left: 3px solid var(--wine) !important;
+  padding-left: calc(0.75rem - 3px);
+}
+
+/* .hebrew-suffix's own color (--ink-soft, a muted brown tuned for the
+   cream page background) reads muddy against family-chart's own
+   colored (blue/pink) card backgrounds - inherit the card's own white
+   text color instead, same as .card-hebrew-name already does by not
+   setting a color of its own. */
+#family-chart-mount .hebrew-suffix {
+  color: inherit;
 }
 
 #family-chart-mount .card-name {

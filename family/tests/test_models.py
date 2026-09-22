@@ -253,7 +253,11 @@ def test_patronymic_label_uses_gendered_connector(family):
 def test_patronymic_label_ignores_untracked_and_deceased_status(family):
     # Unlike parents_label, the whole point here is naming a real
     # ancestor even when they're only a lineage stub or no longer living
-    # - see EventType.always_schedule and AGENTS.md.
+    # - see EventType.always_schedule and AGENTS.md. The father's own
+    # memorial_marker still applies, though - he's not this label's
+    # subject (self is), so his deceased status is real information to
+    # show here, not the redundant-with-context case the subject's own
+    # marker is withheld for.
     father = Person.objects.create(
         family=family,
         first_name_he="אברהם",
@@ -263,7 +267,7 @@ def test_patronymic_label_ignores_untracked_and_deceased_status(family):
     )
     person = Person.objects.create(family=family, first_name_he="יעקב", last_name_en="Rokach", father=father)
 
-    assert person.patronymic_label == "יעקב בן אברהם"
+    assert person.patronymic_label == "יעקב בן אברהם ע״ה"
 
 
 def test_patronymic_label_is_none_without_a_hebrew_first_name(family):
@@ -289,6 +293,18 @@ def test_patronymic_label_is_none_without_a_recorded_father(family):
 def test_display_name_prefers_nickname(family):
     person = Person(family=family, first_name_en="Robert", last_name_en="Smith", nickname="Bobby")
     assert person.display_name == "Bobby"
+
+
+def test_memorial_marker_is_blank_for_a_living_person(family):
+    person = Person.objects.create(family=family, first_name_en="Robert", last_name_en="Smith")
+    assert person.memorial_marker == ""
+
+
+def test_memorial_marker_follows_a_deceased_person(family):
+    person = Person.objects.create(
+        family=family, first_name_en="Robert", last_name_en="Smith", dod_gregorian=dt.date(2020, 1, 1)
+    )
+    assert person.memorial_marker == " ע״ה"
 
 
 def test_descendant_ids_includes_grandchildren_but_not_unrelated_people(family):

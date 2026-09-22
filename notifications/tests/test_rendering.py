@@ -664,6 +664,22 @@ def test_broadcast_email_includes_sanitized_text_and_tied_people(family):
     assert "Sari Rokach" in subject
 
 
+def test_broadcast_email_marks_a_deceased_tied_person(family):
+    # A tagged person isn't this message's own subject the way an
+    # occurrence's person/union is - it's a passing mention - so their
+    # memorial_marker still applies, in both the subject and body.
+    owner = Account.objects.create_user(email="owner@example.com")
+    person = Person.objects.create(
+        family=family, first_name_en="Sari", last_name_en="Rokach", dod_gregorian=dt.date(2020, 1, 1)
+    )
+    broadcast = Broadcast.objects.create(family=family, text="Remembering her today.", created_by=owner)
+
+    subject, _body, html = _render_broadcast_message(broadcast, [person], channel=ChannelEnum.EMAIL)
+
+    assert "Sari Rokach ע״ה" in html
+    assert "Sari Rokach ע״ה" in subject
+
+
 def test_broadcast_email_without_tied_people_uses_a_generic_subject(family):
     owner = Account.objects.create_user(email="owner@example.com")
     broadcast = Broadcast.objects.create(family=family, text="Hello", created_by=owner)
