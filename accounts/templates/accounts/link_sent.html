@@ -22,6 +22,9 @@
                     </div>
                 </dl>
             {% endif %}
+            <p class="muted">
+                Can't open the link on this device? <a href="{% url 'accounts:verify_code' %}?identifier={{ identifier|urlencode }}">Enter the code from it instead</a>.
+            </p>
             <p class="muted">Didn't get it? <a href="{% url 'accounts:request_link' %}">Try again</a>.</p>
         </div>
     </div>

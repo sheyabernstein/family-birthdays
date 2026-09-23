@@ -21,7 +21,13 @@
         <a href="{{ sign_in_url }}" style="word-break: break-all;">{{ sign_in_url }}</a>
     </p>
     <p class="muted" style="font-size: 13px; margin: 16px 0 0;">
-        This link expires in {{ ttl_minutes }} minutes and can only be used once. If you didn't request it, you can ignore this email.
+        Signing in on a different device? Go to
+        <a href="{{ code_url }}">{{ code_url }}</a>
+        and enter this code:
+        <strong style="font-size: 15px; letter-spacing: 0.1em;">{{ code }}</strong>
+    </p>
+    <p class="muted" style="font-size: 13px; margin: 16px 0 0;">
+        This link and code expire in {{ ttl_minutes }} minutes and can only be used once. If you didn't request it, you can ignore this email.
     </p>
 {% endblock %}
 {% block footer %}Sent by {{ family_name|default:"Family Tree" }}.{% endblock %}
