@@ -975,6 +975,29 @@ label {
   margin-left: 0.35em;
 }
 
+/* Wraps a Hebrew display_name (the no-English-first-name fallback - see
+   Person.display_name_is_hebrew) together with its own trailing
+   memorial_marker as one RTL unit - see
+   family_extras.display_name_with_marker's own docstring for why this
+   has to be the *whole* name+marker, not just the marker in isolation
+   the way .hebrew-suffix does for an English display_name: with no
+   direction of its own, plain Hebrew display_name text gets
+   auto-detected as an RTL run *within* the surrounding LTR paragraph,
+   so an isolated-RTL marker trailing it ends up placed by the outer
+   LTR paragraph's own embedding order - visually to the *right* of the
+   name, which a Hebrew reader (right-to-left) encounters before the
+   name instead of after it. Wrapping both together in one RTL context
+   fixes the reading order and also gets the same Noto Sans Hebrew
+   font-family fix .hebrew-name already has - font: inherited size/
+   weight/color from whatever context this renders in (an <h1>, a plain
+   name span, ...), unlike .hebrew-suffix which is always sized/colored
+   as a secondary marker. */
+.name-rtl {
+  font-family: var(--font-hebrew);
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
 .dates-row {
   display: flex;
   gap: 1rem;
@@ -1303,7 +1326,8 @@ main.full-bleed {
    colored (blue/pink) card backgrounds - inherit the card's own white
    text color instead, same as .card-hebrew-name already does by not
    setting a color of its own. */
-#family-chart-mount .hebrew-suffix {
+#family-chart-mount .hebrew-suffix,
+#family-chart-mount .name-rtl {
   color: inherit;
 }
 

@@ -12,6 +12,7 @@ from accounts.models import Account
 from family.models import Person, Union
 from family.templatetags.family_extras import hebrew_str
 from notifications.enums import ChannelEnum, ShiftReason
+from notifications.helpers import html_to_plain_text
 from notifications.models import Broadcast, EventType, Occurrence
 from notifications.services import absolute_url, send_email, send_sms, static_absolute_url
 from notifications.tasks import (
@@ -682,7 +683,11 @@ def test_broadcast_email_marks_a_deceased_tied_person(family):
 
     subject, _body, html = _render_broadcast_message(broadcast, [person], channel=ChannelEnum.EMAIL)
 
-    assert "Sari Rokach ע״ה" in html
+    # "Sari Rokach ע״ה" isn't a literal HTML substring - display_name_
+    # with_marker wraps the marker in its own <span> for RTL isolation/
+    # styling (see that filter's own docstring) - so check the plain
+    # text render instead of the raw HTML.
+    assert "Sari Rokach ע״ה" in html_to_plain_text(html)
     assert "Sari Rokach ע״ה" in subject
 
 

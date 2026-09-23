@@ -1,3 +1,4 @@
+import re
 import uuid
 from collections.abc import Callable
 
@@ -11,6 +12,12 @@ from hdate.hebrew_date import Months
 from family.hebrew import format_hebrew_date, hebrew_to_gregorian
 
 HEBREW_MONTH_CHOICES = [(m.value, m.name.replace("_", " ").title()) for m in Months]
+
+# Hebrew Unicode block (U+0590-U+05FF - includes Hebrew punctuation like
+# the ״ in ע״ה, not just the letters) - used by
+# Person.display_name_is_hebrew to detect the actual script of the
+# resolved name, not just which field it came from.
+_HEBREW_CHARS = re.compile("[\u0590-\u05ff]")
 
 
 def bfs_relative_ids(seed_ids: set[int], expand: Callable[[set[int]], set[int]]) -> set[int]:
@@ -231,6 +238,34 @@ class Person(models.Model):
         if self.first_name_en:
             return f"{self.first_name_en} {self.last_name_en}".strip()
         return self.hebrew_name or "?"
+
+    @property
+    def display_name_is_hebrew(self) -> bool:
+        """Whether display_name itself is Hebrew script, checked by content - not by which field it came from.
+
+        Shared by anything that combines display_name with a second
+        Hebrew fragment (family_extras.with_hebrew_first_name,
+        display_name_with_marker) - both need to know when display_name
+        itself is already Hebrew script, to avoid repeating the Hebrew
+        name a second time, or (for a trailing marker) getting bidi
+        reading order backwards. See those filters' own docstrings for
+        why this can't just be `"{{ display_name }}{{ marker }}"`
+        concatenation - confirmed via bounding-rect measurement in a
+        real browser, not just visual inspection, that a plain-Hebrew
+        display_name followed by an isolated-RTL marker span renders in
+        the wrong reading order (marker before name) even though the
+        exact same markup is correct for an English display_name.
+
+        Deliberately checks display_name's own resolved *text* for
+        Hebrew characters, not "no nickname and no first_name_en" (the
+        no-English-first-name fallback that's the common way
+        display_name ends up Hebrew) - an editor can set a Hebrew
+        *nickname* too, which display_name prefers over everything else,
+        and a field-presence check would miss that case entirely (a
+        nickname is set, so "no nickname" is false, but the nickname
+        itself is Hebrew).
+        """
+        return bool(self.display_name) and bool(_HEBREW_CHARS.search(self.display_name))
 
     @property
     def memorial_marker(self) -> str:

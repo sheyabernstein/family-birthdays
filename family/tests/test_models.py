@@ -329,6 +329,34 @@ def test_display_name_falls_back_to_bare_hebrew_first_name_with_no_names_at_all(
     assert person.display_name == "בלומא"
 
 
+@pytest.mark.parametrize(
+    ["kwargs", "expected"],
+    [
+        [{"first_name_en": "Blimi", "last_name_en": "Rokach", "first_name_he": "בלומא"}, False],
+        [{"last_name_en": "Rokach", "first_name_he": "בלומא"}, True],
+        [{"first_name_he": "בלומא"}, True],
+        [{"nickname": "Bobby", "first_name_he": "בלומא"}, False],
+        # A Hebrew *nickname* makes display_name Hebrew too, even though
+        # a nickname is technically set - display_name prefers it over
+        # everything else, so a field-presence check ("no nickname and
+        # no first_name_en") would miss this case entirely.
+        [{"nickname": "בלומי", "first_name_he": "בלומא"}, True],
+    ],
+    ids=[
+        "english first name is not hebrew",
+        "no english first name falls back to hebrew",
+        "no names at all beyond the required hebrew first name",
+        "english nickname is not hebrew",
+        "hebrew nickname is hebrew",
+    ],
+)
+def test_display_name_is_hebrew_checks_the_resolved_text_not_just_which_field_is_set(
+    family, kwargs, expected
+):
+    person = Person(family=family, **kwargs)
+    assert person.display_name_is_hebrew is expected
+
+
 def test_default_ordering_falls_back_to_hebrew_names_without_an_english_surname(family):
     # last_name_en is the primary sort key (the common case), but it's
     # optional now - someone with none should still sort predictably
