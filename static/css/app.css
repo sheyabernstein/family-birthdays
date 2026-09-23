@@ -1152,6 +1152,20 @@ label {
   gap: 1.75rem;
 }
 
+/* Divider between generation sections (Parents/Self/Children) - only
+   between them, not above the first one. Whichever section happens to
+   render first (Parents if recorded/addable, else Self - see
+   person_detail.html's own conditionals) sits directly under the
+   "Family" <h2>, which already draws its own border-bottom - a divider
+   here too on the same first section stacked two visible lines with a
+   gap between them right under the heading. :not(:first-child) is
+   resolved against the actual rendered DOM, so this stays correct
+   regardless of which section ends up first. */
+.tree > div:not(:first-child) {
+  border-top: 1px solid var(--rule);
+  padding-top: 0.75rem;
+}
+
 .tree-generation {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
@@ -1165,8 +1179,6 @@ label {
   color: var(--ink-soft);
   margin-bottom: 0.5rem;
   display: block;
-  border-top: 1px solid var(--rule);
-  padding-top: 0.75rem;
 }
 
 .tree-node {
