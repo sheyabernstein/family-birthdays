@@ -964,12 +964,28 @@ label {
    LTR paragraph's own embedding order - visually to the *right* of the
    name, which a Hebrew reader (right-to-left) encounters before the
    name instead of after it. Wrapping both together in one RTL context
-   fixes the reading order and also gets the same Noto Sans Hebrew
-   font-family fix .hebrew-name already has - font: inherited size/
-   weight/color from whatever context this renders in (an <h1>, a plain
-   name span, ...), unlike .hebrew-suffix which is always sized/colored
-   as a secondary marker. */
+   fixes the reading order - font: inherited size/weight/family/color
+   from whatever context this renders in (an <h1>, a plain name span,
+   ...), unlike .hebrew-suffix which is always sized/colored as a
+   secondary marker. Deliberately does NOT force --font-hebrew the way
+   .hebrew-name/.hebrew-suffix do - found for real: overriding it here
+   made this specific text visibly mismatch every other Hebrew string on
+   the same page (all of which inherit their font-family normally),
+   rather than matching them. */
 .name-rtl {
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
+/* A plain block of Hebrew text with no other opinion (size/color/
+   spacing) of its own - unlike .hebrew-name/.hebrew-suffix/.name-rtl
+   above, which are all sized and colored for one specific context.
+   Found for real: dashboard.html's own secondary Hebrew-first-name line
+   (the "not already the primary display name" case) rendered in the
+   browser's generic Hebrew fallback instead of this app's own Noto Sans
+   Hebrew, visibly different in weight/letterforms from every other
+   Hebrew string on the same page. */
+.hebrew {
   font-family: var(--font-hebrew);
   direction: rtl;
   unicode-bidi: isolate;
@@ -1328,6 +1344,7 @@ main.full-bleed {
 }
 
 #family-chart-mount .card-hebrew-name {
+  font-family: var(--font-hebrew);
   font-size: 0.8rem;
   opacity: 0.8;
 }
