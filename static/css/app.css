@@ -1452,6 +1452,20 @@ main.auth-main {
   overflow-wrap: anywhere;
 }
 
+/* link_sent.html's own "enter the code instead" mini-form - set off
+   from the rest of the card with its own rule and breathing room, same
+   as .confirm-details does above, rather than just butting up against
+   the "Didn't get it?" line right above it. */
+.auth-alt-action {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.auth-alt-action .form-field {
+  margin: 0.75rem 0;
+}
+
 /* --- Tom Select (father/mother/spouse pickers) - retint the library's
    default look to match the app's palette instead of its stock blue. --- */
 

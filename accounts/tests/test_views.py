@@ -177,8 +177,8 @@ def test_request_magic_link_email_includes_a_code_alternative(client):
 
     sent = mail.outbox[-1]
     html, _ = sent.alternatives[0]
-    assert "/accounts/login/code/" in html
-    match = re.search(r"<strong[^>]*>([A-Z0-9]{6})</strong>", html)
+    assert "Or enter this code:" in html
+    match = re.search(r">([A-Z0-9]{6})</p>", html)
     assert match is not None
     code = match.group(1)
     assert set(code) <= set(magic_links.CODE_ALPHABET)
@@ -259,7 +259,7 @@ def test_request_magic_link_texts_a_code_alongside_the_link(client, monkeypatch)
 
     _to, body = calls[0]
     assert "Or enter code " in body
-    match = re.search(r"Or enter code ([A-Z0-9]{6})\.", body)
+    match = re.search(r"Or enter code ([A-Z0-9]{6})", body)
     assert match is not None
     assert set(match.group(1)) <= set(magic_links.CODE_ALPHABET)
 
@@ -516,12 +516,15 @@ def test_verify_magic_link_switches_account_even_when_already_authenticated(clie
     assert resp2.status_code == 302
 
 
-def test_verify_code_get_renders_the_form(client):
-    resp = client.get(reverse("accounts:verify_code"))
+def test_link_sent_page_includes_the_code_form(client):
+    # No separate page for this - the "enter your code instead" form
+    # lives inline on the same confirmation page a request lands on.
+    Account.objects.create_user(email="known@example.com")
 
-    assert resp.status_code == 200
-    assert b'name="identifier"' in resp.content
+    resp = client.post(reverse("accounts:request_link"), {"identifier": "known@example.com"})
+
     assert b'name="code"' in resp.content
+    assert b'value="known@example.com"' in resp.content
 
 
 def test_verify_code_logs_in_with_a_valid_code(client):
@@ -563,6 +566,8 @@ def test_verify_code_rejects_a_wrong_code(client):
 
     assert resp.status_code == 400
     assert "_auth_user_id" not in client.session
+    # Re-renders link_sent.html itself, not a dedicated error page.
+    assert b"That code didn" in resp.content
 
 
 def test_verify_code_rejects_an_unknown_identifier(client):
@@ -573,6 +578,7 @@ def test_verify_code_rejects_an_unknown_identifier(client):
     )
 
     assert resp.status_code == 400
+    assert b"That code didn" in resp.content
 
 
 def test_verify_code_also_burns_the_link_token(client):

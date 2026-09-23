@@ -6,7 +6,7 @@
         <div class="auth-card">
             <h1>Check your email or phone</h1>
             <p>If that matches an account, a sign-in link is on its way.</p>
-            {% if identifier %}
+            {% if identifier and ttl_minutes %}
                 <dl class="confirm-details">
                     <div class="confirm-row">
                         <dt>Sent to</dt>
@@ -22,10 +22,37 @@
                     </div>
                 </dl>
             {% endif %}
-            <p class="muted">
-                Can't open the link on this device? <a href="{% url 'accounts:verify_code' %}?identifier={{ identifier|urlencode }}">Enter the code from it instead</a>.
-            </p>
             <p class="muted">Didn't get it? <a href="{% url 'accounts:request_link' %}">Try again</a>.</p>
+            <div class="auth-alt-action">
+                <p class="muted">Or, if you received a code:</p>
+                {% if code_error %}<p class="form-errors">That code didn't work - double check it and try again.</p>{% endif %}
+                <form method="post" action="{% url 'accounts:verify_code' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="identifier" value="{{ identifier }}">
+                    <div class="form-field">
+                        <label for="code">Code</label>
+                        {% comment %}
+                            Verification (accounts.magic_links.consume_code) is already
+                            case-insensitive, but autocapitalize="characters" here still saves a
+                            manual shift on a mobile keyboard for whoever's typing this in.
+                        {% endcomment %}
+                        <input type="text"
+                               name="code"
+                               id="code"
+                               required
+                               autocomplete="off"
+                               autocapitalize="characters"
+                               autocorrect="off"
+                               spellcheck="false"
+                               data-lpignore="true"
+                               data-1p-ignore
+                               data-bwignore
+                               data-form-type="other"
+                               placeholder="ABC123">
+                    </div>
+                    <button type="submit" class="btn">Enter code</button>
+                </form>
+            </div>
         </div>
     </div>
 {% endblock %}

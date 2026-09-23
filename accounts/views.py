@@ -98,7 +98,6 @@ class RequestMagicLinkView(View):
                 # request-less absolute URL in this app already uses (see
                 # notifications.services._site_base_url).
                 url = absolute_url("accounts:verify", token)
-                code_url = absolute_url("accounts:verify_code")
 
                 if channel == ChannelEnum.EMAIL:
                     html = render_to_string(
@@ -106,7 +105,6 @@ class RequestMagicLinkView(View):
                         {
                             "sign_in_url": url,
                             "code": code,
-                            "code_url": code_url,
                             "ttl_minutes": ttl_minutes,
                             "family_name": family.name if family else None,
                         },
@@ -114,12 +112,8 @@ class RequestMagicLinkView(View):
                     subject, body = "Your sign-in link", html_to_plain_text(html)
                 else:
                     html = ""
-                    # No code_url here on purpose - keeps this a single
-                    # GSM-7 SMS segment. Whoever's reading this a code
-                    # aloud/typing it in is doing so on the sign-in page
-                    # they (or whoever's helping them) already have open.
                     subject, body = "", (
-                        f"Your sign-in link (valid {ttl_minutes} min): {url}\nOr enter code {code}."
+                        f"Your sign-in link (valid {ttl_minutes} min): {url}\n\nOr enter code {code}"
                     )
 
                 # Dispatched, not sent inline - see accounts.tasks.
@@ -216,16 +210,14 @@ class VerifyMagicLinkView(View):
 class VerifyCodeView(View):
     """The short-code alternative to clicking the magic link - see accounts/magic_links.py's own docstrings.
 
-    Deliberately standalone rather than tucked inside link_sent.html's
-    own page state - the whole point is supporting someone completing
-    sign-in on a *different* device/browser than the one the link/code
-    was requested from (a feature phone can receive the SMS but not
-    necessarily browse to click the link on), so this asks for the
-    identifier again rather than assuming session continuity.
+    POST-only - the form lives inline on link_sent.html itself (the
+    identifier is already known from that page's own context, tucked
+    into a hidden field), not a separately-navigable page of its own. A
+    failed attempt re-renders that same template rather than a dedicated
+    one.
     """
 
-    def get(self, request: HttpRequest) -> HttpResponse:
-        return render(request, "accounts/verify_code.html", {"identifier": _prefill_identifier(request)})
+    http_method_names = ["post"]
 
     def post(self, request: HttpRequest) -> HttpResponse:
         identifier = request.POST.get("identifier", "").strip()
@@ -244,8 +236,8 @@ class VerifyCodeView(View):
             logger.warning("magic code verify failed", identifier=identifier)
             return render(
                 request,
-                "accounts/verify_code.html",
-                {"identifier": identifier, "error": True},
+                "accounts/link_sent.html",
+                {"identifier": identifier, "code_error": True},
                 status=400,
             )
 
