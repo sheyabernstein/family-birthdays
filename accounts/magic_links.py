@@ -25,6 +25,14 @@ RATE_LIMIT_MAX_PER_WINDOW = 5
 # precision required to type it back in.
 CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 CODE_LENGTH = 6
+# Belt-and-braces, not a load-bearing assumption this ever actually
+# fires - at CODE_LENGTH=6 from a 33-character alphabet (~1.29 billion
+# possibilities), a real collision between two codes simultaneously live
+# within one TOKEN_TTL_SECONDS window is astronomically unlikely for
+# this app's real scale. Still worth guarding cheaply: see
+# _issue_unique_code's own docstring for what a collision would actually
+# do if left unguarded.
+CODE_COLLISION_RETRIES = 5
 # A short code has far less entropy than the link token itself, so
 # guessing it needs its own, tighter limiter - independent of
 # is_rate_limited's own per-hour cap on *requesting* new links.
@@ -79,9 +87,31 @@ def issue_token(*, account_uuid: str, channel: str, destination: str) -> tuple[s
     payload = f"{account_uuid}:{channel}:{destination}"
     _redis_client.set(_token_key(token), payload, ex=TOKEN_TTL_SECONDS)
 
-    code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
-    _redis_client.set(_code_key(code), token, ex=TOKEN_TTL_SECONDS)
+    code = _issue_unique_code(token)
     return token, code
+
+
+def _issue_unique_code(token: str) -> str:
+    """Generates a short code and reserves it atomically, retrying on the rare chance of a collision.
+
+    A plain SET here would silently overwrite another still-live code's
+    own Redis entry on collision, repointing it at this token instead -
+    whoever that first code belonged to would then find it mysteriously
+    stopped working, with no error anywhere to explain why. SET's own
+    NX flag only reserves a key that's genuinely free, so a collision is
+    detected and re-rolled rather than clobbering someone else's pending
+    sign-in.
+    """
+    for _ in range(CODE_COLLISION_RETRIES):
+        code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
+        if _redis_client.set(_code_key(code), token, ex=TOKEN_TTL_SECONDS, nx=True):
+            return code
+    # Never observed in practice - every retry landing on an already-
+    # taken code would take a truly pathological run of bad luck. Falls
+    # back to a plain overwrite rather than failing the sign-in request
+    # outright over odds this remote.
+    _redis_client.set(_code_key(code), token, ex=TOKEN_TTL_SECONDS)
+    return code
 
 
 def consume_token(token: str) -> dict | None:

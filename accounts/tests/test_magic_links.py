@@ -115,6 +115,31 @@ def test_code_guessing_locks_out_after_too_many_wrong_attempts_on_one_code():
     assert magic_links.consume_code(account_uuid=account_uuid, code="WRONG2") is None
 
 
+def test_issue_unique_code_retries_on_a_collision(monkeypatch):
+    # Force the very first roll to land on a code that's already reserved
+    # by someone else's still-pending sign-in.
+    magic_links._redis_client.set(magic_links._code_key("AAAAAA"), "other-token", ex=60)
+    rolls = iter(["A"] * magic_links.CODE_LENGTH + list("BBBBBB"))
+    monkeypatch.setattr(magic_links.secrets, "choice", lambda alphabet: next(rolls))
+
+    code = magic_links._issue_unique_code("real-token")
+
+    assert code == "BBBBBB"
+    # The collided-with code's own entry is untouched - never silently
+    # repointed at this token instead of the one it actually belongs to.
+    assert magic_links._redis_client.get(magic_links._code_key("AAAAAA")).decode() == "other-token"
+
+
+def test_issue_unique_code_falls_back_to_overwrite_after_exhausting_retries(monkeypatch):
+    magic_links._redis_client.set(magic_links._code_key("AAAAAA"), "other-token", ex=60)
+    monkeypatch.setattr(magic_links.secrets, "choice", lambda alphabet: "A")
+
+    code = magic_links._issue_unique_code("real-token")
+
+    assert code == "AAAAAA"
+    assert magic_links._redis_client.get(magic_links._code_key("AAAAAA")).decode() == "real-token"
+
+
 def test_code_guessing_locks_out_the_whole_account_after_too_many_attempts():
     # Independent of any one code's own attempt cap - spreading guesses
     # across many different wrong codes for the same account is still
