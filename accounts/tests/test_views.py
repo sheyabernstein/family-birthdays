@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from django.conf import settings
 from django.core import mail
@@ -166,6 +168,22 @@ def test_request_magic_link_email_includes_an_html_alternative_with_the_link(cli
     assert "15" in html
 
 
+def test_request_magic_link_email_includes_a_code_alternative(client):
+    # For whoever's signing in on a different device than the one that
+    # received this email, or can't tap the link at all on this one.
+    Account.objects.create_user(email="known@example.com")
+
+    client.post(reverse("accounts:request_link"), {"identifier": "known@example.com"})
+
+    sent = mail.outbox[-1]
+    html, _ = sent.alternatives[0]
+    assert "Or enter this code:" in html
+    match = re.search(r">([A-Z0-9]{6})</p>", html)
+    assert match is not None
+    code = match.group(1)
+    assert set(code) <= set(magic_links.CODE_ALPHABET)
+
+
 def test_request_magic_link_email_omits_the_manage_notifications_link(client):
     # Unlike every other email this app sends, a sign-in link isn't tied
     # to any one family (an Account can belong to several) and is sent
@@ -224,6 +242,26 @@ def test_request_magic_link_texts_a_sign_in_link_for_a_known_phone(client, monke
     assert to == "+15551234567"
     assert "/accounts/login/" in body
     assert "15" in body
+
+
+def test_request_magic_link_texts_a_code_alongside_the_link(client, monkeypatch):
+    # No code_url here (see the view's own comment) - stays a single SMS
+    # segment, and whoever's reading this is expected to already be on
+    # (or near) the sign-in page.
+    Account.objects.create_user(phone="+15551234567")
+    calls = []
+    monkeypatch.setattr(
+        "accounts.tasks.send_sms",
+        lambda to, body, event_type="", sender_id="": calls.append((to, body)),
+    )
+
+    client.post(reverse("accounts:request_link"), {"identifier": "+15551234567"})
+
+    _to, body = calls[0]
+    assert "Or enter code " in body
+    match = re.search(r"Or enter code ([A-Z0-9]{6})", body)
+    assert match is not None
+    assert set(match.group(1)) <= set(magic_links.CODE_ALPHABET)
 
 
 def test_request_magic_link_texts_a_sign_in_link_for_a_phone_typed_with_punctuation(client, monkeypatch):
@@ -306,7 +344,7 @@ def test_request_magic_link_stops_sending_once_rate_limited(client):
 
 def test_verify_magic_link_logs_in_with_a_valid_token(client):
     account = Account.objects.create_user(email="verify@example.com")
-    token = magic_links.issue_token(
+    token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
@@ -329,7 +367,7 @@ def test_verify_magic_link_redirects_to_the_accounts_own_person_in_the_tree(clie
     family = Family.objects.create(name="Test Family")
     FamilyMembership.objects.create(account=account, family=family)
     person = Person.objects.create(family=family, first_name_en="Me", last_name_en="Test", account=account)
-    token = magic_links.issue_token(
+    token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
@@ -348,7 +386,7 @@ def test_verify_magic_link_falls_back_to_dashboard_without_a_matching_person(cli
     # themselves to their own tree) - nothing to land on instead.
     account = Account.objects.create_user(email="verify@example.com")
     FamilyMembership.objects.create(account=account, family=Family.objects.create(name="Test Family"))
-    token = magic_links.issue_token(
+    token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
@@ -369,7 +407,7 @@ def test_verify_magic_link_falls_back_to_the_switcher_with_an_ambiguous_family(c
     account = Account.objects.create_user(email="verify@example.com")
     FamilyMembership.objects.create(account=account, family=Family.objects.create(name="Family A"))
     FamilyMembership.objects.create(account=account, family=Family.objects.create(name="Family B"))
-    token = magic_links.issue_token(
+    token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
@@ -384,7 +422,7 @@ def test_verify_magic_link_falls_back_to_the_switcher_with_an_ambiguous_family(c
 
 def test_verify_magic_link_token_is_single_use(client):
     account = Account.objects.create_user(email="onceonly@example.com")
-    token = magic_links.issue_token(
+    token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
     client.get(reverse("accounts:verify", args=[token]))
@@ -403,7 +441,7 @@ def test_verify_magic_link_rejects_an_unknown_token(client):
 
 def test_verify_magic_link_rejects_a_token_for_a_deactivated_account(client):
     account = Account.objects.create_user(email="deactivated@example.com")
-    token = magic_links.issue_token(
+    token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
     account.is_active = False
@@ -421,7 +459,7 @@ def test_verify_magic_link_redirects_an_already_authenticated_user_for_a_spent_t
     # here, so family:home's own FamilyRequiredMixin sends this on to
     # the no-access page rather than the switcher.
     account = Account.objects.create_user(email="already-in@example.com")
-    token = magic_links.issue_token(
+    token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
     client.get(reverse("accounts:verify", args=[token]))
@@ -440,7 +478,7 @@ def test_verify_magic_link_redirects_an_already_authenticated_user_to_their_own_
     family = Family.objects.create(name="Test Family")
     FamilyMembership.objects.create(account=account, family=family)
     person = Person.objects.create(family=family, first_name_en="Me", last_name_en="Test", account=account)
-    token = magic_links.issue_token(
+    token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
     client.get(reverse("accounts:verify", args=[token]))
@@ -462,7 +500,7 @@ def test_verify_magic_link_switches_account_even_when_already_authenticated(clie
     other_account = Account.objects.create_user(email="other@example.com")
     client.force_login(other_account)
     account = Account.objects.create_user(email="target@example.com")
-    token = magic_links.issue_token(
+    token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
@@ -476,6 +514,106 @@ def test_verify_magic_link_switches_account_even_when_already_authenticated(clie
     # second real login.
     resp2 = client.get(reverse("accounts:verify", args=[token]))
     assert resp2.status_code == 302
+
+
+def test_link_sent_page_includes_the_code_form(client):
+    # No separate page for this - the "enter your code instead" form
+    # lives inline on the same confirmation page a request lands on.
+    Account.objects.create_user(email="known@example.com")
+
+    resp = client.post(reverse("accounts:request_link"), {"identifier": "known@example.com"})
+
+    assert b'name="code"' in resp.content
+    assert b'value="known@example.com"' in resp.content
+
+
+def test_verify_code_logs_in_with_a_valid_code(client):
+    account = Account.objects.create_user(email="verify@example.com")
+    _token, code = magic_links.issue_token(
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
+    )
+
+    resp = client.post(reverse("accounts:verify_code"), {"identifier": "verify@example.com", "code": code})
+
+    assert resp.status_code == 302
+    assert resp.url == reverse("family:home")
+    assert client.session["_auth_user_id"] == str(account.pk)
+
+
+def test_verify_code_is_case_insensitive(client):
+    account = Account.objects.create_user(email="verify@example.com")
+    _token, code = magic_links.issue_token(
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
+    )
+
+    resp = client.post(
+        reverse("accounts:verify_code"), {"identifier": "verify@example.com", "code": code.lower()}
+    )
+
+    assert resp.status_code == 302
+    assert client.session["_auth_user_id"] == str(account.pk)
+
+
+def test_verify_code_rejects_a_wrong_code(client):
+    account = Account.objects.create_user(email="verify@example.com")
+    magic_links.issue_token(
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
+    )
+
+    resp = client.post(
+        reverse("accounts:verify_code"), {"identifier": "verify@example.com", "code": "ZZZZZZ"}
+    )
+
+    assert resp.status_code == 400
+    assert "_auth_user_id" not in client.session
+    # Re-renders link_sent.html itself, not a dedicated error page.
+    assert b"That code didn" in resp.content
+
+
+def test_verify_code_rejects_an_unknown_identifier(client):
+    # Same generic error either way - never confirm which identifiers
+    # are actually registered.
+    resp = client.post(
+        reverse("accounts:verify_code"), {"identifier": "nobody@example.com", "code": "AB1234"}
+    )
+
+    assert resp.status_code == 400
+    assert b"That code didn" in resp.content
+
+
+def test_verify_code_also_burns_the_link_token(client):
+    account = Account.objects.create_user(email="verify@example.com")
+    token, code = magic_links.issue_token(
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
+    )
+    client.post(reverse("accounts:verify_code"), {"identifier": "verify@example.com", "code": code})
+    client.logout()
+
+    resp = client.get(reverse("accounts:verify", args=[token]))
+
+    assert resp.status_code == 400
+
+
+def test_verify_code_redirects_to_the_accounts_own_person_in_the_tree(client):
+    account = Account.objects.create_user(email="verify@example.com")
+    family = Family.objects.create(name="Test Family")
+    FamilyMembership.objects.create(account=account, family=family)
+    person = Person.objects.create(family=family, first_name_en="Me", last_name_en="Test", account=account)
+    _token, code = magic_links.issue_token(
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
+    )
+
+    resp = client.post(
+        reverse("accounts:verify_code"),
+        {"identifier": "verify@example.com", "code": code},
+        follow=True,
+    )
+
+    assert resp.redirect_chain == [
+        (reverse("family:home"), 302),
+        (reverse("family:family_tree", args=[person.uuid]), 302),
+    ]
+    assert resp.status_code == 200
 
 
 def test_logout_logs_out_the_current_user(client, family):

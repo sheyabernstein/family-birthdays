@@ -20,8 +20,14 @@
         <br>
         <a href="{{ sign_in_url }}" style="word-break: break-all;">{{ sign_in_url }}</a>
     </p>
-    <p class="muted" style="font-size: 13px; margin: 16px 0 0;">
-        This link expires in {{ ttl_minutes }} minutes and can only be used once. If you didn't request it, you can ignore this email.
+    <p class="muted" style="font-size: 13px; margin: 20px 0 8px;">Or enter this code:</p>
+    <p class="ink"
+       style="font-size: 28px;
+              font-weight: 700;
+              letter-spacing: 0.15em;
+              margin: 0">{{ code }}</p>
+    <p class="muted" style="font-size: 13px; margin: 20px 0 0;">
+        This link and code expire in {{ ttl_minutes }} minutes and can only be used once. If you didn't request it, you can ignore this email.
     </p>
 {% endblock %}
 {% block footer %}Sent by {{ family_name|default:"Family Tree" }}.{% endblock %}

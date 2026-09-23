@@ -84,7 +84,7 @@ class RequestMagicLinkView(View):
                 destination = account.email if is_email else account.phone
                 family = _sole_family(account)
 
-                token = magic_links.issue_token(
+                token, code = magic_links.issue_token(
                     account_uuid=str(account.uuid), channel=channel, destination=destination
                 )
                 # Not request.build_absolute_uri() - that derives the scheme
@@ -104,6 +104,7 @@ class RequestMagicLinkView(View):
                         "accounts/email/sign_in.html",
                         {
                             "sign_in_url": url,
+                            "code": code,
                             "ttl_minutes": ttl_minutes,
                             "family_name": family.name if family else None,
                         },
@@ -111,7 +112,9 @@ class RequestMagicLinkView(View):
                     subject, body = "Your sign-in link", html_to_plain_text(html)
                 else:
                     html = ""
-                    subject, body = "", f"Your sign-in link (valid {ttl_minutes} min): {url}"
+                    subject, body = "", (
+                        f"Your sign-in link (valid {ttl_minutes} min): {url}\n\nOr enter code {code}"
+                    )
 
                 # Dispatched, not sent inline - see accounts.tasks.
                 # send_magic_link_message's own docstring for why this
@@ -152,6 +155,31 @@ class RequestMagicLinkView(View):
         )
 
 
+def _log_in_and_redirect(request: HttpRequest, account: Account) -> HttpResponse:
+    """Shared by VerifyMagicLinkView and VerifyCodeView - the code is just a second pointer at the same token.
+
+    Only skips the actual login() call when it'd be a same-account
+    no-op - the caller's own token/code was already burned by the time
+    this runs regardless (see magic_links.consume_token/consume_code), so
+    a still-live one must never survive a visit just because this
+    browser happened to already be authenticated.
+    """
+    if request.user.pk != account.pk:
+        account.backend = "django.contrib.auth.backends.ModelBackend"
+        login(request, account)
+        logger.info("account logged in", account=account.uuid)
+    # Redirects to family:home rather than resolving the landing page
+    # here directly - CurrentFamilyMiddleware already ran for *this*
+    # request before login() was called, off of whatever request.user
+    # was at the start of the request (anonymous, on a real sign-in), so
+    # request.family/request.self_person here would still reflect the
+    # pre-login state. family:home (family.views.HomeView) does the
+    # actual self-person-or-Upcoming resolution on the browser's
+    # follow-up request, once middleware has run again for the
+    # now-authenticated session.
+    return redirect("family:home")
+
+
 class VerifyMagicLinkView(View):
     def get(self, request: HttpRequest, token: str) -> HttpResponse:
         payload = magic_links.consume_token(token)
@@ -176,25 +204,44 @@ class VerifyMagicLinkView(View):
             )
             return render(request, "accounts/link_invalid.html", status=400)
 
-        # Consuming the token above always burns it, even when the
-        # current session is already signed in as someone else - a still-
-        # live token must never survive a visit just because this browser
-        # happened to be authenticated already. Only skip the actual
-        # login() call when it'd be a same-account no-op.
-        if request.user.pk != account.pk:
-            account.backend = "django.contrib.auth.backends.ModelBackend"
-            login(request, account)
-            logger.info("account logged in", account=account.uuid)
-        # Redirects to family:home rather than resolving the landing
-        # page here directly - CurrentFamilyMiddleware already ran for
-        # *this* request before login() was called, off of whatever
-        # request.user was at the start of the request (anonymous, on a
-        # real sign-in), so request.family/request.self_person here
-        # would still reflect the pre-login state. family:home
-        # (family.views.HomeView) does the actual self-person-or-
-        # Upcoming resolution on the browser's follow-up request, once
-        # middleware has run again for the now-authenticated session.
-        return redirect("family:home")
+        return _log_in_and_redirect(request, account)
+
+
+class VerifyCodeView(View):
+    """The short-code alternative to clicking the magic link - see accounts/magic_links.py's own docstrings.
+
+    POST-only - the form lives inline on link_sent.html itself (the
+    identifier is already known from that page's own context, tucked
+    into a hidden field), not a separately-navigable page of its own. A
+    failed attempt re-renders that same template rather than a dedicated
+    one.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request: HttpRequest) -> HttpResponse:
+        identifier = request.POST.get("identifier", "").strip()
+        code = request.POST.get("code", "").strip()
+        account = Account.find_by_identifier(identifier)
+
+        payload = None
+        if account and account.is_active:
+            payload = magic_links.consume_code(account_uuid=str(account.uuid), code=code)
+
+        if not payload:
+            # One combined error covers a wrong code, an unknown
+            # identifier, and a locked-out account alike - same
+            # don't-leak-which-identifiers-are-registered reasoning as
+            # RequestMagicLinkView.post's own shared response.
+            logger.warning("magic code verify failed", identifier=identifier)
+            return render(
+                request,
+                "accounts/link_sent.html",
+                {"identifier": identifier, "code_error": True},
+                status=400,
+            )
+
+        return _log_in_and_redirect(request, account)
 
 
 class LogoutView(LoginRequiredMixin, View):
