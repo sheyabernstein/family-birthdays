@@ -1602,3 +1602,22 @@ def test_help_shows_nothing_owner_related_with_no_current_family(client):
 
     assert resp.status_code == 200
     assert "Reach out to" not in resp.content.decode()
+
+
+def test_help_links_to_source_by_the_full_sha_but_displays_the_readable_version(client, settings):
+    # BUILD_VERSION (a tag name on a tagged release, else a short sha) is
+    # what's shown - it reads far better than a bare sha - but the link
+    # itself always targets BUILD_SHA, the full commit sha, since a tag is
+    # a mutable ref that can be force-moved or deleted later and this link
+    # is meant to stay valid forever (see config/settings.py's own
+    # BUILD_SHA docstring).
+    settings.BUILD_VERSION = "v1.2.3"
+    settings.BUILD_SHA = "abc123def456"
+    account = Account.objects.create_user(email="floating@example.com")
+    client.force_login(account)
+
+    resp = client.get("/help/")
+    content = resp.content.decode()
+
+    assert 'href="https://github.com/sheyabernstein/family-birthdays/tree/abc123def456"' in content
+    assert ">v1.2.3<" in content
