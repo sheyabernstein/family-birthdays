@@ -1,5 +1,7 @@
+from urllib.parse import parse_qs, urlsplit
+
 from django.contrib import messages
-from django.contrib.auth import login, logout
+from django.contrib.auth import REDIRECT_FIELD_NAME, login, logout
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
@@ -34,9 +36,30 @@ def _sole_family(account: Account) -> Family | None:
     return memberships[0].family if len(memberships) == 1 else None
 
 
+def _prefill_identifier(request: HttpRequest) -> str:
+    """The identifier to prefill the sign-in form with, if this visit's URL carries one.
+
+    Never auto-submits anything (see request_link.html) - this only
+    saves a re-type, it still takes a real click to actually request a
+    link. Checked two ways: a direct ?identifier= on this page's own
+    URL, and - since the far more common path here is
+    LoginRequiredMixin's own redirect_to_login() (e.g. a signed-out visit
+    to the "Manage notification settings" link every notification email
+    carries, see templates/email/_base.html's own manage_settings_url
+    tag) - nested inside that redirect's own ?next= querystring instead
+    of a sibling parameter next to it.
+    """
+    identifier = request.GET.get("identifier", "")
+    if identifier:
+        return identifier
+    next_url = request.GET.get(REDIRECT_FIELD_NAME, "")
+    next_query = urlsplit(next_url).query
+    return parse_qs(next_query).get("identifier", [""])[0]
+
+
 class RequestMagicLinkView(View):
     def get(self, request: HttpRequest) -> HttpResponse:
-        return render(request, "accounts/request_link.html")
+        return render(request, "accounts/request_link.html", {"identifier": _prefill_identifier(request)})
 
     def post(self, request: HttpRequest) -> HttpResponse:
         identifier = request.POST.get("identifier", "")

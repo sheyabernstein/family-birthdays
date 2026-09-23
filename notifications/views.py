@@ -19,7 +19,7 @@ from notifications.audience import available_channels, preference_status
 from notifications.enums import ChannelEnum
 from notifications.forms import BroadcastForm
 from notifications.models import Broadcast, EventType, NotificationPreference, Occurrence
-from notifications.tasks import SMS_CHAR_BUDGET, _render_occurrence_message
+from notifications.tasks import SMS_CHAR_BUDGET, _personalize, _render_occurrence_message
 from tenants.mixins import FamilyEditorRequiredMixin, FamilyRequiredMixin, FamilyScopedMixin
 
 
@@ -308,6 +308,12 @@ class OccurrencePreviewView(FamilyEditorRequiredMixin, FamilyScopedMixin, Detail
         _subject, sms_text, _html = _render_occurrence_message(
             occurrence, channel=ChannelEnum.SMS, as_of=as_of
         )
+        # One occurrence can have several recipients, each with their own
+        # real destination (notifications.tasks._personalize swaps this
+        # in per Message at send time) - there's no one real recipient to
+        # show here, so a generic example stands in rather than leaking
+        # the internal IDENTIFIER_PLACEHOLDER token itself onto this page.
+        html = _personalize(html, destination="you@example.com")
         context.update(
             {
                 "preview_as_of": as_of,
