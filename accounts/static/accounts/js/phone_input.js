@@ -49,6 +49,23 @@ function initPhoneInput(selector) {
 
   const form = input.closest("form");
   if (form) {
+    // Posted in place of `input` itself, which keeps showing exactly
+    // what the user typed (national format) - never overwritten in
+    // place. Found for real: writing iti.getNumber()'s E.164 result
+    // straight into input.value put a second "+44" right next to the
+    // flag picker's own "+44" dial-code label, reading as a doubled
+    // country code ("+44 +447xxxxxxxxx") - not a real data problem (the
+    // posted value was always correct), but confusing enough that a
+    // blocked submit (e.g. a native required-field validation failure
+    // elsewhere on the form, which never even dispatches this submit
+    // handler) looked like the phone field itself had gotten corrupted
+    // and needed a second attempt.
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.name = input.name;
+    form.appendChild(hidden);
+    input.removeAttribute("name");
+
     form.addEventListener("submit", (event) => {
       if (!isAcceptable()) {
         event.preventDefault();
@@ -56,13 +73,10 @@ function initPhoneInput(selector) {
         input.focus();
         return;
       }
-      // getNumber() returns E.164 - overwrite the visible (national-
-      // format) value with it right before submit, so the field posts
-      // the same format the backend already expects, with no server-side
-      // changes needed.
-      if (input.value.trim() !== "") {
-        input.value = iti.getNumber();
-      }
+      // getNumber() returns E.164 - recomputed from input's own
+      // (unmodified) text every time, so re-running this handler for
+      // whatever reason is always safe.
+      hidden.value = input.value.trim() === "" ? "" : iti.getNumber();
     });
   }
 }
