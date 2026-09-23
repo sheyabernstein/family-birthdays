@@ -2,6 +2,7 @@ import datetime as dt
 
 import pytest
 from django.db import connection
+from django.template.defaultfilters import date as date_filter
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -690,7 +691,13 @@ def test_occurrence_preview_renders_as_of_its_own_send_date_not_today(client, fa
     resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
 
     assert resp.status_code == 200
-    expected_weekday = f"on {occurrence.occurrence_date:%A}"
+    # date_filter (Django's own formatting, reads the Shabbos-patched
+    # WEEKDAYS dict - see family.apps.FamilyConfig.ready() and AGENTS.md's
+    # "Dates" section), not strftime's %A - the app never renders a
+    # Saturday as "Saturday", so asserting against %A's output would
+    # spuriously fail whenever this test happens to run 10 days before a
+    # real Saturday.
+    expected_weekday = f"on {date_filter(occurrence.occurrence_date, 'l')}"
     assert expected_weekday.encode() in resp.content
 
 
