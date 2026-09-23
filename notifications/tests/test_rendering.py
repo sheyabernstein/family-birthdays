@@ -566,7 +566,13 @@ def test_occurrence_names_the_weekday_when_shifted_multiple_days_early(family):
     # the weekday for a gap this small, so this falls back to
     # weekday_naturalday's weekday-name branch rather than a bare date.
     occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY, days_ahead=3)
-    expected_weekday = f"on {occurrence.occurrence_date:%A}"
+    # date_filter (Django's own formatting, reads the Shabbos-patched
+    # WEEKDAYS dict - see family.apps.FamilyConfig.ready() and AGENTS.md's
+    # "Dates" section), not strftime's %A - the app never renders a
+    # Saturday as "Saturday", so asserting against %A's output would
+    # spuriously fail whenever this test happens to run 3 days before a
+    # real Saturday.
+    expected_weekday = f"on {date_filter(occurrence.occurrence_date, 'l')}"
 
     subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
