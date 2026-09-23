@@ -701,23 +701,26 @@ def test_occurrence_preview_renders_as_of_its_own_send_date_not_today(client, fa
     assert expected_weekday.encode() in resp.content
 
 
-def test_occurrence_preview_shows_one_stamp_when_not_shifted(client, family):
-    # The common case (birthday/yahrzeit/anniversary, sent same-day) has
-    # nothing to explain - showing a second, identical "Notification
-    # sends" stamp next to "Event date" would just be clutter.
+def test_occurrence_preview_always_shows_both_stamps(client, family):
+    # Event date and Notification sends are always two distinct
+    # concepts on this page, even when they happen to coincide (the
+    # common case - birthday/yahrzeit/anniversary, sent same-day) -
+    # Upcoming itself shows nothing about send-date reasoning at all
+    # now, so this page no longer hides the second stamp just because
+    # there's nothing to explain this time.
     editor = _member(family, FamilyMembership.Role.EDITOR)
     _login_as(client, editor, family)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
     same_date = timezone.localdate() + dt.timedelta(days=3)
     occurrence = _preview_occurrence(
-        person, EventType.BuiltinCode.BIRTHDAY, occurrence_date=same_date, send_date=same_date
+        person, EventType.BuiltinCode.YAHRZEIT, occurrence_date=same_date, send_date=same_date
     )
 
     resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
     content = resp.content.decode()
 
     assert "Event date" in content
-    assert "Notification sends" not in content
+    assert "Notification sends" in content
 
 
 def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
@@ -725,13 +728,15 @@ def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
     # (see OccurrencePreviewView) rather than recomputing it, so this
     # doesn't need occurrence_date/send_date to be a real Shabbos/Yom Tov
     # pair - family.tests.test_hebrew covers resolve_send_date's own
-    # calendar math directly.
+    # calendar math directly. Yahrzeit (notify_days_before=0), not
+    # Birthday - isolates the shift-only wording from the lead-time
+    # clause covered by the combined test below.
     editor = _member(family, FamilyMembership.Role.EDITOR)
     _login_as(client, editor, family)
     person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
     occurrence = _preview_occurrence(
         person,
-        EventType.BuiltinCode.BIRTHDAY,
+        EventType.BuiltinCode.YAHRZEIT,
         occurrence_date=timezone.localdate() + dt.timedelta(days=3),
         send_date=timezone.localdate(),
         shift_reasons=[ShiftReason.SHABBOS, ShiftReason.YOM_TOV],
@@ -745,11 +750,11 @@ def test_occurrence_preview_names_the_shabbat_yom_tov_shift(client, family):
     assert "Moved up for Shabbos and Yom Tov" in content
 
 
-def test_occurrence_preview_shows_both_stamps_without_a_shift_note_for_a_fixed_lead_time(client, family):
-    # Wedding's own notify_days_before=3 makes send_date differ from
+def test_occurrence_preview_shows_a_lead_time_note_with_no_shift(client, family):
+    # Wedding's own notify_days_before=7 makes send_date differ from
     # occurrence_date on its own, with no Shabbos/Yom Tov involved - the
-    # two stamps say enough on their own; the shift-specific note would
-    # be misleading here.
+    # lead-time clause explains that gap on its own; no shift-specific
+    # wording applies since there was no shift.
     editor = _member(family, FamilyMembership.Role.EDITOR)
     _login_as(client, editor, family)
     person_a = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
@@ -760,7 +765,7 @@ def test_occurrence_preview_shows_both_stamps_without_a_shift_note_for_a_fixed_l
         union=union,
         event_type=wedding,
         hebrew_year=5786,
-        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        occurrence_date=timezone.localdate() + dt.timedelta(days=7),
         send_date=timezone.localdate(),
     )
 
@@ -769,7 +774,39 @@ def test_occurrence_preview_shows_both_stamps_without_a_shift_note_for_a_fixed_l
 
     assert "Event date" in content
     assert "Notification sends" in content
-    assert "Moved up for Shabbos/Yom Tov" not in content
+    assert "Wedding always sends 7 days ahead" in content
+    assert "Moved up for" not in content
+
+
+def test_occurrence_preview_combines_lead_time_and_shift_reasons(client, family):
+    # The actual bug this whole feature exists to fix: a lead-time-
+    # driven date (Wedding's own 7-day lead) can itself land on
+    # Shabbos/Yom Tov and get shifted further - showing only the shift
+    # ("Moved up for Shabbos and Yom Tov") would understate the real
+    # gap back to occurrence_date, since most of that gap is actually
+    # the lead time, not the shift. Found for real via Sprintse
+    # Bernstein's own upcoming wedding.
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    person_a = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    person_b = Person.objects.create(family=family, first_name_en="Moshe", last_name_en="Rokach")
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+    wedding = EventType.objects.get(family=None, code=EventType.BuiltinCode.WEDDING)
+    occurrence = Occurrence.objects.create(
+        union=union,
+        event_type=wedding,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=9),
+        send_date=timezone.localdate(),
+        shift_reasons=[ShiftReason.SHABBOS, ShiftReason.YOM_TOV],
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+    content = resp.content.decode()
+
+    assert (
+        "Wedding always sends 7 days ahead, moved earlier since that lands on Shabbos and Yom Tov" in content
+    )
 
 
 def test_occurrence_preview_does_not_query_parents_per_request(client, family):
