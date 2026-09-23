@@ -132,6 +132,7 @@ jobs:
           context: .
           build-args: |
             BUILD_VERSION=${{ github.sha }}
+            BUILD_SHA=${{ github.sha }}
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -187,6 +188,7 @@ jobs:
           context: .
           build-args: |
             BUILD_VERSION=${{ steps.build_version.outputs.value }}
+            BUILD_SHA=${{ github.sha }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

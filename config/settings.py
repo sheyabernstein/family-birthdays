@@ -20,6 +20,14 @@ if (env_path := BASE_DIR / ".env").exists():
     load_dotenv(env_path)
 
 BUILD_VERSION = os.getenv("BUILD_VERSION", "dev")
+# Always the full commit sha, unlike BUILD_VERSION above (a tag name on a
+# tagged release, else a short sha) - a tag is a mutable ref that can be
+# force-moved or deleted later, so it's the wrong thing to link straight
+# to source from (see family/templates/family/help.html) if the link is
+# meant to stay valid forever. BUILD_VERSION is still what's shown -
+# a tag reads far better than a bare sha in a Sentry release or a
+# Prometheus build_info label - this is only for the link's own target.
+BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 
 # Imported after load_dotenv() so its module-level logging setup reads
 # LOG_LEVEL/etc from .env.
