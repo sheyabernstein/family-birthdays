@@ -25,7 +25,7 @@
                                         </a>
                                         {% if occurrence.person.first_name_he and not occurrence.person.display_name_is_hebrew %}
                                             <br>
-                                            <small class="muted">{{ occurrence.person.first_name_he }}</small>
+                                            <small class="muted hebrew">{{ occurrence.person.first_name_he }}</small>
                                         {% endif %}
                                     {% elif occurrence.union %}
                                         <span>
