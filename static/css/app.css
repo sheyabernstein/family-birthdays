@@ -487,15 +487,6 @@ main {
   unicode-bidi: isolate;
 }
 
-/* Own line, not squeezed into .timeline-when alongside the two date
-   spans - the full explanation (send date + why) is too much text to
-   share one row with the event date once it wraps on a narrow screen. */
-.timeline-send-note {
-  font-size: 0.7rem;
-  color: var(--brass-ink);
-  margin: 0 0 0.5rem;
-}
-
 .timeline-card {
   background: var(--paper-raised);
   border-radius: var(--radius);
@@ -521,20 +512,6 @@ main {
 
 .timeline-who .badge {
   justify-self: start;
-}
-
-/* Explicitly the name column (not auto-placed, same as the Hebrew name
-   subtitle it sits under) - a full-width row here used to sit behind
-   the Preview button's own absolute vertical centering (over the whole,
-   now-taller .timeline-who) and add a lot of vertical space; scoping it
-   to the name column instead reads as part of that person's own line,
-   the way the Hebrew subtitle already does. */
-.timeline-send-note-inline {
-  grid-column: 2;
-  display: block;
-  font-size: 0.7rem;
-  color: var(--brass-ink);
-  margin-top: 0.15rem;
 }
 
 /* Owner/editor-only "Preview" button (occurrence_preview.js) - absolutely

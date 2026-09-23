@@ -15,14 +15,14 @@ a full page, deliberately no {% extends %}.
 {% comment %}
 Same "ledger stamp" component person_detail.html's own Born/Yahrzeit
 dates use (see app.css's own header comment) - reused here rather than
-inventing a second date-display convention just for this page. The
-send-date stamp is only shown at all when it actually differs from the
-event date (a Shabbos/Yom Tov shift, or Wedding's own fixed 3-day
-lead time) - the common case (birthday/yahrzeit/anniversary, sent
-same-day) has nothing to explain, so showing one stamp instead of two
-identical ones keeps that case uncluttered. The explanatory line comes
-first, before either stamp - reading a date before knowing what it's
-even a date *of* just reads as noise for a split second.
+inventing a second date-display convention just for this page. Both
+stamps always show, even when send_date equals occurrence_date (a
+deliberately consistent shape - Event date and Notification sends are
+always two distinct concepts here, even when they happen to coincide,
+rather than a second stamp that mysteriously appears/disappears
+depending on the data). The explanatory line comes first, before either
+stamp - reading a date before knowing what it's even a date *of* just
+reads as noise for a split second.
 {% endcomment %}
 <p class="muted occurrence-preview-note">Shown as it will read on its scheduled send date - not right now.</p>
 <div class="dates-row">
@@ -33,18 +33,14 @@ even a date *of* just reads as noise for a split second.
             <span class="gregorian-date">{{ occurrence.occurrence_date|date:"l, F j, Y" }}</span>
         </div>
     </div>
-    {% if occurrence.send_date != occurrence.occurrence_date %}
-        <div>
-            <span class="dates-label">Notification sends</span>
-            <div class="stamp {% if occurrence.shift_reasons %}stamp-shifted{% endif %}">
-                <span class="hebrew-date">{{ occurrence.send_date|hebrew_str }}</span>
-                <span class="gregorian-date">{{ occurrence.send_date|date:"l, F j, Y" }}</span>
-                {% if occurrence.shift_reasons %}
-                    <span class="stamp-note">Moved up for {{ occurrence.shift_reason_labels|join:" and " }}</span>
-                {% endif %}
-            </div>
+    <div>
+        <span class="dates-label">Notification sends</span>
+        <div class="stamp {% if occurrence.shift_reasons %}stamp-shifted{% endif %}">
+            <span class="hebrew-date">{{ occurrence.send_date|hebrew_str }}</span>
+            <span class="gregorian-date">{{ occurrence.send_date|date:"l, F j, Y" }}</span>
+            {% if send_note %}<span class="stamp-note">{{ send_note }}</span>{% endif %}
         </div>
-    {% endif %}
+    </div>
 </div>
 <div class="occurrence-preview-section">
     <h3>Email</h3>

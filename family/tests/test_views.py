@@ -10,7 +10,6 @@ from django.utils import timezone
 from accounts.models import Account
 from family.hebrew import gregorian_to_hebrew
 from family.models import Person, Union
-from notifications.enums import ShiftReason
 from notifications.models import Broadcast, EventType, NotificationPreference, Occurrence
 from notifications.tasks import compute_occurrences_for_union
 from tenants.models import Family, FamilyMembership
@@ -1300,7 +1299,7 @@ def test_dashboard_never_shows_broadcasts(client, family):
     assert b"Big news" not in resp.content
 
 
-def _occurrence(person, code, *, occurrence_date, send_date=None, shift_reasons=None):
+def _occurrence(person, code, *, occurrence_date, send_date=None):
     event_type = EventType.objects.get(family=None, code=code)
     return Occurrence.objects.create(
         person=person,
@@ -1308,7 +1307,6 @@ def _occurrence(person, code, *, occurrence_date, send_date=None, shift_reasons=
         hebrew_year=5786,
         occurrence_date=occurrence_date,
         send_date=send_date or occurrence_date,
-        shift_reasons=shift_reasons or [],
     )
 
 
@@ -1410,106 +1408,7 @@ def test_dashboard_shows_the_occurrence_date_not_the_send_date(client, family):
 
     assert date_filter(occurrence_date, "l, F j, Y") in content
     assert date_filter(send_date, "l, F j, Y") not in content
-    assert "Sends earlier" not in content
-
-
-def test_dashboard_send_note_explains_a_shabbos_or_yom_tov_shift(client, family):
-    owner = _member(family, FamilyMembership.Role.OWNER)
-    _login_as(client, owner, family)
-    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
-    occurrence_date = timezone.localdate() + dt.timedelta(days=3)
-    send_date = occurrence_date - dt.timedelta(days=1)
-    _occurrence(
-        person,
-        EventType.BuiltinCode.YAHRZEIT,
-        occurrence_date=occurrence_date,
-        send_date=send_date,
-        shift_reasons=[ShiftReason.SHABBOS],
-    )
-    NotificationPreference.objects.create(
-        account=owner,
-        event_type=EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT),
-        channel="email",
-        state=NotificationPreference.State.SUBSCRIBED,
-    )
-
-    resp = client.get("/upcoming/")
-    content = resp.content.decode()
-
-    assert f"Sends earlier - {date_filter(send_date, 'l, F j')}" in content
-    assert "since the date falls on Shabbos" in content
-    # The lead-time reasoning shouldn't also show once the shift reason
-    # already explains it - see dashboard.html's own comment.
-    assert "always sends" not in content
-
-
-def test_dashboard_send_note_explains_a_notify_days_before_lead_time(client, family):
-    owner = _member(family, FamilyMembership.Role.OWNER)
-    _login_as(client, owner, family)
-    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
-    occurrence_date = timezone.localdate() + dt.timedelta(days=3)
-    send_date = occurrence_date - dt.timedelta(days=1)
-    _occurrence(
-        person,
-        EventType.BuiltinCode.BIRTHDAY,
-        occurrence_date=occurrence_date,
-        send_date=send_date,
-    )
-
-    resp = client.get("/upcoming/")
-    content = resp.content.decode()
-
-    assert f"Sends {date_filter(send_date, 'l, F j')} - Birthday always sends 1 day ahead" in content
-
-
-def test_dashboard_send_note_is_per_occurrence_when_a_group_has_mixed_reasons(client, family):
-    # Two occurrences can share one (send_date, occurrence_date) group
-    # while landing there for genuinely different reasons (one shifted
-    # for Shabbos, the other just on its own type's usual lead time) -
-    # a single shared line would state one of those reasons as if it
-    # applied to both. See DashboardView's own comment.
-    owner = _member(family, FamilyMembership.Role.OWNER)
-    _login_as(client, owner, family)
-    shabbos_person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
-    lead_time_person = Person.objects.create(family=family, first_name_en="Moshe", last_name_en="Rokach")
-    occurrence_date = timezone.localdate() + dt.timedelta(days=3)
-    send_date = occurrence_date - dt.timedelta(days=1)
-    _occurrence(
-        shabbos_person,
-        EventType.BuiltinCode.YAHRZEIT,
-        occurrence_date=occurrence_date,
-        send_date=send_date,
-        shift_reasons=[ShiftReason.SHABBOS],
-    )
-    _occurrence(
-        lead_time_person,
-        EventType.BuiltinCode.BIRTHDAY,
-        occurrence_date=occurrence_date,
-        send_date=send_date,
-    )
-    NotificationPreference.objects.create(
-        account=owner,
-        event_type=EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT),
-        channel="email",
-        state=NotificationPreference.State.SUBSCRIBED,
-    )
-
-    resp = client.get("/upcoming/")
-    content = resp.content.decode()
-    group = resp.context["upcoming_groups"][0]
-
-    assert group["send_note"] is None
-    notes = {o.person_id: o.send_note for o in group["occurrences"]}
-    assert (
-        notes[shabbos_person.pk]
-        == f"Sends earlier - {date_filter(send_date, 'l, F j')} - since the date falls on Shabbos"
-    )
-    assert (
-        notes[lead_time_person.pk]
-        == f"Sends {date_filter(send_date, 'l, F j')} - Birthday always sends 1 day ahead"
-    )
-    assert "since the date falls on Shabbos" in content
-    assert "Birthday always sends 1 day ahead" in content
+    assert "moved up for Shabbos" not in content
 
 
 def test_dashboard_orders_grouped_occurrences_by_event_type_name(client, family):

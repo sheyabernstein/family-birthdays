@@ -11,7 +11,7 @@ from django.db.models import QuerySet
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
-from django.utils import dateformat, timezone
+from django.utils import timezone
 from django.utils.http import urlencode
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
@@ -166,38 +166,6 @@ class HebrewToGregorianView(LoginRequiredMixin, View):
         return JsonResponse({"date": gregorian_date.isoformat()})
 
 
-def _occurrence_send_note(occurrence: Occurrence) -> str | None:
-    """Explains why send_date differs from occurrence_date, or None when they match.
-
-    Computed in Python, not the template - the weekday name has to go
-    through Django's own date formatting (dateformat.format, via the
-    "l" format char), never a raw Python date method, since
-    family.apps.FamilyConfig.ready() patches Django's own weekday table
-    to read "Shabbos" for Saturday (see AGENTS.md's "Dates" section) -
-    only Django's formatting machinery reads that patched table.
-
-    A Shabbos/Yom Tov shift is the real answer to "why isn't this the
-    event date" once it applies - a lead time (notify_days_before) may
-    have also been in play to get to the date being shifted from, but
-    calling that out too just adds a second number that isn't why the
-    date looks unusual.
-    """
-    if occurrence.send_date == occurrence.occurrence_date:
-        return None
-    send_date_label = dateformat.format(occurrence.send_date, "l, F j")
-    if occurrence.shifted_for_shabbat_or_yomtov:
-        reasons = " and ".join(occurrence.shift_reason_labels)
-        return f"Sends earlier - {send_date_label} - since the date falls on {reasons}"
-    notify_days_before = occurrence.event_type.notify_days_before
-    if notify_days_before:
-        day_word = "day" if notify_days_before == 1 else "days"
-        return (
-            f"Sends {send_date_label} - {occurrence.event_type.name} always sends "
-            f"{notify_days_before} {day_word} ahead"
-        )
-    return None
-
-
 class HomeView(FamilyRequiredMixin, View):
     """Landing page at `/` - the account's own person in their family tree, or Upcoming as a fallback.
 
@@ -301,34 +269,12 @@ class DashboardView(FamilyRequiredMixin, TemplateView):
         # (occurrence_date, send_date, ...), so rows sharing both are
         # already contiguous regardless of the order the two are named in
         # this key tuple.
-        context["upcoming_groups"] = []
-        for (send_date, occurrence_date), group in itertools.groupby(
-            upcoming, key=lambda occurrence: (occurrence.send_date, occurrence.occurrence_date)
-        ):
-            occurrences = list(group)
-            notes = [_occurrence_send_note(o) for o in occurrences]
-            # The common case - one event type, or several that all
-            # happen to share the same reason - gets a single line for
-            # the whole group. Once two occurrences in the same group
-            # disagree (e.g. one shifted for Yom Tov, another just on
-            # its own type's usual lead time), a shared line would state
-            # one of those reasons as if it applied to both - fall back
-            # to a note per occurrence instead, only when that's
-            # actually necessary.
-            if len(set(notes)) == 1:
-                group_send_note = notes[0]
-            else:
-                group_send_note = None
-                for occurrence, note in zip(occurrences, notes, strict=True):
-                    occurrence.send_note = note
-            context["upcoming_groups"].append(
-                {
-                    "send_date": send_date,
-                    "occurrence_date": occurrence_date,
-                    "occurrences": occurrences,
-                    "send_note": group_send_note,
-                }
+        context["upcoming_groups"] = [
+            {"send_date": send_date, "occurrence_date": occurrence_date, "occurrences": list(group)}
+            for (send_date, occurrence_date), group in itertools.groupby(
+                upcoming, key=lambda occurrence: (occurrence.send_date, occurrence.occurrence_date)
             )
+        ]
         return context
 
 

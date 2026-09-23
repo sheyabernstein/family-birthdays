@@ -238,6 +238,41 @@ class TogglePersonPreferenceView(FamilyRequiredMixin, View):
         return redirect(next_url)
 
 
+def _preview_send_note(occurrence: Occurrence) -> str | None:
+    """Explains why send_date differs from occurrence_date, or None when they match.
+
+    Owner/editor-only audience (see OccurrencePreviewView's own
+    FamilyEditorRequiredMixin) - Upcoming itself shows nothing about
+    this at all, so this is the one place the mechanism needs to be
+    right, with room to actually spell it out.
+
+    Combines a lead-time offset (event_type.notify_days_before) and a
+    Shabbos/Yom Tov shift into one sentence when *both* are in play,
+    rather than showing only whichever one an earlier version happened
+    to check first - a lead-time-driven date can itself land on
+    Shabbos/Yom Tov and get shifted further, and mentioning only the
+    shift made it look like Shabbos/Yom Tov alone explained the entire
+    gap back to occurrence_date, when it only explained the last day or
+    two of it. Found for real: Wedding's own 7-day lead landing on
+    Simchas Torah, needing a further 2-day walk back through Shabbos/
+    Shmini Atzeres - the old copy said only "Moved up for Shabbos and
+    Yom Tov", nowhere near accounting for the actual 9-day gap.
+    """
+    if occurrence.send_date == occurrence.occurrence_date:
+        return None
+    notify_days_before = occurrence.event_type.notify_days_before
+    lead_time_clause = None
+    if notify_days_before:
+        day_word = "day" if notify_days_before == 1 else "days"
+        lead_time_clause = f"{occurrence.event_type.name} always sends {notify_days_before} {day_word} ahead"
+    if not occurrence.shifted_for_shabbat_or_yomtov:
+        return lead_time_clause
+    reasons = " and ".join(occurrence.shift_reason_labels)
+    if lead_time_clause:
+        return f"{lead_time_clause}, moved earlier since that lands on {reasons}"
+    return f"Moved up for {reasons}"
+
+
 class OccurrencePreviewView(FamilyEditorRequiredMixin, FamilyScopedMixin, DetailView):
     """Renders the email/SMS one occurrence will actually produce, for an owner/editor to check.
 
@@ -280,6 +315,7 @@ class OccurrencePreviewView(FamilyEditorRequiredMixin, FamilyScopedMixin, Detail
                 "email_html": html,
                 "sms_text": sms_text,
                 "sms_char_budget": SMS_CHAR_BUDGET,
+                "send_note": _preview_send_note(occurrence),
             }
         )
         return context
