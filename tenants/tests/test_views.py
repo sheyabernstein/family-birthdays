@@ -266,6 +266,61 @@ def test_family_settings_links_to_the_right_person_when_the_account_has_one_in_e
     assert b"Bobby" in resp.content
 
 
+def test_family_settings_orders_members_by_name_like_the_people_list(client, family):
+    # Person._meta.ordering is last-name-first - the members list should
+    # sort the same way, not in whatever order the DB happens to return
+    # (found for real once local dev had more than a handful of members).
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+    for first_name, last_name in [("Charlie", "Zebra"), ("Alice", "Apple"), ("Bob", "Mango")]:
+        account = Account.objects.create_user(email=f"{first_name.lower()}@example.com")
+        FamilyMembership.objects.create(account=account, family=family, role=FamilyMembership.Role.MEMBER)
+        Person.objects.create(
+            family=family, first_name_en=first_name, last_name_en=last_name, account=account
+        )
+
+    resp = client.get("/family/settings/")
+
+    names = [m.resolved_person.display_name for m in resp.context["memberships"] if m.resolved_person]
+    assert names == ["Alice Apple", "Bob Mango", "Charlie Zebra"]
+
+
+def test_family_settings_does_not_duplicate_a_member_whose_account_has_a_person_in_two_families(
+    client, family
+):
+    # Same account/scenario as the "links to the right person" test above,
+    # but checking row count rather than which person is linked - a naive
+    # account__people__<field> order_by joins to *every* Person the
+    # account has, in any family, fanning this one membership out into two
+    # rows once ordering is involved.
+    other_family = Family.objects.create(name="Other Family")
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    Person.objects.create(family=other_family, first_name_en="Robert", last_name_en="Smith", account=owner)
+    Person.objects.create(family=family, first_name_en="Robert", last_name_en="Smith", account=owner)
+    _login_as(client, owner, family)
+
+    resp = client.get("/family/settings/")
+
+    assert len(resp.context["memberships"]) == 1
+
+
+def test_family_settings_includes_a_member_with_no_person_record_in_this_family(client, family):
+    # Possible, just not self-service (see accounts/AGENTS.md) - an
+    # Account can exist with zero linked Person rows. Ordering by a
+    # left-joined Person field must not silently turn into an inner join
+    # that drops this membership from the list entirely.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    bare_account = Account.objects.create_user(email="no-person@example.com")
+    FamilyMembership.objects.create(account=bare_account, family=family, role=FamilyMembership.Role.MEMBER)
+    _login_as(client, owner, family)
+
+    resp = client.get("/family/settings/")
+
+    assert resp.status_code == 200
+    accounts = [m.account for m in resp.context["memberships"]]
+    assert bare_account in accounts
+
+
 def _member_with_person(family, i):
     account = Account.objects.create_user(email=f"member{i}@example.com")
     FamilyMembership.objects.create(account=account, family=family, role=FamilyMembership.Role.MEMBER)
