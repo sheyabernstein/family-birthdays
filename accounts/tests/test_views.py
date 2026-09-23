@@ -88,6 +88,40 @@ def test_request_magic_link_get_renders_the_form(client):
     assert b'name="identifier"' in resp.content
 
 
+def test_request_magic_link_get_leaves_identifier_blank_by_default(client):
+    resp = client.get(reverse("accounts:request_link"))
+
+    assert b'value=""' in resp.content
+
+
+def test_request_magic_link_get_prefills_identifier_from_the_query_string(client):
+    resp = client.get(reverse("accounts:request_link"), {"identifier": "known@example.com"})
+
+    assert b'value="known@example.com"' in resp.content
+
+
+def test_request_magic_link_get_prefills_identifier_nested_inside_next(client):
+    # The common real path: a signed-out visit to a link like the
+    # "Manage notification settings" one every notification email
+    # carries redirects here via LoginRequiredMixin's own
+    # redirect_to_login(), which nests the original URL - identifier and
+    # all - under ?next= rather than passing it as a sibling parameter.
+    resp = client.get(
+        reverse("accounts:request_link"),
+        {"next": "/notifications/?identifier=known@example.com"},
+    )
+
+    assert b'value="known@example.com"' in resp.content
+
+
+def test_request_magic_link_get_does_not_auto_submit_a_prefilled_identifier(client):
+    Account.objects.create_user(email="known@example.com")
+
+    client.get(reverse("accounts:request_link"), {"identifier": "known@example.com"})
+
+    assert len(mail.outbox) == 0
+
+
 def test_request_magic_link_emails_a_sign_in_link_for_a_known_email(client):
     Account.objects.create_user(email="known@example.com")
 

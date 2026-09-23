@@ -206,6 +206,36 @@ def test_send_due_notifications_notifies_family_members_by_default(family, birth
     assert message.provider_response == {"sent_count": 1}
 
 
+def test_send_due_notifications_personalizes_the_manage_settings_link_per_recipient(
+    family, birthday_event_type
+):
+    # notifications.services.IDENTIFIER_PLACEHOLDER stands in for the
+    # real recipient in the shared, once-per-channel render (see the
+    # comment on the rendered dict in send_due_notifications) - each
+    # Message row should end up with its own real destination swapped
+    # in, not the placeholder or another recipient's address.
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    _member(family, email="first@example.com")
+    _member(family, email="second@example.com")
+
+    Occurrence.objects.create(
+        person=person,
+        event_type=birthday_event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    send_due_notifications()
+
+    first_message = Message.objects.get(destination="first@example.com")
+    second_message = Message.objects.get(destination="second@example.com")
+    assert "identifier=first%40example.com" in first_message.html_body
+    assert "identifier=second%40example.com" in second_message.html_body
+    assert "__RECIPIENT_IDENTIFIER__" not in first_message.html_body
+    assert "__RECIPIENT_IDENTIFIER__" not in second_message.html_body
+
+
 def test_send_due_notifications_does_not_query_parents_per_occurrence(family, birthday_event_type):
     # Person.parents_label (rendered into the email via _parents.html)
     # reads person.father/person.mother - without those chained into the
@@ -993,6 +1023,7 @@ def test_send_due_broadcasts_sends_a_due_broadcast(family):
     assert message.destination == "test@example.com"
     assert message.status == Message.Status.SENT
     assert "Hello everyone" in message.body
+    assert "identifier=test%40example.com" in message.html_body
 
 
 def test_send_due_broadcasts_skips_ones_scheduled_for_the_future(family):

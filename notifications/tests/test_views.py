@@ -653,6 +653,28 @@ def test_occurrence_preview_renders_email_and_sms_for_an_editor(client, family):
     assert b"birthday" in resp.content.lower()
 
 
+def test_occurrence_preview_shows_a_generic_identifier_not_the_internal_placeholder(client, family):
+    # One occurrence can have several real recipients (each personalized
+    # at send time - see notifications.tasks._personalize), so there's no
+    # single real one to show here - a generic example stands in rather
+    # than leaking the internal IDENTIFIER_PLACEHOLDER token onto the page.
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    occurrence = _preview_occurrence(
+        person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+    content = resp.content.decode()
+
+    assert "identifier=you%40example.com" in content
+    assert "__RECIPIENT_IDENTIFIER__" not in content
+
+
 def test_occurrence_preview_404s_for_an_occurrence_in_another_family(client, two_families):
     family_a, family_b, account_a, _account_b = two_families
     _login_as(client, account_a, family_a)

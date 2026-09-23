@@ -1,6 +1,7 @@
 import datetime as dt
 from collections import defaultdict
 from collections.abc import Iterator
+from urllib.parse import quote
 
 from celery import Task, shared_task
 from django.db import models
@@ -23,7 +24,7 @@ from notifications.audience import resolve_audience, resolve_broadcast_audience
 from notifications.enums import ChannelEnum
 from notifications.helpers import html_to_plain_text
 from notifications.models import Broadcast, EventType, Message, Occurrence
-from notifications.services import send_email, send_sms
+from notifications.services import IDENTIFIER_PLACEHOLDER, send_email, send_sms
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 
 # A single GSM-7 SMS segment - see AGENTS.md. Deliberately conservative
@@ -571,7 +572,7 @@ def send_due_notifications() -> None:
                 destination=destination,
                 subject=subject,
                 body=body,
-                html_body=html_body,
+                html_body=_personalize(html_body, destination=destination),
             )
             send_message.delay(message.pk)
             queued += 1
@@ -591,6 +592,22 @@ def _truncate_for_sms(text: str, budget: int = SMS_CHAR_BUDGET) -> str:
     if len(text) <= budget:
         return text
     return text[: budget - 1].rstrip() + "…"
+
+
+def _personalize(html_body: str, *, destination: str) -> str:
+    """Swaps the "Manage notification settings" link's placeholder identifier for the real one.
+
+    See services.IDENTIFIER_PLACEHOLDER's own docstring for why this is a
+    plain string .replace() on the already-rendered html_body rather than
+    a fresh per-recipient template render - html_body is empty for SMS
+    (no footer link there), so this is a no-op in that case. quote() the
+    destination first - it's landing inside a URL's querystring, and an
+    Account.phone destination is E.164 ("+15551234567"): an un-encoded
+    "+" in a querystring is itself the standard encoding for a literal
+    space, so the phone number would come back mangled on the other end
+    without this.
+    """
+    return html_body.replace(IDENTIFIER_PLACEHOLDER, quote(destination)) if html_body else html_body
 
 
 def _occurrence_template_context(occurrence: Occurrence, *, as_of: dt.date | None = None) -> dict:
@@ -807,7 +824,7 @@ def send_due_broadcasts() -> None:
                 destination=destination,
                 subject=subject,
                 body=body,
-                html_body=html_body,
+                html_body=_personalize(html_body, destination=destination),
             )
             send_message.delay(message.pk)
 

@@ -14,7 +14,13 @@ from family.templatetags.family_extras import hebrew_str
 from notifications.enums import ChannelEnum, ShiftReason
 from notifications.helpers import html_to_plain_text
 from notifications.models import Broadcast, EventType, Occurrence
-from notifications.services import absolute_url, send_email, send_sms, static_absolute_url
+from notifications.services import (
+    IDENTIFIER_PLACEHOLDER,
+    absolute_url,
+    send_email,
+    send_sms,
+    static_absolute_url,
+)
 from notifications.tasks import (
     SMS_CHAR_BUDGET,
     _render_broadcast_message,
@@ -97,7 +103,7 @@ def test_occurrence_email_renders_the_persons_own_template_with_an_icon(family, 
     # coincidence with settings.SITE_BASE_URL's own default, and broke
     # the moment a real .env set a different value (127.0.0.1 vs
     # localhost) with no code change at all.
-    assert f'href="{settings.SITE_BASE_URL}/notifications/"' in html
+    assert f'href="{settings.SITE_BASE_URL}/notifications/?identifier={IDENTIFIER_PLACEHOLDER}"' in html
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,17 @@ from notifications.sms import SmsBackend
 DEFAULT_EMAIL_SENDER_NAME = "Family Tree"
 DEFAULT_SMS_SENDER_ID = "FamilyTree"
 
+# A stand-in for the actual recipient's email/phone in the "Manage
+# notification settings" footer link (templates/email/_base.html) - the
+# link is baked into html_body once per channel, shared by every
+# recipient on that send (see notifications.tasks.send_due_notifications'
+# own comment on why), so the real destination can't be known yet at
+# render time. notifications.tasks swaps this back out for the real
+# Message.destination with a plain string .replace() right before each
+# recipient's own Message row is created - cheap, and keeps the
+# once-per-channel template render itself genuinely shared.
+IDENTIFIER_PLACEHOLDER = "__RECIPIENT_IDENTIFIER__"
+
 
 def static_absolute_url(path: str) -> str:
     """Builds an absolute, stable URL to a static asset, for embedding in email HTML.

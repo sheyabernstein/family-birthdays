@@ -100,7 +100,7 @@
                                        font-size: 12px;
                                        text-align: center">
                                 {% block footer %}
-                                    Sent by {{ family_name|default:"Family Tree" }}. <a href="{% absolute_page_url 'notifications:subscriptions' %}">Manage notification settings</a>.
+                                    Sent by {{ family_name|default:"Family Tree" }}. <a href="{% manage_settings_url %}">Manage notification settings</a>.
                                 {% endblock %}
                             </td>
                         </tr>

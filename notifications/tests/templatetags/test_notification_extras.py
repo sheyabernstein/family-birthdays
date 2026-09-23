@@ -2,7 +2,12 @@ import pytest
 from django.conf import settings
 from django.template import Context, Template
 
-from notifications.templatetags.notifications_extras import absolute_page_url, event_icon_url_tag
+from notifications.services import IDENTIFIER_PLACEHOLDER
+from notifications.templatetags.notifications_extras import (
+    absolute_page_url,
+    event_icon_url_tag,
+    manage_settings_url,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -51,3 +56,17 @@ def test_absolute_page_url_is_registered_and_loadable_from_a_template():
     rendered = template.render(Context({}))
 
     assert rendered  # real URL-construction correctness is test_rendering.py's job
+
+
+def test_manage_settings_url_points_at_subscriptions_with_the_placeholder_identifier():
+    result = manage_settings_url()
+
+    assert result.endswith(f"/notifications/?identifier={IDENTIFIER_PLACEHOLDER}")
+
+
+def test_manage_settings_url_is_registered_and_loadable_from_a_template():
+    template = Template("{% load notifications_extras %}{% manage_settings_url %}")
+
+    rendered = template.render(Context({}))
+
+    assert IDENTIFIER_PLACEHOLDER in rendered
