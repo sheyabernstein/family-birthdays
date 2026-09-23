@@ -154,6 +154,53 @@ def test_occurrence_email_shows_the_parents_label_even_without_a_naming_collisio
     assert "Shloime&#x27;s Blimi" in html or "Shloime's Blimi" in html
 
 
+def test_yahrzeit_email_shows_the_patronymic_label_but_not_parents_label(family):
+    # Yahrzeit is the one event type with its own traditional "X ben Y"
+    # form (patronymic_label) - unlike every other event type, it
+    # deliberately doesn't also include the generic parents_label
+    # alongside it, since both name the same father and showing both
+    # just repeated the same name twice in a row (found for real: a
+    # yahrzeit for a person with a living, tracked father showed both
+    # "Elimelech's Avraham" and "Avraham ben Elimelech" back to back).
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT)
+    father = Person.objects.create(family=family, first_name_en="Elimelech", first_name_he="אלימלך")
+    person = Person.objects.create(
+        family=family, first_name_en="Avraham", first_name_he="אברהם", father=father
+    )
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "אברהם בן אלימלך" in html
+    assert "Elimelech&#x27;s Avraham" not in html and "Elimelech's Avraham" not in html
+
+
+def test_yahrzeit_sms_shows_the_patronymic_label_but_not_parents_label(family):
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT)
+    father = Person.objects.create(family=family, first_name_en="Elimelech", first_name_he="אלימלך")
+    person = Person.objects.create(
+        family=family, first_name_en="Avraham", first_name_he="אברהם", father=father
+    )
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
+
+    assert "אברהם בן אלימלך" in body
+    assert "Elimelech's Avraham" not in body
+
+
 def test_occurrence_email_omits_the_parents_label_without_a_living_tracked_parent(family):
     event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
     person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach")
