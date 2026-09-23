@@ -139,7 +139,7 @@ class VerifyMagicLinkView(View):
                 # click, or a mail client prefetching the link before the
                 # person themselves clicks it, not a real problem for an
                 # already-authenticated session.
-                return redirect("family:dashboard")
+                return redirect("family:home")
             # Worth an operator's attention - either an expired/reused
             # link or someone probing the verify endpoint.
             logger.warning("magic link verify failed - invalid or expired token")
@@ -162,7 +162,16 @@ class VerifyMagicLinkView(View):
             account.backend = "django.contrib.auth.backends.ModelBackend"
             login(request, account)
             logger.info("account logged in", account=account.uuid)
-        return redirect("family:dashboard")
+        # Redirects to family:home rather than resolving the landing
+        # page here directly - CurrentFamilyMiddleware already ran for
+        # *this* request before login() was called, off of whatever
+        # request.user was at the start of the request (anonymous, on a
+        # real sign-in), so request.family/request.self_person here
+        # would still reflect the pre-login state. family:home
+        # (family.views.HomeView) does the actual self-person-or-
+        # Upcoming resolution on the browser's follow-up request, once
+        # middleware has run again for the now-authenticated session.
+        return redirect("family:home")
 
 
 class LogoutView(LoginRequiredMixin, View):

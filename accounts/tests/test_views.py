@@ -6,6 +6,7 @@ from django.urls import reverse
 from accounts import magic_links
 from accounts.helpers import EmailValidationResult
 from accounts.models import Account
+from family.models import Person
 from notifications.enums import ChannelEnum
 from tenants.models import Family, FamilyMembership
 
@@ -278,8 +279,73 @@ def test_verify_magic_link_logs_in_with_a_valid_token(client):
     resp = client.get(reverse("accounts:verify", args=[token]))
 
     assert resp.status_code == 302
-    assert resp.url == reverse("family:dashboard")
+    assert resp.url == reverse("family:home")
     assert client.session["_auth_user_id"] == str(account.pk)
+
+
+def test_verify_magic_link_redirects_to_the_accounts_own_person_in_the_tree(client):
+    # The whole point of the sign-in redirect: land on "where am I in
+    # this family" rather than the generic Upcoming feed. Follows both
+    # hops (accounts:verify -> family:home -> family:family_tree) -
+    # the actual self-person resolution happens on family:home's own
+    # fresh request, not within VerifyMagicLinkView itself (see that
+    # view's own comment for why: request.self_person would still
+    # reflect the pre-login state if read directly there instead).
+    account = Account.objects.create_user(email="verify@example.com")
+    family = Family.objects.create(name="Test Family")
+    FamilyMembership.objects.create(account=account, family=family)
+    person = Person.objects.create(family=family, first_name_en="Me", last_name_en="Test", account=account)
+    token = magic_links.issue_token(
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
+    )
+
+    resp = client.get(reverse("accounts:verify", args=[token]), follow=True)
+
+    assert resp.redirect_chain == [
+        (reverse("family:home"), 302),
+        (reverse("family:family_tree", args=[person.uuid]), 302),
+    ]
+    assert resp.status_code == 200
+
+
+def test_verify_magic_link_falls_back_to_dashboard_without_a_matching_person(client):
+    # A real, single family, but no Person record links this account to
+    # it yet (e.g. an owner who created the workspace but hasn't added
+    # themselves to their own tree) - nothing to land on instead.
+    account = Account.objects.create_user(email="verify@example.com")
+    FamilyMembership.objects.create(account=account, family=Family.objects.create(name="Test Family"))
+    token = magic_links.issue_token(
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
+    )
+
+    resp = client.get(reverse("accounts:verify", args=[token]), follow=True)
+
+    assert resp.redirect_chain == [
+        (reverse("family:home"), 302),
+        (reverse("family:dashboard"), 302),
+    ]
+    assert resp.status_code == 200
+
+
+def test_verify_magic_link_falls_back_to_the_switcher_with_an_ambiguous_family(client):
+    # family:home relies entirely on FamilyRequiredMixin's own dispatch()
+    # for this case - request.family is None with 2+ memberships, so
+    # it redirects to the switcher before HomeView.get() ever runs, same
+    # as any other FamilyRequiredMixin view would.
+    account = Account.objects.create_user(email="verify@example.com")
+    FamilyMembership.objects.create(account=account, family=Family.objects.create(name="Family A"))
+    FamilyMembership.objects.create(account=account, family=Family.objects.create(name="Family B"))
+    token = magic_links.issue_token(
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
+    )
+
+    resp = client.get(reverse("accounts:verify", args=[token]), follow=True)
+
+    assert resp.redirect_chain == [
+        (reverse("family:home"), 302),
+        (reverse("tenants:switch_family"), 302),
+    ]
+    assert resp.status_code == 200
 
 
 def test_verify_magic_link_token_is_single_use(client):
@@ -317,17 +383,41 @@ def test_verify_magic_link_rejects_a_token_for_a_deactivated_account(client):
 def test_verify_magic_link_redirects_an_already_authenticated_user_for_a_spent_token(client):
     # A double click, or a mail client prefetching the link before the
     # person themselves clicks it - not a real problem once the first
-    # visit already signed this session in.
+    # visit already signed this session in. No FamilyMembership at all
+    # here, so family:home's own FamilyRequiredMixin sends this on to
+    # the no-access page rather than the switcher.
     account = Account.objects.create_user(email="already-in@example.com")
     token = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
     client.get(reverse("accounts:verify", args=[token]))
 
-    resp = client.get(reverse("accounts:verify", args=[token]))
+    resp = client.get(reverse("accounts:verify", args=[token]), follow=True)
 
-    assert resp.status_code == 302
-    assert resp.url == reverse("family:dashboard")
+    assert resp.redirect_chain == [
+        (reverse("family:home"), 302),
+        (reverse("tenants:no_family_access"), 302),
+    ]
+    assert resp.status_code == 200
+
+
+def test_verify_magic_link_redirects_an_already_authenticated_user_to_their_own_person(client):
+    account = Account.objects.create_user(email="already-in@example.com")
+    family = Family.objects.create(name="Test Family")
+    FamilyMembership.objects.create(account=account, family=family)
+    person = Person.objects.create(family=family, first_name_en="Me", last_name_en="Test", account=account)
+    token = magic_links.issue_token(
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
+    )
+    client.get(reverse("accounts:verify", args=[token]))
+
+    resp = client.get(reverse("accounts:verify", args=[token]), follow=True)
+
+    assert resp.redirect_chain == [
+        (reverse("family:home"), 302),
+        (reverse("family:family_tree", args=[person.uuid]), 302),
+    ]
+    assert resp.status_code == 200
 
 
 def test_verify_magic_link_switches_account_even_when_already_authenticated(client):

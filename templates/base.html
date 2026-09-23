@@ -16,11 +16,14 @@
             {% if user.is_authenticated %}
                 <header class="topbar">
                     <a class="wordmark"
-                       href="{% url 'family:dashboard' %}">{{ request.family.name|default:"Family Tree" }}</a>
+                       href="{% url 'family:home' %}">{{ request.family.name|default:"Family Tree" }}</a>
                     <input type="checkbox" id="nav-toggle" class="nav-toggle-checkbox">
                     <label for="nav-toggle" class="nav-toggle-label" aria-label="Menu"></label>
                     <nav class="nav">
                         <a href="{% url 'family:dashboard' %}">Upcoming</a>
+                        {% if request.self_person %}
+                            <a href="{% url 'family:person_detail' request.self_person.uuid %}">My Profile</a>
+                        {% endif %}
                         <a href="{% url 'family:person_list' %}">Family</a>
                         <a href="{% url 'notifications:subscriptions' %}">My Notifications</a>
                         {% if request.family_permissions.can_edit %}

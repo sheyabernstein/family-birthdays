@@ -124,7 +124,11 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LOGIN_URL = "accounts:request_link"
-LOGIN_REDIRECT_URL = "family:dashboard"
+# Not actually read anywhere in this app - sign-in is fully custom
+# (accounts.views.VerifyMagicLinkView), never django.contrib.auth.
+# views.LoginView, the only built-in view that consults this setting.
+# Kept accurate anyway in case that ever changes.
+LOGIN_REDIRECT_URL = "family:home"
 
 LANGUAGE_CODE = "en-us"
 
