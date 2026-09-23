@@ -11,7 +11,15 @@
     {% else %}
         <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s yahrzeit is {{ occurrence.occurrence_date|weekday_naturalday:today }}.</p>
     {% endif %}
-    {% include "notifications/email/_parents.html" with person=occurrence.person %}
+    {% comment %}
+    Patronymic only, not _parents.html's parents_label too - both name
+    the father, and patronymic_label already covers the case
+    parents_label can't (an untracked/deceased father - see its own
+    docstring), so showing both here just repeated the same father's
+    name twice in a row. Every other event type still uses
+    _parents.html alone - this is yahrzeit's own traditional form,
+    not a general replacement.
+    {% endcomment %}
     {% include "notifications/email/_patronymic.html" with person=occurrence.person %}
     <p class="muted" style="font-size: 14px;">
         {{ occurrence.occurrence_date|hebrew_str }} · {{ occurrence.occurrence_date|date:"l, F j, Y" }}

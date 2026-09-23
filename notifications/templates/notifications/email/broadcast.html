@@ -1,5 +1,5 @@
 {% extends "email/_base.html" %}
-{% load notifications_extras %}
+{% load notifications_extras family_extras %}
 {% block title %}{{ family_name }} update{% endblock %}
 {% block icon %}
     {% event_icon_url "notifications/img/event-icons/broadcast.png" %}
@@ -10,7 +10,7 @@
         <p class="muted" style="font-size: 14px;">
             About
             {% for person in people %}
-                <strong>{{ person.display_name }}{{ person.memorial_marker }}</strong>{% if not forloop.last %}, {% endif %}
+                <strong>{{ person|display_name_with_marker }}</strong>{% if not forloop.last %}, {% endif %}
             {% endfor %}
         </p>
     {% endif %}

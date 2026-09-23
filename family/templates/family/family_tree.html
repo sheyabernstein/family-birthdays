@@ -385,7 +385,23 @@
           const hebrewName = person.hebrew_name;
           const upcomingPartner = person.upcoming_wedding_partner;
           const deceased = person.living === false;
-          const marker = deceased ? `<span class="hebrew-suffix">${MEMORIAL_MARKER}</span>` : "";
+          // Plain "${fullName}${marker}" concatenation with the marker
+          // in its own isolated-RTL span (.hebrew-suffix) only reads
+          // correctly when fullName is English - when it's Hebrew
+          // itself (person.name_is_hebrew - see tree_chart.py), the
+          // isolated marker span ends up placed by the *outer* LTR
+          // paragraph's embedding order, not the natural RTL reading
+          // order, so a reader encounters the marker *before* the name
+          // instead of after it. See family_extras.display_name_with_
+          // marker's own (much longer) docstring for the full story -
+          // this mirrors that same fix, just in JS since this card is
+          // client-rendered. .name-rtl wraps the whole name+marker as
+          // one RTL unit instead, same as that filter does.
+          const cardNameHtml = deceased
+            ? person.name_is_hebrew
+              ? `<span class="name-rtl">${escapeHtml(fullName)}${MEMORIAL_MARKER}</span>`
+              : `${escapeHtml(fullName)}<span class="hebrew-suffix">${MEMORIAL_MARKER}</span>`
+            : escapeHtml(fullName);
           return `
             <div class="card-inner card-rect${deceased ? " card-deceased" : ""}">
               <a class="card-view-profile"
@@ -397,7 +413,7 @@
                   <path d="M6.5 5H11V9.5" />
                 </svg>
               </a>
-              <div class="card-name">${escapeHtml(fullName)}${marker}</div>
+              <div class="card-name">${cardNameHtml}</div>
               ${hebrewName ? `<div class="card-hebrew-name">${escapeHtml(hebrewName)}</div>` : ""}
               ${upcomingPartner ? `<div class="card-upcoming-wedding">Engaged to ${escapeHtml(upcomingPartner)}</div>` : ""}
             </div>

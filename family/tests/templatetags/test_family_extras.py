@@ -6,7 +6,12 @@ from django.utils import dateformat
 from freezegun import freeze_time
 
 from family.models import Person
-from family.templatetags.family_extras import hebrew_str, weekday_naturalday, with_hebrew_first_name
+from family.templatetags.family_extras import (
+    display_name_with_marker,
+    hebrew_str,
+    weekday_naturalday,
+    with_hebrew_first_name,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -37,6 +42,59 @@ def test_with_hebrew_first_name_is_empty_without_one(family):
 
 def test_with_hebrew_first_name_handles_none():
     assert with_hebrew_first_name(None) == ""
+
+
+def test_with_hebrew_first_name_is_suppressed_when_display_name_is_already_hebrew(family):
+    # display_name falls back to hebrew_name when there's no English
+    # first name (see Person.display_name) - showing the parenthetical
+    # on top of that would just repeat the same name back
+    # ("בלומא ראקאך (בלומא)" instead of useful new information).
+    person = Person.objects.create(family=family, last_name_en="Rokach", first_name_he="בלומא")
+    assert with_hebrew_first_name(person) == ""
+
+
+def test_with_hebrew_first_name_is_suppressed_for_a_hebrew_nickname(family):
+    # display_name prefers nickname over everything else - a Hebrew
+    # nickname makes display_name Hebrew script just as surely as the
+    # no-English-first-name fallback does, even though a nickname is
+    # technically set (see Person.display_name_is_hebrew's own
+    # docstring for why this can't be a field-presence check).
+    person = Person.objects.create(family=family, nickname="בלומי", first_name_he="בלומא")
+    assert with_hebrew_first_name(person) == ""
+
+
+def test_display_name_with_marker_wraps_an_english_name_with_an_isolated_marker(family):
+    person = Person.objects.create(
+        family=family, first_name_en="Yitschak", last_name_en="Bernstein", first_name_he="יצחק"
+    )
+    person.dod_gregorian = dt.date(2020, 1, 1)
+    person.save()
+
+    assert display_name_with_marker(person) == 'Yitschak Bernstein<span class="hebrew-suffix"> ע״ה</span>'
+
+
+def test_display_name_with_marker_wraps_a_hebrew_name_as_one_rtl_unit(family):
+    # Plain "{{ display_name }}{{ marker }}" concatenation with the
+    # marker in its own isolated-RTL span only reads correctly when
+    # display_name is English - a Hebrew display_name needs the whole
+    # name+marker wrapped together as one RTL unit instead, or a reader
+    # encounters the marker before the name (see this filter's own
+    # docstring, confirmed via bounding-rect measurement in a real
+    # browser during development, not just visual inspection).
+    person = Person.objects.create(family=family, last_name_en="Rokach", first_name_he="בלומא")
+    person.dod_gregorian = dt.date(2020, 1, 1)
+    person.save()
+
+    assert display_name_with_marker(person) == '<span class="name-rtl">בלומא ע״ה</span>'
+
+
+def test_display_name_with_marker_omits_the_marker_for_a_living_person(family):
+    person = Person.objects.create(family=family, first_name_en="Blimi", last_name_en="Rokach")
+    assert display_name_with_marker(person) == "Blimi Rokach"
+
+
+def test_display_name_with_marker_handles_none():
+    assert display_name_with_marker(None) == ""
 
 
 @pytest.mark.parametrize(

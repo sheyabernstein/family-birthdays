@@ -29,7 +29,16 @@ def _gender_code(person: Person) -> str:
 
 
 def _display_name(person: Person) -> tuple[str, str]:
-    if person.first_name_en or person.last_name_en:
+    # first_name_en checked alone, not the "first_name_en or
+    # last_name_en" combined truthiness Person.display_name itself used
+    # to use before it was fixed - first_name_en/last_name_en are both
+    # optional (first_name_he is the one required name), so a person
+    # with only a last_name_en on file would otherwise show a bare
+    # surname on the card instead of falling back to their Hebrew name.
+    # Deliberately still ignores nickname, unlike Person.display_name -
+    # a pre-existing inconsistency between the tree and every other
+    # display_name call site, not something to fix incidentally here.
+    if person.first_name_en:
         return person.first_name_en, person.last_name_en
     return person.hebrew_name or "?", ""
 
@@ -113,7 +122,8 @@ def build_chart_data(
         # Only show the Hebrew name as a second line when it's not already
         # doing double duty as the primary name above (the no-English-name
         # fallback in _display_name).
-        hebrew_name = p.hebrew_name if (p.first_name_en or p.last_name_en) and p.hebrew_name else ""
+        name_is_hebrew = not p.first_name_en
+        hebrew_name = p.hebrew_name if not name_is_hebrew and p.hebrew_name else ""
 
         nodes.append(
             {
@@ -123,6 +133,21 @@ def build_chart_data(
                     "last name": last_name,
                     "gender": _gender_code(p),
                     "hebrew_name": hebrew_name,
+                    # Drives the card's own RTL wrapping for the deceased
+                    # marker (see family_tree.html's setCardInnerHtmlCreator
+                    # and family_extras.display_name_with_marker's own
+                    # docstring for why plain concatenation with an
+                    # isolated-RTL marker span breaks once the *name*
+                    # itself is Hebrew) - derived from the exact same
+                    # condition _display_name() used above, not
+                    # Person.display_name_is_hebrew, so this always
+                    # agrees with what "first name"/"last name" actually
+                    # resolved to on this node (display_name_is_hebrew
+                    # also considers a Hebrew nickname, which the tree's
+                    # own _display_name() ignores entirely - a
+                    # pre-existing inconsistency, not something to paper
+                    # over here).
+                    "name_is_hebrew": name_is_hebrew,
                     "birth_sort": birth_rank.get(p.id),
                     "living": p.is_living,
                     "own_family": p.family_id == editable_family_id,

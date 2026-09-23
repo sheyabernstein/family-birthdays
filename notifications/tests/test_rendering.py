@@ -12,6 +12,7 @@ from accounts.models import Account
 from family.models import Person, Union
 from family.templatetags.family_extras import hebrew_str
 from notifications.enums import ChannelEnum, ShiftReason
+from notifications.helpers import html_to_plain_text
 from notifications.models import Broadcast, EventType, Occurrence
 from notifications.services import absolute_url, send_email, send_sms, static_absolute_url
 from notifications.tasks import (
@@ -151,6 +152,53 @@ def test_occurrence_email_shows_the_parents_label_even_without_a_naming_collisio
     _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
 
     assert "Shloime&#x27;s Blimi" in html or "Shloime's Blimi" in html
+
+
+def test_yahrzeit_email_shows_the_patronymic_label_but_not_parents_label(family):
+    # Yahrzeit is the one event type with its own traditional "X ben Y"
+    # form (patronymic_label) - unlike every other event type, it
+    # deliberately doesn't also include the generic parents_label
+    # alongside it, since both name the same father and showing both
+    # just repeated the same name twice in a row (found for real: a
+    # yahrzeit for a person with a living, tracked father showed both
+    # "Elimelech's Avraham" and "Avraham ben Elimelech" back to back).
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT)
+    father = Person.objects.create(family=family, first_name_en="Elimelech", first_name_he="אלימלך")
+    person = Person.objects.create(
+        family=family, first_name_en="Avraham", first_name_he="אברהם", father=father
+    )
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "אברהם בן אלימלך" in html
+    assert "Elimelech&#x27;s Avraham" not in html and "Elimelech's Avraham" not in html
+
+
+def test_yahrzeit_sms_shows_the_patronymic_label_but_not_parents_label(family):
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT)
+    father = Person.objects.create(family=family, first_name_en="Elimelech", first_name_he="אלימלך")
+    person = Person.objects.create(
+        family=family, first_name_en="Avraham", first_name_he="אברהם", father=father
+    )
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
+
+    assert "אברהם בן אלימלך" in body
+    assert "Elimelech's Avraham" not in body
 
 
 def test_occurrence_email_omits_the_parents_label_without_a_living_tracked_parent(family):
@@ -682,7 +730,11 @@ def test_broadcast_email_marks_a_deceased_tied_person(family):
 
     subject, _body, html = _render_broadcast_message(broadcast, [person], channel=ChannelEnum.EMAIL)
 
-    assert "Sari Rokach ע״ה" in html
+    # "Sari Rokach ע״ה" isn't a literal HTML substring - display_name_
+    # with_marker wraps the marker in its own <span> for RTL isolation/
+    # styling (see that filter's own docstring) - so check the plain
+    # text render instead of the raw HTML.
+    assert "Sari Rokach ע״ה" in html_to_plain_text(html)
     assert "Sari Rokach ע״ה" in subject
 
 

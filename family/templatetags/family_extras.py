@@ -89,10 +89,56 @@ def with_hebrew_first_name(person: Person | None) -> SafeString:
     filter rather than repeated inline in every event-type email
     template (birthday/yahrzeit/bar+bat mitzvah/wedding/anniversary/
     default all need it, for both people on a Union-anchored one).
+
+    Suppressed when display_name_is_hebrew - display_name is already
+    Hebrew script in that case (most often the no-English-first-name
+    fallback, but also a Hebrew nickname - see Person.display_name_is_
+    hebrew), so appending "(first_name_he)" would just repeat the same
+    name back, e.g. "בלומא ראקאך (בלומא)" instead of the intended
+    "Blimi Rokach (בלומא)" for someone who actually has both.
     """
-    if person is None or not person.first_name_he:
+    if person is None or not person.first_name_he or person.display_name_is_hebrew:
         return SafeString("")
     return format_html(" ({})", person.first_name_he)
+
+
+@register.filter
+def display_name_with_marker(person: Person | None) -> SafeString:
+    """Combines display_name + memorial_marker into one HTML unit, with correct bidi handling.
+
+    Plain `"{{ display_name }}{{ marker }}"` concatenation (an isolated-
+    RTL `.hebrew-suffix` span trailing plain display_name text) works
+    fine when display_name is English - the marker's own isolated RTL
+    span is embedded, in the natural place, within the surrounding LTR
+    paragraph. It breaks once display_name is itself Hebrew (see
+    Person.display_name_is_hebrew): display_name's own text has no
+    direction/isolation of its own, so the browser auto-detects it as
+    an RTL run *within* the outer LTR
+    paragraph, and the isolated marker span (a separate embedded RTL
+    object) ends up placed by the *outer* LTR paragraph's own embedding
+    order - visually to the right of the name, which a Hebrew reader
+    (right-to-left) encounters *before* the name instead of after it.
+    Confirmed via bounding-rect measurement in a real browser, not just
+    visual inspection - the bug isn't obvious from a screenshot alone.
+
+    Wrapping the whole name+marker as one `direction: rtl; unicode-bidi:
+    isolate;` unit (`.name-rtl`, not `.hebrew-suffix`) fixes this: it
+    becomes a single RTL paragraph, so native bidi reordering keeps
+    "name, then marker" in the correct right-to-left reading order,
+    matching how `.hebrew-name` already isolates the secondary Hebrew-
+    name line elsewhere on person_detail.html. Also picks up the same
+    Noto Sans Hebrew font-family fix along the way - display_name text
+    was otherwise falling back to whatever serif the OS has for Hebrew
+    glyphs (neither of this app's own display/mono fonts ship them -
+    see AGENTS.md's "Dates"-adjacent font note).
+    """
+    if person is None:
+        return SafeString("")
+    if person.display_name_is_hebrew:
+        return format_html('<span class="name-rtl">{}{}</span>', person.display_name, person.memorial_marker)
+    if not person.memorial_marker:
+        return format_html("{}", person.display_name)
+    return format_html('{}<span class="hebrew-suffix">{}</span>', person.display_name, person.memorial_marker)
 
 
 @register.filter

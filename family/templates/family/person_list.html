@@ -36,9 +36,9 @@
                    href="{% url 'family:person_detail' person.uuid %}">
                     <span class="avatar {% if not person.is_living %}avatar-deceased{% endif %}">{{ person|initials }}</span>
                     <span>
-                        <span class="name">{{ person.display_name }}<span class="hebrew-suffix">{{ person.memorial_marker }}</span></span>
+                        <span class="name">{{ person|display_name_with_marker }}</span>
                         <br>
-                        <span class="meta">{% if person.hebrew_name %}{{ person.hebrew_name }}{% endif %}</span>
+                        <span class="meta">{% if person.hebrew_name and person.hebrew_name != person.display_name %}{{ person.hebrew_name }}{% endif %}</span>
                     </span>
                 </a>
             {% endfor %}
