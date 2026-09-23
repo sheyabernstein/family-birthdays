@@ -177,7 +177,7 @@ def test_toggle_mute_redirects_to_dashboard_by_default(client, family, birthday_
         {"person_id": person.uuid, "event_type_id": birthday_event_type.uuid, "channel": "email"},
     )
 
-    assert resp.url == "/"
+    assert resp.url == "/upcoming/"
 
 
 def test_owner_can_create_a_broadcast(client, family):

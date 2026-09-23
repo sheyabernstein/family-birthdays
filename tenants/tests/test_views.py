@@ -102,7 +102,7 @@ def test_switch_family_posts_by_uuid_not_pk(client):
     resp = client.post("/family/switch/", {"family_id": str(family.uuid)})
 
     assert resp.status_code == 302
-    assert resp.url == "/"
+    assert resp.url == "/upcoming/"
     assert client.session["family_id"] == family.id
 
 

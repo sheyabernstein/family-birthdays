@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import QuerySet
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import dateformat, timezone
 from django.utils.http import urlencode
@@ -196,6 +196,30 @@ def _occurrence_send_note(occurrence: Occurrence) -> str | None:
             f"{notify_days_before} {day_word} ahead"
         )
     return None
+
+
+class HomeView(FamilyRequiredMixin, View):
+    """Landing page at `/` - the account's own person in their family tree, or Upcoming as a fallback.
+
+    FamilyRequiredMixin's own dispatch() already guarantees request.family
+    is resolved (real login, unambiguous family - redirecting to the
+    switcher/onboarding otherwise) by the time get() runs, so
+    request.self_person (tenants.middleware.CurrentFamilyMiddleware) is
+    trustworthy here. accounts.views.VerifyMagicLinkView redirects here
+    rather than resolving this itself, deliberately: right after that
+    view's own login() call, request.family/request.self_person for
+    that same request are still the *pre-login* values (middleware ran
+    before the view, off of whatever request.user was at the start of
+    the request) - redirecting here instead means the actual resolution
+    happens on a fresh follow-up request, once the browser's sent the
+    now-authenticated session back and middleware has run again for
+    real, sidestepping that staleness rather than working around it.
+    """
+
+    def get(self, request: HttpRequest) -> HttpResponse:
+        if request.self_person is not None:
+            return redirect("family:family_tree", uuid=request.self_person.uuid)
+        return redirect("family:dashboard")
 
 
 class DashboardView(FamilyRequiredMixin, TemplateView):

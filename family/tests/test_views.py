@@ -1262,6 +1262,29 @@ def test_hebrew_to_gregorian_rejects_get(client, family):
     assert resp.status_code == 405
 
 
+def test_home_redirects_to_self_person_in_the_tree(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person = Person.objects.create(family=family, first_name_en="Owner", last_name_en="Test", account=owner)
+    _login_as(client, owner, family)
+
+    resp = client.get("/")
+
+    assert resp.status_code == 302
+    assert resp.url == f"/people/{person.uuid}/tree/"
+
+
+def test_home_falls_back_to_dashboard_without_a_self_person(client, family):
+    # An owner who created the workspace but hasn't added themselves to
+    # their own tree yet - a real, expected state, not an error.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    resp = client.get("/")
+
+    assert resp.status_code == 302
+    assert resp.url == "/upcoming/"
+
+
 def test_dashboard_never_shows_broadcasts(client, family):
     # Broadcasts are deliberately not part of "Upcoming" - see AGENTS.md -
     # an owner/editor manages them from their own /broadcasts/ page.
@@ -1271,7 +1294,7 @@ def test_dashboard_never_shows_broadcasts(client, family):
         family=family, text="Big news", created_by=owner, send_at=timezone.now() + dt.timedelta(days=1)
     )
 
-    resp = client.get("/")
+    resp = client.get("/upcoming/")
 
     assert resp.status_code == 200
     assert b"Big news" not in resp.content
@@ -1307,7 +1330,7 @@ def test_dashboard_groups_same_date_occurrences_under_one_timeline_entry(client,
     _occurrence(person, EventType.BuiltinCode.BIRTHDAY, occurrence_date=same_date)
     _occurrence(person, EventType.BuiltinCode.YAHRZEIT, occurrence_date=same_date)
 
-    resp = client.get("/")
+    resp = client.get("/upcoming/")
 
     assert len(resp.context["upcoming_groups"]) == 1
     assert len(resp.context["upcoming_groups"][0]["occurrences"]) == 2
@@ -1344,7 +1367,7 @@ def test_dashboard_does_not_group_occurrences_sharing_only_send_date(client, fam
         send_date=shared_send_date,
     )
 
-    resp = client.get("/")
+    resp = client.get("/upcoming/")
 
     assert len(resp.context["upcoming_groups"]) == 2
 
@@ -1360,7 +1383,7 @@ def test_dashboard_still_shows_an_unsent_occurrence_with_a_past_send_date(client
     past_date = timezone.localdate() - dt.timedelta(days=1)
     _occurrence(person, EventType.BuiltinCode.BIRTHDAY, occurrence_date=past_date)
 
-    resp = client.get("/")
+    resp = client.get("/upcoming/")
 
     assert len(resp.context["upcoming_groups"]) == 1
 
@@ -1382,7 +1405,7 @@ def test_dashboard_shows_the_occurrence_date_not_the_send_date(client, family):
         send_date=send_date,
     )
 
-    resp = client.get("/")
+    resp = client.get("/upcoming/")
     content = resp.content.decode()
 
     assert date_filter(occurrence_date, "l, F j, Y") in content
@@ -1410,7 +1433,7 @@ def test_dashboard_send_note_explains_a_shabbos_or_yom_tov_shift(client, family)
         state=NotificationPreference.State.SUBSCRIBED,
     )
 
-    resp = client.get("/")
+    resp = client.get("/upcoming/")
     content = resp.content.decode()
 
     assert f"Sends earlier - {date_filter(send_date, 'l, F j')}" in content
@@ -1433,7 +1456,7 @@ def test_dashboard_send_note_explains_a_notify_days_before_lead_time(client, fam
         send_date=send_date,
     )
 
-    resp = client.get("/")
+    resp = client.get("/upcoming/")
     content = resp.content.decode()
 
     assert f"Sends {date_filter(send_date, 'l, F j')} - Birthday always sends 1 day ahead" in content
@@ -1471,7 +1494,7 @@ def test_dashboard_send_note_is_per_occurrence_when_a_group_has_mixed_reasons(cl
         state=NotificationPreference.State.SUBSCRIBED,
     )
 
-    resp = client.get("/")
+    resp = client.get("/upcoming/")
     content = resp.content.decode()
     group = resp.context["upcoming_groups"][0]
 
@@ -1500,7 +1523,7 @@ def test_dashboard_orders_grouped_occurrences_by_event_type_name(client, family)
     _occurrence(person, EventType.BuiltinCode.YAHRZEIT, occurrence_date=same_date)
     _occurrence(person, EventType.BuiltinCode.BIRTHDAY, occurrence_date=same_date)
 
-    resp = client.get("/")
+    resp = client.get("/upcoming/")
 
     names = [o.event_type.name for o in resp.context["upcoming_groups"][0]["occurrences"]]
     assert names == sorted(names)
@@ -1534,7 +1557,7 @@ def test_dashboard_orders_groups_by_occurrence_date_not_send_date(client, family
         send_date=timezone.localdate() + dt.timedelta(days=1),
     )
 
-    resp = client.get("/")
+    resp = client.get("/upcoming/")
 
     groups = resp.context["upcoming_groups"]
     assert [g["occurrence_date"] for g in groups] == sorted(g["occurrence_date"] for g in groups)
@@ -1560,11 +1583,11 @@ def test_dashboard_query_count_does_not_scale_with_candidate_count(client, famil
 
     _add_occurrences(3)
     with CaptureQueriesContext(connection) as few:
-        client.get("/")
+        client.get("/upcoming/")
 
     _add_occurrences(15)
     with CaptureQueriesContext(connection) as many:
-        client.get("/")
+        client.get("/upcoming/")
 
     assert len(many.captured_queries) == len(few.captured_queries)
 
