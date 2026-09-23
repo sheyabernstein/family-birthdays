@@ -240,7 +240,7 @@
                                 {% for change in event.changes %}
                                     <tr>
                                         {% if forloop.first %}
-                                            <td rowspan="{{ event.changes|length }}"><span title="{{ event.when }}">{{ event.when|naturaltime }}</span></td>
+                                            <td rowspan="{{ event.changes|length }}"><span title="{{ event.when }}">{{ event.when|naturaltime|capfirst }}</span></td>
                                             <td rowspan="{{ event.changes|length }}">
                                                 {% if event.who.display_name %}
                                                     <span title="{{ event.who.email }}">{{ event.who.display_name }}</span>

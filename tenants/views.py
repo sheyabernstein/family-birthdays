@@ -2,13 +2,14 @@ from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin, UserPassesTestMixin
-from django.db.models import QuerySet
+from django.db.models import F, FilteredRelation, Q, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.views import View
 from django.views.generic import ListView, TemplateView
 
 from config.logging_config import logger
+from family.models import Person
 from tenants.forms import FamilySenderSettingsForm
 from tenants.mixins import FamilyEditorRequiredMixin
 from tenants.models import Family, FamilyMembership
@@ -89,12 +90,41 @@ class FamilySettingsView(FamilyEditorRequiredMixin, UserPassesTestMixin, ListVie
         return self.request.method != "POST" or self.request.user.has_perm("tenants.change_family")
 
     def get_queryset(self) -> QuerySet[FamilyMembership]:
-        # Unfiltered prefetch - a filtered Prefetch object would poison
-        # this same cache for Account.linked_person's own use elsewhere.
+        # Sorted the same way the People list is (Person._meta.ordering),
+        # not left in whatever order the DB happens to return - found for
+        # real once local dev had more than a handful of members and the
+        # list came back in arbitrary insertion order.
+        #
+        # A plain account__people__<field> order_by would join Account to
+        # *every* Person row linked to it, not just this family's - an
+        # account tracked in more than one family (AGENTS.md's own
+        # example: an in-law's own birth family) has one Person row per
+        # family, and an unrestricted join fans that FamilyMembership row
+        # out once per match, duplicating it in the result. FilteredRelation
+        # bakes the family restriction into the JOIN's own ON clause
+        # instead of a WHERE filter, which - thanks to Person's own
+        # family+account UniqueConstraint - matches at most one Person row,
+        # while still using a LEFT JOIN: an Account with no Person row in
+        # this family at all (possible, just not self-service - see
+        # accounts/AGENTS.md) still comes back, rather than silently
+        # vanishing from the members list the way an inner-join-producing
+        # filter() would drop it. nulls_last=True on every field keeps that
+        # case sorting predictably last (and consistently across Postgres/
+        # SQLite, which otherwise disagree on default NULL placement).
+        ordering = [F(f"own_person__{field}").asc(nulls_last=True) for field in Person._meta.ordering]
         return (
             FamilyMembership.objects.filter(family=self.request.family)
+            .annotate(
+                own_person=FilteredRelation(
+                    "account__people", condition=Q(account__people__family=self.request.family)
+                )
+            )
             .select_related("account")
+            # Still the unfiltered prefetch (not scoped to own_person) -
+            # a filtered Prefetch object would poison this same cache for
+            # Account.linked_person's own use elsewhere.
             .prefetch_related("account__people")
+            .order_by(*ordering)
         )
 
     def get_context_data(self, **kwargs) -> dict[str, Any]:
