@@ -15,7 +15,7 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, T
 
 from family.access import person_is_visible, union_is_visible
 from family.models import Person, Union
-from notifications.audience import available_channels, preference_status
+from notifications.audience import available_channels, preference_status, resolve_audience
 from notifications.enums import ChannelEnum
 from notifications.forms import BroadcastForm
 from notifications.models import Broadcast, EventType, NotificationPreference, Occurrence
@@ -322,9 +322,31 @@ class OccurrencePreviewView(FamilyEditorRequiredMixin, FamilyScopedMixin, Detail
                 "sms_text": sms_text,
                 "sms_char_budget": SMS_CHAR_BUDGET,
                 "send_note": _preview_send_note(occurrence),
+                "recipients": _preview_recipients(occurrence),
             }
         )
         return context
+
+
+def _preview_recipients(occurrence: Occurrence) -> list[dict[str, Any]]:
+    """Who resolve_audience says would actually be notified, right now, if this occurrence sent today.
+
+    A live snapshot, not stored anywhere and not necessarily who this
+    occurrence actually notifies once its own send_date arrives -
+    subscriptions can change between now and then. Grouped one row per
+    account (resolve_audience's own return shape is a flat (account,
+    channel, destination) tuple per channel) - an account subscribed on
+    both channels would otherwise show up twice with nothing tying the
+    two rows back to the same person.
+    """
+    audience = resolve_audience(
+        event_type=occurrence.event_type, person=occurrence.person, union=occurrence.union
+    )
+    recipients: dict[int, dict[str, Any]] = {}
+    for account, channel, destination in audience:
+        entry = recipients.setdefault(account.id, {"name": str(account), "destinations": []})
+        entry["destinations"].append({"channel": channel.label, "destination": destination})
+    return list(recipients.values())
 
 
 def _own_or_sent_q(request: HttpRequest) -> models.Q:

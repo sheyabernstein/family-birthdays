@@ -1092,6 +1092,14 @@ label {
   margin: 0;
 }
 
+/* Same "small" treatment .history-table gives person_detail.html's own
+   diff rows below - this table's rows (a name/channel/destination per
+   subscribed account) are similarly dense, so the page's usual text
+   size reads oversized for it. */
+.occurrence-preview-recipients {
+  font-size: 0.8rem;
+}
+
 /* --- History (person detail page) - GitHub-PR-style diff rows --- */
 
 .history-table td {

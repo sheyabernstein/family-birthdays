@@ -65,3 +65,31 @@ reads as noise for a split second.
     <div class="occurrence-preview-sms">{{ sms_text }}</div>
     <p class="muted occurrence-preview-char-count">{{ sms_text|length }} / {{ sms_char_budget }} characters</p>
 </div>
+<div class="occurrence-preview-section">
+    <h3>Recipients</h3>
+    <p class="muted occurrence-preview-note">Who's subscribed right now - can still change before this actually sends.</p>
+    {% if recipients %}
+        <table class="data-table occurrence-preview-recipients">
+            <thead>
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Channel</th>
+                    <th scope="col">Destination</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for recipient in recipients %}
+                    {% for entry in recipient.destinations %}
+                        <tr>
+                            <td>{{ recipient.name }}</td>
+                            <td>{{ entry.channel }}</td>
+                            <td>{{ entry.destination }}</td>
+                        </tr>
+                    {% endfor %}
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="muted">Nobody's currently subscribed to this.</p>
+    {% endif %}
+</div>
