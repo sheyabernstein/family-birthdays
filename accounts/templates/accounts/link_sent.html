@@ -22,15 +22,13 @@
                     </div>
                 </dl>
             {% endif %}
-            <p class="muted">Didn't get it? <a href="{% url 'accounts:request_link' %}">Try again</a>.</p>
             <div class="auth-alt-action">
-                <p class="muted">Or, if you received a code:</p>
+                <p class="muted">Or, if you received a code, enter it here:</p>
                 {% if code_error %}<p class="form-errors">That code didn't work - double check it and try again.</p>{% endif %}
                 <form method="post" action="{% url 'accounts:verify_code' %}">
                     {% csrf_token %}
                     <input type="hidden" name="identifier" value="{{ identifier }}">
                     <div class="form-field">
-                        <label for="code">Code</label>
                         {% comment %}
                             Verification (accounts.magic_links.consume_code) is already
                             case-insensitive, but autocapitalize="characters" here still saves a
@@ -53,6 +51,7 @@
                     <button type="submit" class="btn">Enter code</button>
                 </form>
             </div>
+            <div class="muted">Didn't get it? <a href="{% url 'accounts:request_link' %}">Try again</a>.</div>
         </div>
     </div>
 {% endblock %}

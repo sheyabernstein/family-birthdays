@@ -180,21 +180,50 @@ def _log_in_and_redirect(request: HttpRequest, account: Account) -> HttpResponse
     return redirect("family:home")
 
 
-class VerifyMagicLinkView(View):
-    def get(self, request: HttpRequest, token: str) -> HttpResponse:
-        payload = magic_links.consume_token(token)
+def _invalid_link_response(request: HttpRequest, token: str) -> HttpResponse:
+    """The shared "that didn't work" response for both GET (peek) and POST (consume) failures.
 
+    Distinguishes a tombstoned (already-consumed) token from a
+    plain bad/expired one - see magic_links.is_token_spent's own
+    docstring for why that's knowable at all - so the page can nudge
+    someone whose link an email scanner beat them to towards a resend
+    or the code field, instead of a bare dead end.
+    """
+    spent = magic_links.is_token_spent(token)
+    logger.warning("magic link verify failed", spent=spent)
+    return render(request, "accounts/link_invalid.html", {"spent": spent}, status=400)
+
+
+class VerifyMagicLinkView(View):
+    """GET never spends the token - only the confirm button's POST does.
+
+    An email security scanner or a link-preview (iOS long-press "Peek",
+    Outlook Safe Links, corporate secure-email gateways) fetches the
+    link's URL - a real GET request - before the person themselves ever
+    sees it. If that GET consumed the token outright (as it used to),
+    the scanner silently burns it and the real click lands on a dead
+    "invalid link" page with no clue why. None of those scanners click a
+    button, so gating consumption behind one defeats them without any
+    heuristics about who's asking.
+    """
+
+    def get(self, request: HttpRequest, token: str) -> HttpResponse:
+        if request.user.is_authenticated:
+            # Already signed in - a double click, or exactly the
+            # prefetch case above, either way not worth a confirm
+            # screen for a session that already exists.
+            return redirect("family:home")
+
+        payload = magic_links.peek_token(token)
         if not payload:
-            if request.user.is_authenticated:
-                # Already signed in and the link's spent - a double
-                # click, or a mail client prefetching the link before the
-                # person themselves clicks it, not a real problem for an
-                # already-authenticated session.
-                return redirect("family:home")
-            # Worth an operator's attention - either an expired/reused
-            # link or someone probing the verify endpoint.
-            logger.warning("magic link verify failed - invalid or expired token")
-            return render(request, "accounts/link_invalid.html", status=400)
+            return _invalid_link_response(request, token)
+
+        return render(request, "accounts/link_confirm.html", {"token": token})
+
+    def post(self, request: HttpRequest, token: str) -> HttpResponse:
+        payload = magic_links.consume_token(token)
+        if not payload:
+            return _invalid_link_response(request, token)
 
         account = Account.objects.filter(uuid=payload["account_uuid"], is_active=True).first()
         if not account:

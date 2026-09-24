@@ -14,6 +14,12 @@ from django.conf import settings
 TOKEN_TTL_SECONDS = 15 * 60
 RATE_LIMIT_WINDOW_SECONDS = 60 * 60
 RATE_LIMIT_MAX_PER_WINDOW = 5
+# How long a spent token's tombstone survives after consumption - long
+# enough that a real click arriving after an email scanner already burned
+# the token (see VerifyMagicLinkView's own docstring) still finds out why,
+# short enough not to matter once TOKEN_TTL_SECONDS itself would've expired
+# it anyway.
+SPENT_TOMBSTONE_TTL_SECONDS = TOKEN_TTL_SECONDS
 
 # Every magic link also carries a short, typeable code with the same
 # effect - for whoever finds tapping a link on *this* device impractical
@@ -45,6 +51,10 @@ _redis_client = redis.from_url(settings.REDIS_URL)
 
 def _token_key(token: str) -> str:
     return f"magic_link:{token}"
+
+
+def _spent_key(token: str) -> str:
+    return f"magic_link_spent:{token}"
 
 
 def _code_key(code: str) -> str:
@@ -114,20 +124,51 @@ def _issue_unique_code(token: str) -> str:
     return code
 
 
+def _decode_payload(payload: bytes) -> dict:
+    account_uuid, channel, destination = payload.decode().split(":", 2)
+    return {"account_uuid": account_uuid, "channel": channel, "destination": destination}
+
+
+def peek_token(token: str) -> dict | None:
+    """Non-destructive lookup - same payload shape as consume_token, but doesn't burn it.
+
+    Used to render the "click to sign in" confirmation page (see
+    VerifyMagicLinkView.get) without spending the token on a mere GET -
+    an email scanner or link-preview fetching the URL just sees the same
+    confirm page a real person would, since nothing about this call
+    changes what's in Redis.
+    """
+    payload = _redis_client.get(_token_key(token))
+    return _decode_payload(payload) if payload is not None else None
+
+
+def is_token_spent(token: str) -> bool:
+    """Whether this token was already consumed (vs. never existing/malformed/genuinely expired).
+
+    Redis can't tell those apart once the key's gone, which is why
+    consume_token leaves this separate tombstone behind - lets the
+    confirm page distinguish "someone already opened this" (worth a
+    resend nudge) from a plain bad/old link.
+    """
+    return bool(_redis_client.exists(_spent_key(token)))
+
+
 def consume_token(token: str) -> dict | None:
     """Fetch and invalidate a token in one step.
 
     Returns None for a token that's missing, already used, or expired -
-    Redis doesn't distinguish those cases, which is fine, since the
-    caller treats all three identically (an invalid-link page). Also the
-    engine behind consume_code below - a code is just a pointer at a
-    token, so redeeming one this way burns it for the other path too.
+    Redis doesn't distinguish those first two cases by itself (see
+    is_token_spent for how callers can still tell), which is fine, since
+    the caller otherwise treats all three identically (an invalid-link
+    page). Also the engine behind consume_code below - a code is just a
+    pointer at a token, so redeeming one this way burns it for the other
+    path too.
     """
     payload = _redis_client.getdel(_token_key(token))
     if payload is None:
         return None
-    account_uuid, channel, destination = payload.decode().split(":", 2)
-    return {"account_uuid": account_uuid, "channel": channel, "destination": destination}
+    _redis_client.set(_spent_key(token), "1", ex=SPENT_TOMBSTONE_TTL_SECONDS)
+    return _decode_payload(payload)
 
 
 def is_code_guess_blocked(account_uuid: str) -> bool:
