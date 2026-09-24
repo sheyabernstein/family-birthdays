@@ -155,19 +155,27 @@ class RequestMagicLinkView(View):
         )
 
 
-def _log_in_and_redirect(request: HttpRequest, account: Account) -> HttpResponse:
+def _log_in_and_redirect(
+    request: HttpRequest, account: Account, *, via: str, identifier: str
+) -> HttpResponse:
     """Shared by VerifyMagicLinkView and VerifyCodeView - the code is just a second pointer at the same token.
 
     Only skips the actual login() call when it'd be a same-account
     no-op - the caller's own token/code was already burned by the time
     this runs regardless (see magic_links.consume_token/consume_code), so
     a still-live one must never survive a visit just because this
-    browser happened to already be authenticated.
+    browser happened to already be authenticated. `via` ("link" or
+    "code") and `identifier` (the token/code payload's own
+    `destination` - whichever of the account's email/phone this
+    particular sign-in actually went out to, not just whichever field
+    happens to be set) are logged alongside the sign-in so the two paths
+    stay distinguishable in a log line the callers otherwise share
+    verbatim.
     """
     if request.user.pk != account.pk:
         account.backend = "django.contrib.auth.backends.ModelBackend"
         login(request, account)
-        logger.info("account logged in", account=account.uuid)
+        logger.info("account logged in", account=account.uuid, via=via, identifier=identifier)
     # Redirects to family:home rather than resolving the landing page
     # here directly - CurrentFamilyMiddleware already ran for *this*
     # request before login() was called, off of whatever request.user
@@ -190,7 +198,7 @@ def _invalid_link_response(request: HttpRequest, token: str) -> HttpResponse:
     or the code field, instead of a bare dead end.
     """
     spent = magic_links.is_token_spent(token)
-    logger.warning("magic link verify failed", spent=spent)
+    logger.warning("magic link verify failed", spent=spent, via="link")
     return render(request, "accounts/link_invalid.html", {"spent": spent}, status=400)
 
 
@@ -230,10 +238,11 @@ class VerifyMagicLinkView(View):
             logger.warning(
                 "magic link verify failed - no matching active account",
                 account=payload["account_uuid"],
+                via="link",
             )
             return render(request, "accounts/link_invalid.html", status=400)
 
-        return _log_in_and_redirect(request, account)
+        return _log_in_and_redirect(request, account, via="link", identifier=payload["destination"])
 
 
 class VerifyCodeView(View):
@@ -262,7 +271,7 @@ class VerifyCodeView(View):
             # identifier, and a locked-out account alike - same
             # don't-leak-which-identifiers-are-registered reasoning as
             # RequestMagicLinkView.post's own shared response.
-            logger.warning("magic code verify failed", identifier=identifier)
+            logger.warning("magic code verify failed", identifier=identifier, via="code")
             return render(
                 request,
                 "accounts/link_sent.html",
@@ -270,7 +279,7 @@ class VerifyCodeView(View):
                 status=400,
             )
 
-        return _log_in_and_redirect(request, account)
+        return _log_in_and_redirect(request, account, via="code", identifier=payload["destination"])
 
 
 class LogoutView(LoginRequiredMixin, View):
