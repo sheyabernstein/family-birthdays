@@ -348,10 +348,30 @@ def test_verify_magic_link_logs_in_with_a_valid_token(client):
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
-    resp = client.get(reverse("accounts:verify", args=[token]))
+    resp = client.post(reverse("accounts:verify", args=[token]))
 
     assert resp.status_code == 302
     assert resp.url == reverse("family:home")
+    assert client.session["_auth_user_id"] == str(account.pk)
+
+
+def test_verify_magic_link_get_shows_a_confirm_page_without_consuming(client):
+    # The GET a mail scanner or link-preview fires must never burn the
+    # token itself - only the confirm button's own POST does. See
+    # VerifyMagicLinkView's own docstring for why.
+    account = Account.objects.create_user(email="peek@example.com")
+    token, _code = magic_links.issue_token(
+        account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
+    )
+
+    resp = client.get(reverse("accounts:verify", args=[token]))
+
+    assert resp.status_code == 200
+    assert "_auth_user_id" not in client.session
+    assert b'method="post"' in resp.content
+
+    resp = client.post(reverse("accounts:verify", args=[token]))
+    assert resp.status_code == 302
     assert client.session["_auth_user_id"] == str(account.pk)
 
 
@@ -371,7 +391,7 @@ def test_verify_magic_link_redirects_to_the_accounts_own_person_in_the_tree(clie
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
-    resp = client.get(reverse("accounts:verify", args=[token]), follow=True)
+    resp = client.post(reverse("accounts:verify", args=[token]), follow=True)
 
     assert resp.redirect_chain == [
         (reverse("family:home"), 302),
@@ -390,7 +410,7 @@ def test_verify_magic_link_falls_back_to_dashboard_without_a_matching_person(cli
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
-    resp = client.get(reverse("accounts:verify", args=[token]), follow=True)
+    resp = client.post(reverse("accounts:verify", args=[token]), follow=True)
 
     assert resp.redirect_chain == [
         (reverse("family:home"), 302),
@@ -411,7 +431,7 @@ def test_verify_magic_link_falls_back_to_the_switcher_with_an_ambiguous_family(c
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
-    resp = client.get(reverse("accounts:verify", args=[token]), follow=True)
+    resp = client.post(reverse("accounts:verify", args=[token]), follow=True)
 
     assert resp.redirect_chain == [
         (reverse("family:home"), 302),
@@ -425,7 +445,7 @@ def test_verify_magic_link_token_is_single_use(client):
     token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
-    client.get(reverse("accounts:verify", args=[token]))
+    client.post(reverse("accounts:verify", args=[token]))
     client.logout()
 
     resp = client.get(reverse("accounts:verify", args=[token]))
@@ -447,7 +467,7 @@ def test_verify_magic_link_rejects_a_token_for_a_deactivated_account(client):
     account.is_active = False
     account.save(update_fields=["is_active"])
 
-    resp = client.get(reverse("accounts:verify", args=[token]))
+    resp = client.post(reverse("accounts:verify", args=[token]))
 
     assert resp.status_code == 400
 
@@ -462,7 +482,7 @@ def test_verify_magic_link_redirects_an_already_authenticated_user_for_a_spent_t
     token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
-    client.get(reverse("accounts:verify", args=[token]))
+    client.post(reverse("accounts:verify", args=[token]))
 
     resp = client.get(reverse("accounts:verify", args=[token]), follow=True)
 
@@ -481,7 +501,7 @@ def test_verify_magic_link_redirects_an_already_authenticated_user_to_their_own_
     token, _code = magic_links.issue_token(
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
-    client.get(reverse("accounts:verify", args=[token]))
+    client.post(reverse("accounts:verify", args=[token]))
 
     resp = client.get(reverse("accounts:verify", args=[token]), follow=True)
 
@@ -504,7 +524,7 @@ def test_verify_magic_link_switches_account_even_when_already_authenticated(clie
         account_uuid=str(account.uuid), channel=ChannelEnum.EMAIL, destination=account.email
     )
 
-    resp = client.get(reverse("accounts:verify", args=[token]))
+    resp = client.post(reverse("accounts:verify", args=[token]))
 
     assert resp.status_code == 302
     assert client.session["_auth_user_id"] == str(account.pk)

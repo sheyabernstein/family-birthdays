@@ -4,8 +4,17 @@
 {% block content %}
     <div class="auth-shell">
         <div class="auth-card">
-            <h1>That link isn't valid anymore</h1>
-            <p>It may have already been used, or it's expired.</p>
+            {% if spent %}
+                <h1>Looks like that link already used</h1>
+                <p>
+                    Some email and messaging apps open links automatically to check them, which
+                    can use up a sign-in link before you ever tap it yourself.
+                </p>
+                <p class="muted">If you got a code along with the link, you can use that instead - or request a new link below.</p>
+            {% else %}
+                <h1>That link isn't valid anymore</h1>
+                <p>It may have already been used, or it's expired.</p>
+            {% endif %}
             <a class="btn" href="{% url 'accounts:request_link' %}">Request a new one</a>
         </div>
     </div>

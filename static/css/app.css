@@ -1472,11 +1472,11 @@ main.auth-main {
 /* link_sent.html's own "enter the code instead" mini-form - set off
    from the rest of the card with its own rule and breathing room, same
    as .confirm-details does above, rather than just butting up against
-   the "Didn't get it?" line right above it. */
+   the "Didn't get it?" line right below it. */
 .auth-alt-action {
-  margin-top: 1.25rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--rule-soft);
+  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--rule-soft);
 }
 
 .auth-alt-action .form-field {
