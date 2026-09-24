@@ -140,6 +140,36 @@
         });
       }
 
+      // f3's own "click to expand" mini-tree icon (see .setMiniTree(true)
+      // below) only shows itself when a card's own rels reference someone
+      // not in the currently rendered tree - it has no way to know about
+      // a relationship hideNonMainSpouses() already deleted before f3
+      // ever saw the data, so a decluttered spouse silently vanishes with
+      // no hint it's there at all, not even f3's own affordance for
+      // "there's more this way." Restores just that visual hint by hand,
+      // reusing f3's own icon markup (f3.icons.miniTreeSvgIcon - the
+      // literal function getMiniTree() itself calls) - nothing needs to
+      // actually change about what's rendered, since clicking anywhere on
+      // a card already re-centers the tree on that person regardless (see
+      // setOnCardClick below), which is all "expanding" the icon would
+      // have done anyway.
+      function restoreMiniTreeIconsForStrippedSpouses() {
+        const strippedIds = new Set(
+          strippedSpouseLinks.filter(({ spouseIds }) => spouseIds.length).map(({ nodeId }) => nodeId)
+        );
+        if (!strippedIds.size) return;
+        // f3 binds each card's own datum to .card_cont (the D3-joined
+        // wrapper), not .card itself (a plain innerHTML-assigned child of
+        // it) - found by inspecting the live DOM, not documented anywhere.
+        document.querySelectorAll("#family-chart-mount .card_cont").forEach((cont) => {
+          const d = cont.__data__;
+          if (!d || !strippedIds.has(d.data.id)) return;
+          const cardEl = cont.querySelector(".card");
+          if (!cardEl || cardEl.querySelector(".mini-tree")) return;
+          cardEl.insertAdjacentHTML("afterbegin", `<div class="mini-tree">${f3.icons.miniTreeSvgIcon()}</div>`);
+        });
+      }
+
       // This family's data is wide, not deep - several couples here have
       // 7-9 children each (see AGENTS.md) - so a flat generation cap
       // either hides too much for a small branch or explodes into
@@ -426,6 +456,17 @@
           { childList: true, subtree: true }
         );
       }
+
+      // Always on (unlike the upcoming-wedding observer above, which only
+      // matters for this specific tree's own data) - every render can
+      // include someone whose spouse got decluttered, same reasoning as
+      // markUpcomingWeddingLinks's own comment: f3 redraws the whole SVG
+      // rather than patching it, so this has to re-run after every
+      // recenter/expand, not just once.
+      new MutationObserver(restoreMiniTreeIconsForStrippedSpouses).observe(
+        document.getElementById("family-chart-mount"),
+        { childList: true, subtree: true }
+      );
 
       // Not persisted across visits - each tree opens vertical by
       // default, matching the pre-toggle behavior. f3 recalculates the
