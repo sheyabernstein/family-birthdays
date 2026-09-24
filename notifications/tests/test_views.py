@@ -653,6 +653,50 @@ def test_occurrence_preview_renders_email_and_sms_for_an_editor(client, family):
     assert b"birthday" in resp.content.lower()
 
 
+def test_occurrence_preview_lists_who_is_currently_subscribed(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    occurrence = _preview_occurrence(
+        person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+
+    # Subscribed to everything by default (see AGENTS.md) - the editor's
+    # own account, with no NotificationPreference row at all, still
+    # shows up here.
+    assert resp.context["recipients"] == [
+        {
+            "name": "editor@example.com",
+            "destinations": [{"channel": "Email", "destination": "editor@example.com"}],
+        }
+    ]
+    assert b"editor@example.com" in resp.content
+
+
+def test_occurrence_preview_shows_nobody_subscribed_when_the_audience_is_empty(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    editor.email_notifications_enabled = False
+    editor.save(update_fields=["email_notifications_enabled"])
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    occurrence = _preview_occurrence(
+        person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+
+    assert resp.context["recipients"] == []
+    assert b"Nobody" in resp.content
+
+
 def test_occurrence_preview_shows_a_generic_identifier_not_the_internal_placeholder(client, family):
     # One occurrence can have several real recipients (each personalized
     # at send time - see notifications.tasks._personalize), so there's no
