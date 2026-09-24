@@ -155,7 +155,9 @@ class RequestMagicLinkView(View):
         )
 
 
-def _log_in_and_redirect(request: HttpRequest, account: Account, *, via: str) -> HttpResponse:
+def _log_in_and_redirect(
+    request: HttpRequest, account: Account, *, via: str, identifier: str
+) -> HttpResponse:
     """Shared by VerifyMagicLinkView and VerifyCodeView - the code is just a second pointer at the same token.
 
     Only skips the actual login() call when it'd be a same-account
@@ -163,13 +165,17 @@ def _log_in_and_redirect(request: HttpRequest, account: Account, *, via: str) ->
     this runs regardless (see magic_links.consume_token/consume_code), so
     a still-live one must never survive a visit just because this
     browser happened to already be authenticated. `via` ("link" or
-    "code") is logged alongside the sign-in so the two paths stay
-    distinguishable in a log line the callers otherwise share verbatim.
+    "code") and `identifier` (the token/code payload's own
+    `destination` - whichever of the account's email/phone this
+    particular sign-in actually went out to, not just whichever field
+    happens to be set) are logged alongside the sign-in so the two paths
+    stay distinguishable in a log line the callers otherwise share
+    verbatim.
     """
     if request.user.pk != account.pk:
         account.backend = "django.contrib.auth.backends.ModelBackend"
         login(request, account)
-        logger.info("account logged in", account=account.uuid, via=via)
+        logger.info("account logged in", account=account.uuid, via=via, identifier=identifier)
     # Redirects to family:home rather than resolving the landing page
     # here directly - CurrentFamilyMiddleware already ran for *this*
     # request before login() was called, off of whatever request.user
@@ -236,7 +242,7 @@ class VerifyMagicLinkView(View):
             )
             return render(request, "accounts/link_invalid.html", status=400)
 
-        return _log_in_and_redirect(request, account, via="link")
+        return _log_in_and_redirect(request, account, via="link", identifier=payload["destination"])
 
 
 class VerifyCodeView(View):
@@ -273,7 +279,7 @@ class VerifyCodeView(View):
                 status=400,
             )
 
-        return _log_in_and_redirect(request, account, via="code")
+        return _log_in_and_redirect(request, account, via="code", identifier=payload["destination"])
 
 
 class LogoutView(LoginRequiredMixin, View):
