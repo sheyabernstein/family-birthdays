@@ -31,7 +31,7 @@ command doesn't need request/task tracing.
 
 from django.conf import settings
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.celery import CeleryInstrumentor
 from opentelemetry.instrumentation.django import DjangoInstrumentor
@@ -84,7 +84,9 @@ def init_tracing() -> TracerProvider:
         logger.info("enabling otel exporter", endpoint=settings.OTEL_ENDPOINT)
         provider.add_span_processor(
             BatchSpanProcessor(
-                OTLPSpanExporter(endpoint=settings.OTEL_ENDPOINT, headers=_normalized_headers())
+                OTLPSpanExporter(
+                    endpoint=f"{settings.OTEL_ENDPOINT}/v1/traces", headers=_normalized_headers()
+                )
             )
         )
 
