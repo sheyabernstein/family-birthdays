@@ -32,11 +32,10 @@ init_tracing()
 application = get_wsgi_application()
 
 # Set once per gunicorn worker process, after the app's fully built - see
-# config/observability/metrics.py's own docstring. Grafana's namespace
-# variable (docker/observability/grafana-dashboards/notifications.json)
-# queries label_values() against this metric, so a process that never
-# calls this leaves the dashboard with no namespace to select at all -
-# found for real, the first time this dashboard was actually opened.
+# config/observability/metrics.py's own docstring. Grafana's own
+# namespace-picker variable queries label_values() against this metric,
+# so a process that never calls this leaves the dashboard with no
+# namespace to select at all.
 from config.observability.metrics import set_build_info  # noqa: E402
 
 set_build_info(settings.BUILD_VERSION)

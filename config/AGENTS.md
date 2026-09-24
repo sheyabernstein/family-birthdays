@@ -316,15 +316,14 @@ these build on.
   _country_for_sms_metric`), falling back to `"unknown"` rather than
   raising - a metric label is never worth blocking a real send over.
 - **SES/SNS $-cost math deliberately isn't a Prometheus recording rule or
-  anything in app code - it lives entirely in the Grafana dashboard JSON
-  itself** (`docker/observability/grafana-dashboards/notifications.json`'s
-  "SMS volume by country" panel, via a `calculateField` transform).
-  Prometheus/the app only ever emit pure volume counters. SNS/SES pricing
-  changes independently of this app's own state and varies by destination
-  country in ways nothing here should need a deploy to reflect - a price
-  update is a dashboard-panel edit, which re-evaluates the whole historical
-  time range correctly the moment it's changed, unlike a value baked into
-  a metric at write time.
+  anything in app code - it lives entirely in Grafana's own dashboard
+  JSON** (the "SMS volume by country" panel, via a `calculateField`
+  transform). Prometheus/the app only ever emit pure volume counters.
+  SNS/SES pricing changes independently of this app's own state and
+  varies by destination country in ways nothing here should need a
+  deploy to reflect - a price update is a dashboard-panel edit, which
+  re-evaluates the whole historical time range correctly the moment it's
+  changed, unlike a value baked into a metric at write time.
 - **`beat_task_last_success_timestamp` is set by hand, inside
   `compute_occurrences`/`send_due_notifications`/`send_due_broadcasts`
   themselves, at the very end of each function body - never derived from
@@ -337,35 +336,3 @@ these build on.
   incident worth a stale-gauge alert. A signal-based "last ran" gauge
   can't tell that apart from a genuine failure; a gauge set at the end of
   a function body that actually completed naturally can.
-- **`docker-compose.observability.yml` is additive, never merged into
-  `docker-compose.yml`/`docker-compose.dev.yml`, and everything in it is
-  stateless (no named volumes)** - Prometheus/Tempo/Grafana here are for
-  building and testing dashboards locally, not long-term retention.
-  `OTEL_ENABLED` stays `false` in `.env.sample`'s own default (spans are
-  still always recorded per the always-on-provider design above, just
-  never exported) specifically so a plain `docker compose up` never tries
-  to dial a Tempo endpoint that isn't running; flip it (and point
-  `OTEL_ENDPOINT` at `http://tempo:4317`) only once this overlay is also
-  up. `docker/observability/prometheus.yml.template` is `sed`'d at
-  container start (see that service's own `command` - the `prom/
-  prometheus` image is busybox-based with no `envsubst`/gettext, only
-  `sed`) specifically to attach a `namespace` label to every scraped
-  series - prod's own Grafana dashboards key off a k8s-namespace variable,
-  and templating it this way means the exact same dashboard JSON works
-  against both local and prod data with no per-environment fork. The
-  template's placeholder is the plain token `__NAMESPACE__`, not
-  `${COMPOSE_PROJECT_NAME}` - a literal `${...}` there collides with
-  Compose's own interpolation (which runs on the whole compose file before
-  any container starts, and doesn't respect a backslash-escape in front of
-  `${...}`) as much as it would with `sed`'s own pattern syntax, so a
-  dollar-sign-free placeholder sidesteps both at once.
-- **The `tempo` service is pinned to `grafana/tempo:2.10.5`, never
-  `:latest`, and runs as `user: "0"`.** `:latest` currently resolves to
-  Tempo v3, whose config schema is a breaking change from v2's - the exact
-  same top-level `compactor`/`storage.trace.local.path` shape this file
-  uses (matching prom-gateway's own already-working `tempo.yaml`) fails to
-  parse at all under v3 (`field compactor not found in type app.Config`).
-  Running as root sidesteps a second, independent failure mode - the
-  image's default non-root user can't always write `/tmp/tempo` - which
-  is a fine trade for storage this stateless local stack already treats
-  as disposable.
