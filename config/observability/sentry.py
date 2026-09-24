@@ -76,8 +76,11 @@ def init_sentry() -> None:
         # never reaches SentrySpanProcessor at all. This just flips on
         # Sentry's own tracing subsystem, which otherwise makes
         # start_transaction() (called from SentrySpanProcessor.on_start) a
-        # no-op that sends nothing.
-        traces_sample_rate=1.0,
+        # no-op that sends nothing. Zeroed out below SENTRY_TRACES_ENABLED
+        # is off, since SentrySpanProcessor is never attached in that case
+        # anyway - this just keeps the value honest rather than leaving a
+        # stale 1.0 sitting there implying tracing's still live.
+        traces_sample_rate=1.0 if settings.SENTRY_TRACES_ENABLED else 0.0,
         disabled_integrations=[DjangoIntegration(), CeleryIntegration()],
         # Keep log breadcrumbs, but don't let error-level log calls create
         # their own Sentry issues independently of
@@ -88,11 +91,18 @@ def init_sentry() -> None:
         integrations=[LoggingIntegration(event_level=None)],
     )
 
-    # Mirrors spans from the shared TracerProvider into Sentry, with the
-    # same trace/span ids and attributes. Also propagates Sentry's
-    # distributed-tracing headers over the same OTel context.
-    otel_trace.get_tracer_provider().add_span_processor(SentrySpanProcessor())
-    set_global_textmap(SentryPropagator())
+    if settings.SENTRY_TRACES_ENABLED:
+        # Mirrors spans from the shared TracerProvider into Sentry, with
+        # the same trace/span ids and attributes. Also propagates
+        # Sentry's distributed-tracing headers over the same OTel
+        # context. This is also the only thing that stamps a captured
+        # exception with its matching trace/span id (SentrySpanProcessor
+        # registers that linkage itself, in its own __init__) - so
+        # turning this off means an exception still reaches Sentry (see
+        # OTelSpan.record_exception patch below), just without a
+        # cross-reference back to its Tempo trace.
+        otel_trace.get_tracer_provider().add_span_processor(SentrySpanProcessor())
+        set_global_textmap(SentryPropagator())
 
     # OTel's Django/Celery instrumentation records unhandled exceptions
     # onto the active span via `span.record_exception`; SentrySpanProcessor
