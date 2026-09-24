@@ -44,7 +44,12 @@ def test_init_sentry_is_a_no_op_when_disabled(monkeypatch):
     mock_init.assert_not_called()
 
 
-@override_settings(SENTRY_ENABLED=True, SENTRY_DSN="https://example.invalid/1", SENTRY_ENVIRONMENT="test")
+@override_settings(
+    SENTRY_ENABLED=True,
+    SENTRY_DSN="https://example.invalid/1",
+    SENTRY_ENVIRONMENT="test",
+    SENTRY_TRACES_ENABLED=True,
+)
 def test_init_sentry_initializes_once_and_is_idempotent(monkeypatch):
     """Also patches OTelSpan (a stand-in class, not the real
     opentelemetry.sdk.trace.Span) - init_sentry() reassigns
@@ -62,4 +67,29 @@ def test_init_sentry_initializes_once_and_is_idempotent(monkeypatch):
         init_sentry()
 
     mock_init.assert_called_once()
+    assert mock_init.call_args.kwargs["traces_sample_rate"] == 1.0
     mock_provider.assert_called_once()
+
+
+@override_settings(
+    SENTRY_ENABLED=True,
+    SENTRY_DSN="https://example.invalid/1",
+    SENTRY_ENVIRONMENT="test",
+    SENTRY_TRACES_ENABLED=False,
+)
+def test_init_sentry_skips_span_mirroring_when_traces_disabled(monkeypatch):
+    """Exceptions still reach Sentry either way (a separate code path -
+    see the record_exception tests above) - this only covers the trace-
+    mirroring half turning off cleanly, not exception capture itself."""
+    monkeypatch.setattr(sentry_module, "_initialized", False)
+    monkeypatch.setattr(sentry_module, "OTelSpan", type("FakeSpan", (), {}))
+    with (
+        patch("config.observability.sentry.sentry_sdk.init") as mock_init,
+        patch("config.observability.sentry.otel_trace.get_tracer_provider") as mock_provider,
+        patch("config.observability.sentry.set_global_textmap") as mock_textmap,
+    ):
+        init_sentry()
+
+    assert mock_init.call_args.kwargs["traces_sample_rate"] == 0.0
+    mock_provider.assert_not_called()
+    mock_textmap.assert_not_called()

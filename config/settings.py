@@ -354,6 +354,15 @@ OTEL_EXPORTER_OTLP_HEADERS = get_env_list("OTEL_EXPORTER_OTLP_HEADERS", default=
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 SENTRY_ENABLED = bool(SENTRY_DSN)
 SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "development")
+# Off switch for trace *volume* only, not error reporting - an exception
+# still reaches Sentry either way (config/observability/sentry.py's own
+# OTelSpan.record_exception patch is a separate code path from trace
+# mirroring). Defaults on to match this app's existing behavior for
+# anyone not setting it. See that module's own SentrySpanProcessor
+# comment for the one real cost of turning this off: a Sentry issue can
+# no longer be cross-referenced to its matching Tempo trace by id, since
+# that link is populated by the same object that mirrors spans.
+SENTRY_TRACES_ENABLED = get_env_bool("SENTRY_TRACES_ENABLED", default=True)
 
 # Prometheus namespace prefix for every metric this app exports (see
 # config/observability/metrics.py) and the multiprocess directory
