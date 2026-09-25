@@ -342,9 +342,23 @@ def _preview_recipients(occurrence: Occurrence) -> list[dict[str, Any]]:
     audience = resolve_audience(
         event_type=occurrence.event_type, person=occurrence.person, union=occurrence.union
     )
+    if not audience:
+        return []
+
+    # Not str(account) (Account.display_name -> linked_person, an
+    # un-batched query per account) - also more correct than
+    # linked_person for a multi-family account, which it leaves blank.
+    family_id = occurrence.person.family_id if occurrence.person else occurrence.union.person_a.family_id
+    account_ids = {account.id for account, _channel, _destination in audience}
+    names_by_account_id = {
+        person.account_id: person.display_name
+        for person in Person.objects.filter(account_id__in=account_ids, family_id=family_id)
+    }
+
     recipients: dict[int, dict[str, Any]] = {}
     for account, channel, destination in audience:
-        entry = recipients.setdefault(account.id, {"name": str(account), "destinations": []})
+        name = names_by_account_id.get(account.id) or account.email or account.phone
+        entry = recipients.setdefault(account.id, {"name": name, "destinations": []})
         entry["destinations"].append({"channel": channel.label, "destination": destination})
     return list(recipients.values())
 

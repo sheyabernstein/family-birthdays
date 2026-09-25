@@ -909,3 +909,30 @@ def test_occurrence_preview_does_not_query_parents_per_request(client, family):
 
     assert len(with_parents_ctx.captured_queries) == len(no_parents.captured_queries)
     assert b"Dad &amp; Mom" in resp.content or b"Dad & Mom" in resp.content
+
+
+def test_occurrence_preview_does_not_query_recipients_per_recipient(client, family):
+    # Regression guard for _preview_recipients's own batched name lookup.
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    person = Person.objects.create(family=family, first_name_en="Sari", last_name_en="Rokach")
+    occurrence = _preview_occurrence(
+        person,
+        EventType.BuiltinCode.BIRTHDAY,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+
+    with CaptureQueriesContext(connection) as one_recipient:
+        client.get(f"/occurrences/{occurrence.uuid}/preview/")
+
+    for i in range(10):
+        other = Account.objects.create_user(email=f"extra{i}@example.com")
+        FamilyMembership.objects.create(account=other, family=family, role=FamilyMembership.Role.MEMBER)
+        Person.objects.create(family=family, account=other, first_name_en=f"Extra{i}", last_name_en="Person")
+
+    with CaptureQueriesContext(connection) as many_recipients:
+        resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+
+    assert len(resp.context["recipients"]) == 11
+    assert len(many_recipients.captured_queries) == len(one_recipient.captured_queries)

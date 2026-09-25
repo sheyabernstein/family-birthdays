@@ -24,7 +24,10 @@ function initOccurrencePreview() {
       activeRequest = controller;
 
       body.innerHTML = '<p class="muted">Loading preview&hellip;</p>';
-      dialog.showModal();
+      // showModal() throws on an already-open dialog - clicking a second
+      // "Preview" without closing the first would otherwise abort before
+      // the fetch below ever starts, stranding the dialog on "Loading".
+      if (!dialog.open) dialog.showModal();
       fetch(button.dataset.previewUrl, {
         headers: { "X-Requested-With": "XMLHttpRequest" },
         signal: controller.signal,
