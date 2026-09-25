@@ -859,6 +859,8 @@ def _metric_event_type(message: Message) -> str:
     retry_backoff_max=600,
     retry_jitter=True,
     max_retries=3,
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
 def send_message(self: Task, message_id: int) -> None:
     """Sends one already-rendered Message, retrying transient failures with backoff.
@@ -868,6 +870,14 @@ def send_message(self: Task, message_id: int) -> None:
     freeing up is exactly the kind of transient condition an exponential
     backoff is for, not a real failure. dont_autoretry_for excludes
     SmsUnrecoverableError, which retrying can never fix.
+
+    acks_late/reject_on_worker_lost trade a possible duplicate send for
+    the alternative being worse here: without them, a worker crash
+    mid-task leaves the Message stuck at QUEUED forever with no retry -
+    silently never notifying someone about the exact thing this app
+    exists to notify them about. The duplicate-on-retry risk that trade
+    would otherwise reopen is closed above (never re-raise once the
+    provider call itself already succeeded).
     """
     message = Message.objects.get(pk=message_id)
     event_type = _metric_event_type(message)

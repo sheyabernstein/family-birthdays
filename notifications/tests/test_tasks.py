@@ -67,6 +67,8 @@ def test_send_message_has_bounded_retries_with_exponential_backoff():
     assert send_message.retry_backoff_max == 600
     assert send_message.retry_jitter is True
     assert send_message.max_retries == 3
+    assert send_message.acks_late is True
+    assert send_message.reject_on_worker_lost is True
 
 
 def _future_anchor() -> tuple[int, int, int]:
