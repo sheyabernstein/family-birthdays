@@ -1,10 +1,11 @@
 import datetime as dt
+import time
 from collections import defaultdict
 from collections.abc import Iterator
 from urllib.parse import quote
 
 from celery import Task, shared_task
-from django.db import models
+from django.db import models, transaction
 from django.template.loader import render_to_string
 from django.utils import timezone
 from hdate.hebrew_date import Months
@@ -523,6 +524,14 @@ def send_due_notifications() -> None:
     A claimed occurrence more than MAX_CATCHUP_DAYS_LATE past its own
     occurrence_date is discarded (deleted outright) instead of sent - see
     that constant's own docstring.
+
+    The claim and every Message row it produces are one transaction,
+    committed before any of them are dispatched - a crash partway
+    through a multi-recipient occurrence used to leave it claimed but
+    only partly queued, with the remaining recipients silently never
+    notified (nothing reprocesses an already-claimed row). Rolling the
+    claim back with the rest lets a crashed occurrence retry cleanly
+    next run instead.
     """
     today = timezone.localdate()
     due_ids = list(
@@ -534,47 +543,52 @@ def send_due_notifications() -> None:
     claimed_count = 0
     discarded_count = 0
     for occurrence_id in due_ids:
-        claimed = Occurrence.objects.filter(pk=occurrence_id, is_sent=False).update(is_sent=True)
-        if not claimed:
-            continue
-        claimed_count += 1
+        message_ids: list[int] = []
+        with transaction.atomic():
+            claimed = Occurrence.objects.filter(pk=occurrence_id, is_sent=False).update(is_sent=True)
+            if not claimed:
+                continue
+            claimed_count += 1
 
-        occurrence = Occurrence.objects.with_related().get(pk=occurrence_id)
+            occurrence = Occurrence.objects.with_related().get(pk=occurrence_id)
 
-        if occurrence.occurrence_date < today - dt.timedelta(days=MAX_CATCHUP_DAYS_LATE):
-            logger.info(
-                "discarding occurrence beyond the catch-up window",
-                occurrence=occurrence.uuid,
-                occurrence_date=occurrence.occurrence_date,
-                days_late=(today - occurrence.occurrence_date).days,
+            if occurrence.occurrence_date < today - dt.timedelta(days=MAX_CATCHUP_DAYS_LATE):
+                logger.info(
+                    "discarding occurrence beyond the catch-up window",
+                    occurrence=occurrence.uuid,
+                    occurrence_date=occurrence.occurrence_date,
+                    days_late=(today - occurrence.occurrence_date).days,
+                )
+                discarded_count += 1
+                occurrence.delete()
+                continue
+
+            audience = resolve_audience(
+                event_type=occurrence.event_type, person=occurrence.person, union=occurrence.union
             )
-            discarded_count += 1
-            occurrence.delete()
-            continue
+            # Rendered once per channel actually needed for this
+            # occurrence, not once per recipient - most occurrences have
+            # several recipients on the same channel, and re-rendering
+            # the same template for each would just be wasted work.
+            rendered: dict[str, tuple[str, str, str]] = {}
+            for account, channel, destination in audience:
+                if channel not in rendered:
+                    rendered[channel] = _render_occurrence_message(occurrence, channel=channel)
+                subject, body, html_body = rendered[channel]
 
-        audience = resolve_audience(
-            event_type=occurrence.event_type, person=occurrence.person, union=occurrence.union
-        )
-        # Rendered once per channel actually needed for this occurrence,
-        # not once per recipient - most occurrences have several
-        # recipients on the same channel, and re-rendering the same
-        # template for each would just be wasted work.
-        rendered: dict[str, tuple[str, str, str]] = {}
-        for account, channel, destination in audience:
-            if channel not in rendered:
-                rendered[channel] = _render_occurrence_message(occurrence, channel=channel)
-            subject, body, html_body = rendered[channel]
+                message = Message.objects.create(
+                    occurrence=occurrence,
+                    account=account,
+                    channel=channel,
+                    destination=destination,
+                    subject=subject,
+                    body=body,
+                    html_body=_personalize(html_body, destination=destination),
+                )
+                message_ids.append(message.pk)
 
-            message = Message.objects.create(
-                occurrence=occurrence,
-                account=account,
-                channel=channel,
-                destination=destination,
-                subject=subject,
-                body=body,
-                html_body=_personalize(html_body, destination=destination),
-            )
-            send_message.delay(message.pk)
+        for message_id in message_ids:
+            send_message.delay(message_id)
             queued += 1
 
     logger.info(
@@ -792,6 +806,12 @@ def send_due_broadcasts() -> None:
     only the run that actually flips is_sent 0->1 for a given row goes on
     to send it, and an update() affecting zero rows (already claimed, or
     the row's gone) is a normal, silent no-op rather than a race.
+
+    The claim and every Message row it produces are one transaction,
+    committed before any of them are dispatched - see
+    send_due_notifications' own docstring for why (a crash partway
+    through a multi-recipient broadcast otherwise strands the remaining
+    recipients on an already-claimed row that nothing reprocesses).
     """
     due_ids = list(
         Broadcast.objects.filter(is_sent=False, send_at__lte=timezone.now()).values_list("pk", flat=True)
@@ -800,35 +820,42 @@ def send_due_broadcasts() -> None:
 
     sent = 0
     for broadcast_id in due_ids:
-        claimed = Broadcast.objects.filter(pk=broadcast_id, is_sent=False).update(
-            is_sent=True, sent_at=timezone.now()
-        )
-        if not claimed:
-            continue
-
-        broadcast = Broadcast.objects.select_related("family", "created_by").get(pk=broadcast_id)
-        people = list(broadcast.people.all())
-        event_type = _broadcast_event_type(broadcast.family_id)
-        audience = resolve_broadcast_audience(event_type=event_type, family=broadcast.family, people=people)
-
-        rendered: dict[str, tuple[str, str, str]] = {}
-        for account, channel, destination in audience:
-            if channel not in rendered:
-                rendered[channel] = _render_broadcast_message(broadcast, people, channel=channel)
-            subject, body, html_body = rendered[channel]
-
-            message = Message.objects.create(
-                broadcast=broadcast,
-                account=account,
-                channel=channel,
-                destination=destination,
-                subject=subject,
-                body=body,
-                html_body=_personalize(html_body, destination=destination),
+        message_ids: list[int] = []
+        with transaction.atomic():
+            claimed = Broadcast.objects.filter(pk=broadcast_id, is_sent=False).update(
+                is_sent=True, sent_at=timezone.now()
             )
-            send_message.delay(message.pk)
+            if not claimed:
+                continue
 
-        sent += 1
+            broadcast = Broadcast.objects.select_related("family", "created_by").get(pk=broadcast_id)
+            people = list(broadcast.people.all())
+            event_type = _broadcast_event_type(broadcast.family_id)
+            audience = resolve_broadcast_audience(
+                event_type=event_type, family=broadcast.family, people=people
+            )
+
+            rendered: dict[str, tuple[str, str, str]] = {}
+            for account, channel, destination in audience:
+                if channel not in rendered:
+                    rendered[channel] = _render_broadcast_message(broadcast, people, channel=channel)
+                subject, body, html_body = rendered[channel]
+
+                message = Message.objects.create(
+                    broadcast=broadcast,
+                    account=account,
+                    channel=channel,
+                    destination=destination,
+                    subject=subject,
+                    body=body,
+                    html_body=_personalize(html_body, destination=destination),
+                )
+                message_ids.append(message.pk)
+
+            sent += 1
+
+        for message_id in message_ids:
+            send_message.delay(message_id)
 
     logger.info("broadcasts sent", count=sent)
     metrics.beat_task_last_success_timestamp.labels(task_name="send_due_broadcasts").set(
@@ -850,15 +877,45 @@ def _metric_event_type(message: Message) -> str:
     return code if code in EventType.BuiltinCode.values else "custom"
 
 
+class MessageRecordingError(Exception):
+    """The provider call succeeded, but recording that fact kept failing even after retrying.
+
+    Deliberately not a FamilyBirthdaysError (config/exceptions.py) -
+    this needs a human, not a shrug, so it should still reach Sentry and
+    show up as a failed run in the admin's Task results, not look like
+    an ordinary success. Also in send_message's own dont_autoretry_for,
+    so autoretry_for never sees it - retrying the whole task here would
+    call the provider again for a message that already sent.
+    """
+
+
+def _save_sent_message(message: Message, *, update_fields: list[str], attempts: int = 3) -> None:
+    """Retries message.save() a few times before giving up.
+
+    A transient DB hiccup right after a successful send shouldn't need
+    a human to notice and fix by hand.
+    """
+    for attempt in range(attempts):
+        try:
+            message.save(update_fields=update_fields)
+            return
+        except Exception:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.2 * (attempt + 1))
+
+
 @shared_task(
     bind=True,
     queue=TaskPriority.NORMAL,
     autoretry_for=(Exception,),
-    dont_autoretry_for=(SmsUnrecoverableError,),
+    dont_autoretry_for=(SmsUnrecoverableError, MessageRecordingError),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
     max_retries=3,
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
 def send_message(self: Task, message_id: int) -> None:
     """Sends one already-rendered Message, retrying transient failures with backoff.
@@ -867,7 +924,17 @@ def send_message(self: Task, message_id: int) -> None:
     SmsRateLimitedError (notifications.sms) - the SNS global rate limit
     freeing up is exactly the kind of transient condition an exponential
     backoff is for, not a real failure. dont_autoretry_for excludes
-    SmsUnrecoverableError, which retrying can never fix.
+    SmsUnrecoverableError, which retrying can never fix, and
+    MessageRecordingError, which retrying would only make worse (see
+    that class's own docstring).
+
+    acks_late/reject_on_worker_lost trade a possible duplicate send for
+    the alternative being worse here: without them, a worker crash
+    mid-task leaves the Message stuck at QUEUED forever with no retry -
+    silently never notifying someone about the exact thing this app
+    exists to notify them about. The duplicate-on-retry risk that trade
+    would otherwise reopen is closed above (never re-raise once the
+    provider call itself already succeeded).
     """
     message = Message.objects.get(pk=message_id)
     event_type = _metric_event_type(message)
@@ -950,11 +1017,27 @@ def send_message(self: Task, message_id: int) -> None:
         )
         raise
 
-    message.status = Message.Status.SENT
-    message.sent_at = timezone.now()
-    message.tries += 1
-    message.provider_response = provider_response
-    message.save(update_fields=["status", "sent_at", "tries", "provider_response"])
+    try:
+        message.status = Message.Status.SENT
+        message.sent_at = timezone.now()
+        message.tries += 1
+        message.provider_response = provider_response
+        _save_sent_message(message, update_fields=["status", "sent_at", "tries", "provider_response"])
+    except Exception as exc:
+        logger.error(
+            "message sent but failed to record after retrying",
+            message=message.uuid,
+            subject=message.subject,
+            channel=message.channel,
+            exc_info=exc,
+        )
+        # MessageRecordingError, not a bare re-raise of exc - retrying
+        # the whole task via autoretry_for would call the provider
+        # again for a message that already sent (see that class's own
+        # docstring for why this still needs to surface as a real
+        # failure, not just a log line).
+        raise MessageRecordingError from exc
+
     logger.info(
         "message sent",
         message=message.uuid,

@@ -316,6 +316,15 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
 }
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_DEFAULT_QUEUE = TaskPriority.NORMAL
+# send_message's own acks_late=True (notifications.tasks) means a broker
+# connection drop mid-send is a real race: the worker could keep running
+# its own already-in-flight copy while the broker redelivers a second
+# one elsewhere. True cancels the orphaned local copy the instant the
+# connection loss is detected, so only the redelivered copy finishes -
+# Celery's own future default, adopted here explicitly rather than left
+# to silently flip later (also what silences the
+# CPendingDeprecationWarning this otherwise logs on every worker boot).
+CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS = True
 
 CELERY_BEAT_SCHEDULE = {
     "compute-occurrences-nightly": {

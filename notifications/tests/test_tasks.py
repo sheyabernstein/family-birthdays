@@ -17,6 +17,7 @@ from notifications.models import Broadcast, EventType, Message, NotificationPref
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 from notifications.tasks import (
     MAX_CATCHUP_DAYS_LATE,
+    MessageRecordingError,
     compute_occurrences,
     compute_occurrences_for_person,
     compute_occurrences_for_union,
@@ -62,11 +63,13 @@ def test_send_message_has_bounded_retries_with_exponential_backoff():
     retry_backoff or widen max_retries without any behavioral test
     noticing at eager-mode speed."""
     assert send_message.autoretry_for == (Exception,)
-    assert send_message.dont_autoretry_for == (SmsUnrecoverableError,)
+    assert send_message.dont_autoretry_for == (SmsUnrecoverableError, MessageRecordingError)
     assert send_message.retry_backoff is True
     assert send_message.retry_backoff_max == 600
     assert send_message.retry_jitter is True
     assert send_message.max_retries == 3
+    assert send_message.acks_late is True
+    assert send_message.reject_on_worker_lost is True
 
 
 def _future_anchor() -> tuple[int, int, int]:
@@ -412,6 +415,52 @@ def test_send_due_notifications_does_not_double_send_under_a_concurrent_claim(
     send_due_notifications()
 
     assert Message.objects.count() == 0
+
+
+def test_send_due_notifications_rolls_back_a_crash_partway_through_dispatch(
+    monkeypatch, family, birthday_event_type
+):
+    """A worker dying (or any exception) partway through a multi-recipient
+    occurrence must leave it fully unclaimed, not half-sent with the rest
+    silently stranded - the transaction around claim+dispatch is what
+    guarantees that."""
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    _member(family, email="first@example.com")
+    _member(family, email="second@example.com")
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=birthday_event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    real_create = Message.objects.create
+    calls = []
+
+    def _create_that_crashes_on_the_second_recipient(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 2:
+            raise RuntimeError("worker died here")
+        return real_create(**kwargs)
+
+    monkeypatch.setattr(Message.objects, "create", _create_that_crashes_on_the_second_recipient)
+
+    with pytest.raises(RuntimeError):
+        send_due_notifications()
+
+    occurrence.refresh_from_db()
+    assert occurrence.is_sent is False
+    assert Message.objects.count() == 0
+
+    # The real self-healing path - next day's cron picks the whole
+    # occurrence up fresh, with no partial rows left to collide with.
+    monkeypatch.setattr(Message.objects, "create", real_create)
+    send_due_notifications()
+
+    occurrence.refresh_from_db()
+    assert occurrence.is_sent is True
+    assert Message.objects.filter(occurrence=occurrence).count() == 2
 
 
 def test_send_due_notifications_sends_an_overdue_occurrence(family, birthday_event_type):
@@ -1122,6 +1171,45 @@ def test_send_due_broadcasts_excludes_accounts_outside_the_family(family):
     assert Message.objects.count() == 0
 
 
+def test_send_due_broadcasts_rolls_back_a_crash_partway_through_dispatch(monkeypatch, family):
+    """Same guarantee as send_due_notifications' own version of this
+    test - a crash partway through a multi-recipient broadcast must
+    leave it fully unclaimed, not half-sent with the rest stranded."""
+    _member(family, email="first@example.com")
+    _member(family, email="second@example.com")
+    creator = _member(family, email="creator@example.com")
+    broadcast = Broadcast.objects.create(
+        family=family, text="Hello everyone", created_by=creator, send_at=timezone.now()
+    )
+
+    real_create = Message.objects.create
+    calls = []
+
+    def _create_that_crashes_on_the_second_recipient(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 2:
+            raise RuntimeError("worker died here")
+        return real_create(**kwargs)
+
+    monkeypatch.setattr(Message.objects, "create", _create_that_crashes_on_the_second_recipient)
+
+    with pytest.raises(RuntimeError):
+        send_due_broadcasts()
+
+    broadcast.refresh_from_db()
+    assert broadcast.is_sent is False
+    assert Message.objects.count() == 0
+
+    monkeypatch.setattr(Message.objects, "create", real_create)
+    send_due_broadcasts()
+
+    broadcast.refresh_from_db()
+    assert broadcast.is_sent is True
+    # first/second/creator - the broadcast's own creator is part of the
+    # audience too (see resolve_broadcast_audience).
+    assert Message.objects.filter(broadcast=broadcast).count() == 3
+
+
 # --- send_message ---
 
 
@@ -1216,3 +1304,49 @@ def test_send_message_marks_the_message_failed_once_rate_limit_retries_are_exhau
     assert message.status == Message.Status.FAILED
     assert message.tries == 1
     assert "publishes attempted" in message.error
+
+
+def test_send_message_does_not_resend_when_recording_success_fails(monkeypatch, family):
+    """A save() failure after a successful send must never reach
+    autoretry_for - it would retry the whole task and send again. Raised
+    as MessageRecordingError instead of swallowed, so it still shows up
+    as a real failure (Sentry, Task results admin), not a silent no-op."""
+    message = _sms_message(family)
+
+    def _raise_on_save(self, *args, **kwargs):
+        raise RuntimeError("connection lost")
+
+    monkeypatch.setattr("notifications.tasks.send_sms", lambda **kwargs: {"MessageId": "abc123"})
+    monkeypatch.setattr(Message, "save", _raise_on_save)
+    monkeypatch.setattr("notifications.tasks.time.sleep", lambda seconds: None)
+
+    with pytest.raises(MessageRecordingError):
+        send_message(message.pk)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.QUEUED
+
+
+def test_send_message_retries_recording_a_successful_send_before_giving_up(monkeypatch, family):
+    """A transient save() failure shouldn't need a human - a couple of
+    retries should recover it without ever calling the provider again."""
+    message = _sms_message(family)
+    monkeypatch.setattr("notifications.tasks.send_sms", lambda **kwargs: {"MessageId": "abc123"})
+    monkeypatch.setattr("notifications.tasks.time.sleep", lambda seconds: None)
+
+    real_save = Message.save
+    calls = []
+
+    def _save_that_fails_twice(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) < 3:
+            raise RuntimeError("connection lost")
+        return real_save(self, *args, **kwargs)
+
+    monkeypatch.setattr(Message, "save", _save_that_fails_twice)
+
+    send_message(message.pk)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.SENT
+    assert len(calls) == 3

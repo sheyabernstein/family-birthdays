@@ -52,6 +52,25 @@ these build on.
   `notifications.views.ScheduledTasksView` (the static schedule, read-only)
   plus `django-celery-results`' own admin page (`TaskResult` — actual run
   history, status, tracebacks), both linked from the Django admin index.
+- **Crash-safety is decided per task, not by one blanket setting.**
+  `notifications.tasks.send_message` uses `acks_late=True` +
+  `reject_on_worker_lost=True` (paired with
+  `CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS=True`) —
+  a worker dying mid-send would otherwise silently drop the one thing
+  this app exists to reliably do, with no retry at all. That combination
+  only stays safe because `send_message` itself never re-raises once
+  the provider call already succeeded (see its own docstring) — without
+  that, a redelivered retry would send it again. `send_due_notifications`/
+  `send_due_broadcasts` stay at the plain, early-ack default instead —
+  each occurrence/broadcast's claim and every `Message` row it produces
+  are one transaction, so a crash partway through rolls the whole claim
+  back (even on a hard process kill — Postgres does this on its own once
+  the connection drops), leaving nothing partly-dispatched for the *next
+  scheduled run* to pick up fresh, rather than needing an immediate
+  Celery-level retry. `accounts.tasks.send_magic_link_message`
+  deliberately keeps the plain default too — a lost sign-in message is
+  low-stakes (nothing persisted for it either way) and self-heals the
+  moment the person waiting for it clicks "try again."
 
 ## Site/network config
 
