@@ -1,4 +1,5 @@
 import datetime as dt
+import time
 from collections import defaultdict
 from collections.abc import Iterator
 from urllib.parse import quote
@@ -876,11 +877,39 @@ def _metric_event_type(message: Message) -> str:
     return code if code in EventType.BuiltinCode.values else "custom"
 
 
+class MessageRecordingError(Exception):
+    """The provider call succeeded, but recording that fact kept failing even after retrying.
+
+    Deliberately not a FamilyBirthdaysError (config/exceptions.py) -
+    this needs a human, not a shrug, so it should still reach Sentry and
+    show up as a failed run in the admin's Task results, not look like
+    an ordinary success. Also in send_message's own dont_autoretry_for,
+    so autoretry_for never sees it - retrying the whole task here would
+    call the provider again for a message that already sent.
+    """
+
+
+def _save_sent_message(message: Message, *, update_fields: list[str], attempts: int = 3) -> None:
+    """Retries message.save() a few times before giving up.
+
+    A transient DB hiccup right after a successful send shouldn't need
+    a human to notice and fix by hand.
+    """
+    for attempt in range(attempts):
+        try:
+            message.save(update_fields=update_fields)
+            return
+        except Exception:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.2 * (attempt + 1))
+
+
 @shared_task(
     bind=True,
     queue=TaskPriority.NORMAL,
     autoretry_for=(Exception,),
-    dont_autoretry_for=(SmsUnrecoverableError,),
+    dont_autoretry_for=(SmsUnrecoverableError, MessageRecordingError),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
@@ -895,7 +924,9 @@ def send_message(self: Task, message_id: int) -> None:
     SmsRateLimitedError (notifications.sms) - the SNS global rate limit
     freeing up is exactly the kind of transient condition an exponential
     backoff is for, not a real failure. dont_autoretry_for excludes
-    SmsUnrecoverableError, which retrying can never fix.
+    SmsUnrecoverableError, which retrying can never fix, and
+    MessageRecordingError, which retrying would only make worse (see
+    that class's own docstring).
 
     acks_late/reject_on_worker_lost trade a possible duplicate send for
     the alternative being worse here: without them, a worker crash
@@ -991,18 +1022,21 @@ def send_message(self: Task, message_id: int) -> None:
         message.sent_at = timezone.now()
         message.tries += 1
         message.provider_response = provider_response
-        message.save(update_fields=["status", "sent_at", "tries", "provider_response"])
+        _save_sent_message(message, update_fields=["status", "sent_at", "tries", "provider_response"])
     except Exception as exc:
-        # Never re-raise here - the send itself already succeeded, so a
-        # retry from autoretry_for would send it again.
         logger.error(
-            "message sent but failed to record - not retrying the send",
+            "message sent but failed to record after retrying",
             message=message.uuid,
             subject=message.subject,
             channel=message.channel,
             exc_info=exc,
         )
-        return
+        # MessageRecordingError, not a bare re-raise of exc - retrying
+        # the whole task via autoretry_for would call the provider
+        # again for a message that already sent (see that class's own
+        # docstring for why this still needs to surface as a real
+        # failure, not just a log line).
+        raise MessageRecordingError from exc
 
     logger.info(
         "message sent",

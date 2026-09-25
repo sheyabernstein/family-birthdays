@@ -17,6 +17,7 @@ from notifications.models import Broadcast, EventType, Message, NotificationPref
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 from notifications.tasks import (
     MAX_CATCHUP_DAYS_LATE,
+    MessageRecordingError,
     compute_occurrences,
     compute_occurrences_for_person,
     compute_occurrences_for_union,
@@ -62,7 +63,7 @@ def test_send_message_has_bounded_retries_with_exponential_backoff():
     retry_backoff or widen max_retries without any behavioral test
     noticing at eager-mode speed."""
     assert send_message.autoretry_for == (Exception,)
-    assert send_message.dont_autoretry_for == (SmsUnrecoverableError,)
+    assert send_message.dont_autoretry_for == (SmsUnrecoverableError, MessageRecordingError)
     assert send_message.retry_backoff is True
     assert send_message.retry_backoff_max == 600
     assert send_message.retry_jitter is True
@@ -1307,7 +1308,9 @@ def test_send_message_marks_the_message_failed_once_rate_limit_retries_are_exhau
 
 def test_send_message_does_not_resend_when_recording_success_fails(monkeypatch, family):
     """A save() failure after a successful send must never reach
-    autoretry_for - it would retry the whole task and send again."""
+    autoretry_for - it would retry the whole task and send again. Raised
+    as MessageRecordingError instead of swallowed, so it still shows up
+    as a real failure (Sentry, Task results admin), not a silent no-op."""
     message = _sms_message(family)
 
     def _raise_on_save(self, *args, **kwargs):
@@ -1315,8 +1318,35 @@ def test_send_message_does_not_resend_when_recording_success_fails(monkeypatch, 
 
     monkeypatch.setattr("notifications.tasks.send_sms", lambda **kwargs: {"MessageId": "abc123"})
     monkeypatch.setattr(Message, "save", _raise_on_save)
+    monkeypatch.setattr("notifications.tasks.time.sleep", lambda seconds: None)
+
+    with pytest.raises(MessageRecordingError):
+        send_message(message.pk)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.QUEUED
+
+
+def test_send_message_retries_recording_a_successful_send_before_giving_up(monkeypatch, family):
+    """A transient save() failure shouldn't need a human - a couple of
+    retries should recover it without ever calling the provider again."""
+    message = _sms_message(family)
+    monkeypatch.setattr("notifications.tasks.send_sms", lambda **kwargs: {"MessageId": "abc123"})
+    monkeypatch.setattr("notifications.tasks.time.sleep", lambda seconds: None)
+
+    real_save = Message.save
+    calls = []
+
+    def _save_that_fails_twice(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) < 3:
+            raise RuntimeError("connection lost")
+        return real_save(self, *args, **kwargs)
+
+    monkeypatch.setattr(Message, "save", _save_that_fails_twice)
 
     send_message(message.pk)
 
     message.refresh_from_db()
-    assert message.status == Message.Status.QUEUED
+    assert message.status == Message.Status.SENT
+    assert len(calls) == 3
