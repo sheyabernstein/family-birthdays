@@ -1216,3 +1216,20 @@ def test_send_message_marks_the_message_failed_once_rate_limit_retries_are_exhau
     assert message.status == Message.Status.FAILED
     assert message.tries == 1
     assert "publishes attempted" in message.error
+
+
+def test_send_message_does_not_resend_when_recording_success_fails(monkeypatch, family):
+    """A save() failure after a successful send must never reach
+    autoretry_for - it would retry the whole task and send again."""
+    message = _sms_message(family)
+
+    def _raise_on_save(self, *args, **kwargs):
+        raise RuntimeError("connection lost")
+
+    monkeypatch.setattr("notifications.tasks.send_sms", lambda **kwargs: {"MessageId": "abc123"})
+    monkeypatch.setattr(Message, "save", _raise_on_save)
+
+    send_message(message.pk)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.QUEUED

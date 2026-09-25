@@ -950,11 +950,24 @@ def send_message(self: Task, message_id: int) -> None:
         )
         raise
 
-    message.status = Message.Status.SENT
-    message.sent_at = timezone.now()
-    message.tries += 1
-    message.provider_response = provider_response
-    message.save(update_fields=["status", "sent_at", "tries", "provider_response"])
+    try:
+        message.status = Message.Status.SENT
+        message.sent_at = timezone.now()
+        message.tries += 1
+        message.provider_response = provider_response
+        message.save(update_fields=["status", "sent_at", "tries", "provider_response"])
+    except Exception as exc:
+        # Never re-raise here - the send itself already succeeded, so a
+        # retry from autoretry_for would send it again.
+        logger.error(
+            "message sent but failed to record - not retrying the send",
+            message=message.uuid,
+            subject=message.subject,
+            channel=message.channel,
+            exc_info=exc,
+        )
+        return
+
     logger.info(
         "message sent",
         message=message.uuid,
