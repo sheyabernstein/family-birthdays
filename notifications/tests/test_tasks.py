@@ -416,6 +416,52 @@ def test_send_due_notifications_does_not_double_send_under_a_concurrent_claim(
     assert Message.objects.count() == 0
 
 
+def test_send_due_notifications_rolls_back_a_crash_partway_through_dispatch(
+    monkeypatch, family, birthday_event_type
+):
+    """A worker dying (or any exception) partway through a multi-recipient
+    occurrence must leave it fully unclaimed, not half-sent with the rest
+    silently stranded - the transaction around claim+dispatch is what
+    guarantees that."""
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    _member(family, email="first@example.com")
+    _member(family, email="second@example.com")
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=birthday_event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    real_create = Message.objects.create
+    calls = []
+
+    def _create_that_crashes_on_the_second_recipient(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 2:
+            raise RuntimeError("worker died here")
+        return real_create(**kwargs)
+
+    monkeypatch.setattr(Message.objects, "create", _create_that_crashes_on_the_second_recipient)
+
+    with pytest.raises(RuntimeError):
+        send_due_notifications()
+
+    occurrence.refresh_from_db()
+    assert occurrence.is_sent is False
+    assert Message.objects.count() == 0
+
+    # The real self-healing path - next day's cron picks the whole
+    # occurrence up fresh, with no partial rows left to collide with.
+    monkeypatch.setattr(Message.objects, "create", real_create)
+    send_due_notifications()
+
+    occurrence.refresh_from_db()
+    assert occurrence.is_sent is True
+    assert Message.objects.filter(occurrence=occurrence).count() == 2
+
+
 def test_send_due_notifications_sends_an_overdue_occurrence(family, birthday_event_type):
     """Regression test: send_date used to be matched with send_date=today
     (an exact equality check), so an occurrence whose send_date had
@@ -1122,6 +1168,45 @@ def test_send_due_broadcasts_excludes_accounts_outside_the_family(family):
     send_due_broadcasts()
 
     assert Message.objects.count() == 0
+
+
+def test_send_due_broadcasts_rolls_back_a_crash_partway_through_dispatch(monkeypatch, family):
+    """Same guarantee as send_due_notifications' own version of this
+    test - a crash partway through a multi-recipient broadcast must
+    leave it fully unclaimed, not half-sent with the rest stranded."""
+    _member(family, email="first@example.com")
+    _member(family, email="second@example.com")
+    creator = _member(family, email="creator@example.com")
+    broadcast = Broadcast.objects.create(
+        family=family, text="Hello everyone", created_by=creator, send_at=timezone.now()
+    )
+
+    real_create = Message.objects.create
+    calls = []
+
+    def _create_that_crashes_on_the_second_recipient(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 2:
+            raise RuntimeError("worker died here")
+        return real_create(**kwargs)
+
+    monkeypatch.setattr(Message.objects, "create", _create_that_crashes_on_the_second_recipient)
+
+    with pytest.raises(RuntimeError):
+        send_due_broadcasts()
+
+    broadcast.refresh_from_db()
+    assert broadcast.is_sent is False
+    assert Message.objects.count() == 0
+
+    monkeypatch.setattr(Message.objects, "create", real_create)
+    send_due_broadcasts()
+
+    broadcast.refresh_from_db()
+    assert broadcast.is_sent is True
+    # first/second/creator - the broadcast's own creator is part of the
+    # audience too (see resolve_broadcast_audience).
+    assert Message.objects.filter(broadcast=broadcast).count() == 3
 
 
 # --- send_message ---

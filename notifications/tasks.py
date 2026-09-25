@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from urllib.parse import quote
 
 from celery import Task, shared_task
-from django.db import models
+from django.db import models, transaction
 from django.template.loader import render_to_string
 from django.utils import timezone
 from hdate.hebrew_date import Months
@@ -523,6 +523,14 @@ def send_due_notifications() -> None:
     A claimed occurrence more than MAX_CATCHUP_DAYS_LATE past its own
     occurrence_date is discarded (deleted outright) instead of sent - see
     that constant's own docstring.
+
+    The claim and every Message row it produces are one transaction,
+    committed before any of them are dispatched - a crash partway
+    through a multi-recipient occurrence used to leave it claimed but
+    only partly queued, with the remaining recipients silently never
+    notified (nothing reprocesses an already-claimed row). Rolling the
+    claim back with the rest lets a crashed occurrence retry cleanly
+    next run instead.
     """
     today = timezone.localdate()
     due_ids = list(
@@ -534,47 +542,52 @@ def send_due_notifications() -> None:
     claimed_count = 0
     discarded_count = 0
     for occurrence_id in due_ids:
-        claimed = Occurrence.objects.filter(pk=occurrence_id, is_sent=False).update(is_sent=True)
-        if not claimed:
-            continue
-        claimed_count += 1
+        message_ids: list[int] = []
+        with transaction.atomic():
+            claimed = Occurrence.objects.filter(pk=occurrence_id, is_sent=False).update(is_sent=True)
+            if not claimed:
+                continue
+            claimed_count += 1
 
-        occurrence = Occurrence.objects.with_related().get(pk=occurrence_id)
+            occurrence = Occurrence.objects.with_related().get(pk=occurrence_id)
 
-        if occurrence.occurrence_date < today - dt.timedelta(days=MAX_CATCHUP_DAYS_LATE):
-            logger.info(
-                "discarding occurrence beyond the catch-up window",
-                occurrence=occurrence.uuid,
-                occurrence_date=occurrence.occurrence_date,
-                days_late=(today - occurrence.occurrence_date).days,
+            if occurrence.occurrence_date < today - dt.timedelta(days=MAX_CATCHUP_DAYS_LATE):
+                logger.info(
+                    "discarding occurrence beyond the catch-up window",
+                    occurrence=occurrence.uuid,
+                    occurrence_date=occurrence.occurrence_date,
+                    days_late=(today - occurrence.occurrence_date).days,
+                )
+                discarded_count += 1
+                occurrence.delete()
+                continue
+
+            audience = resolve_audience(
+                event_type=occurrence.event_type, person=occurrence.person, union=occurrence.union
             )
-            discarded_count += 1
-            occurrence.delete()
-            continue
+            # Rendered once per channel actually needed for this
+            # occurrence, not once per recipient - most occurrences have
+            # several recipients on the same channel, and re-rendering
+            # the same template for each would just be wasted work.
+            rendered: dict[str, tuple[str, str, str]] = {}
+            for account, channel, destination in audience:
+                if channel not in rendered:
+                    rendered[channel] = _render_occurrence_message(occurrence, channel=channel)
+                subject, body, html_body = rendered[channel]
 
-        audience = resolve_audience(
-            event_type=occurrence.event_type, person=occurrence.person, union=occurrence.union
-        )
-        # Rendered once per channel actually needed for this occurrence,
-        # not once per recipient - most occurrences have several
-        # recipients on the same channel, and re-rendering the same
-        # template for each would just be wasted work.
-        rendered: dict[str, tuple[str, str, str]] = {}
-        for account, channel, destination in audience:
-            if channel not in rendered:
-                rendered[channel] = _render_occurrence_message(occurrence, channel=channel)
-            subject, body, html_body = rendered[channel]
+                message = Message.objects.create(
+                    occurrence=occurrence,
+                    account=account,
+                    channel=channel,
+                    destination=destination,
+                    subject=subject,
+                    body=body,
+                    html_body=_personalize(html_body, destination=destination),
+                )
+                message_ids.append(message.pk)
 
-            message = Message.objects.create(
-                occurrence=occurrence,
-                account=account,
-                channel=channel,
-                destination=destination,
-                subject=subject,
-                body=body,
-                html_body=_personalize(html_body, destination=destination),
-            )
-            send_message.delay(message.pk)
+        for message_id in message_ids:
+            send_message.delay(message_id)
             queued += 1
 
     logger.info(
@@ -792,6 +805,12 @@ def send_due_broadcasts() -> None:
     only the run that actually flips is_sent 0->1 for a given row goes on
     to send it, and an update() affecting zero rows (already claimed, or
     the row's gone) is a normal, silent no-op rather than a race.
+
+    The claim and every Message row it produces are one transaction,
+    committed before any of them are dispatched - see
+    send_due_notifications' own docstring for why (a crash partway
+    through a multi-recipient broadcast otherwise strands the remaining
+    recipients on an already-claimed row that nothing reprocesses).
     """
     due_ids = list(
         Broadcast.objects.filter(is_sent=False, send_at__lte=timezone.now()).values_list("pk", flat=True)
@@ -800,35 +819,42 @@ def send_due_broadcasts() -> None:
 
     sent = 0
     for broadcast_id in due_ids:
-        claimed = Broadcast.objects.filter(pk=broadcast_id, is_sent=False).update(
-            is_sent=True, sent_at=timezone.now()
-        )
-        if not claimed:
-            continue
-
-        broadcast = Broadcast.objects.select_related("family", "created_by").get(pk=broadcast_id)
-        people = list(broadcast.people.all())
-        event_type = _broadcast_event_type(broadcast.family_id)
-        audience = resolve_broadcast_audience(event_type=event_type, family=broadcast.family, people=people)
-
-        rendered: dict[str, tuple[str, str, str]] = {}
-        for account, channel, destination in audience:
-            if channel not in rendered:
-                rendered[channel] = _render_broadcast_message(broadcast, people, channel=channel)
-            subject, body, html_body = rendered[channel]
-
-            message = Message.objects.create(
-                broadcast=broadcast,
-                account=account,
-                channel=channel,
-                destination=destination,
-                subject=subject,
-                body=body,
-                html_body=_personalize(html_body, destination=destination),
+        message_ids: list[int] = []
+        with transaction.atomic():
+            claimed = Broadcast.objects.filter(pk=broadcast_id, is_sent=False).update(
+                is_sent=True, sent_at=timezone.now()
             )
-            send_message.delay(message.pk)
+            if not claimed:
+                continue
 
-        sent += 1
+            broadcast = Broadcast.objects.select_related("family", "created_by").get(pk=broadcast_id)
+            people = list(broadcast.people.all())
+            event_type = _broadcast_event_type(broadcast.family_id)
+            audience = resolve_broadcast_audience(
+                event_type=event_type, family=broadcast.family, people=people
+            )
+
+            rendered: dict[str, tuple[str, str, str]] = {}
+            for account, channel, destination in audience:
+                if channel not in rendered:
+                    rendered[channel] = _render_broadcast_message(broadcast, people, channel=channel)
+                subject, body, html_body = rendered[channel]
+
+                message = Message.objects.create(
+                    broadcast=broadcast,
+                    account=account,
+                    channel=channel,
+                    destination=destination,
+                    subject=subject,
+                    body=body,
+                    html_body=_personalize(html_body, destination=destination),
+                )
+                message_ids.append(message.pk)
+
+            sent += 1
+
+        for message_id in message_ids:
+            send_message.delay(message_id)
 
     logger.info("broadcasts sent", count=sent)
     metrics.beat_task_last_success_timestamp.labels(task_name="send_due_broadcasts").set(
