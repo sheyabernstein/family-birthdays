@@ -57,7 +57,7 @@ def _check_sns_publish_rate_limit() -> None:
     this app doesn't actually see.
     """
     window = int(time.time())
-    key = f"sns_publish_rate:{window}"
+    key = f"sns-publish-rate:{window}"
     count = increment_counter(key, window_seconds=2)
     if count > settings.SNS_PUBLISH_RATE_LIMIT_PER_SECOND:
         logger.warning(

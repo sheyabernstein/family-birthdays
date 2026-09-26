@@ -100,6 +100,18 @@ these build on.
 
 ## Redis & cache
 
+- **A cache/Redis key uses `:` between logical segments and `-` within a
+  multi-word segment, never `_`** — `"magic-link-spent:{token}"`, not
+  `"magic_link_spent:{token}"` or `"magic_link:spent:{token}"`. `:` marks
+  where one part of the key's meaning ends and the next begins (a
+  namespace, an id, a sub-purpose); `-` is just how a single segment
+  spells a multi-word English phrase, matching a Python identifier's
+  underscore one-for-one so the two read as clearly related without ever
+  being visually confusable in `redis-cli KEYS`/`MONITOR` output. See
+  `accounts/magic_links.py`'s `_token_key`/`_spent_key`/`_code_key`/etc.,
+  `notifications/sms.py`'s `_check_sns_publish_rate_limit`, and
+  `tenants/management/commands/migrate_with_lock.py`'s `LOCK_KEY` for the
+  pattern in practice.
 - **Redis config is discrete env vars (`REDIS_HOST`/`_PORT`/`_DB`/
   `_PASSWORD`), not a single `REDIS_URL`** - mirrors the `POSTGRES_*`
   pattern for the same reason (`config/settings.py` builds the actual
