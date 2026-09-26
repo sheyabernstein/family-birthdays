@@ -112,13 +112,19 @@ def test_logs_periodically_while_waiting_for_the_lock(monkeypatch, caplog):
     # A real redis-py Lock.acquire(blocking_timeout=...) would wait
     # silently the whole time - no hook to log progress mid-wait - which
     # is exactly why _acquire_lock polls non-blocking itself instead. This
-    # locks in that a longer wait actually produces more than just the
-    # first "waiting for release" line - Command._sleep is patched to a
-    # no-op for a few iterations (rather than actually sleeping) before
-    # releasing the lock, so the test stays instant. Patched here, not the
-    # real time.sleep - see Command._sleep's own comment for why counting
-    # calls to the shared, global time.sleep instead made this flaky in CI.
-    caplog.set_level("DEBUG", logger="family_birthdays")
+    # locks in that a longer wait actually retries more than once, rather
+    # than blocking on a single check. Asserted via how many times
+    # Command._sleep is called, not via caplog catching the "still
+    # waiting" debug line - found for real: that line only reaches
+    # stdlib logging/caplog at all when LOG_LEVEL=DEBUG, since structlog's
+    # own filtering bound logger (config/logging_config.py) drops a
+    # .debug() call before it ever gets there otherwise, regardless of
+    # caplog.set_level below. This made the test pass locally (.env sets
+    # LOG_LEVEL=DEBUG for dev) but fail every time in CI, which has no
+    # .env and defaults to LOG_LEVEL=INFO. caplog.set_level is still
+    # needed for the one INFO-level assertion below though - pytest's own
+    # capture defaults to WARNING, which would drop it too otherwise.
+    caplog.set_level("INFO", logger="family_birthdays")
     other_pod_lock = cache.lock(LOCK_KEY, timeout=300)
     other_pod_lock.acquire()
 
@@ -137,7 +143,7 @@ def test_logs_periodically_while_waiting_for_the_lock(monkeypatch, caplog):
     call_command("migrate_with_lock")
 
     assert caplog.text.count("migration lock held, waiting for release") == 1
-    assert caplog.text.count("still waiting for migration lock") >= 2
+    assert len(sleep_calls) == 3
 
 
 def test_release_lock_swallows_an_error_instead_of_raising(monkeypatch):
