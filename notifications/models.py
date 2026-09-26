@@ -30,7 +30,7 @@ class NotificationState(models.TextChoices):
     # ancestor/descendant line at any depth - and the same again for the
     # account's own current spouse (an in-law's own family reaches you
     # through your spouse, one marriage hop only - see
-    # notifications.audience.is_direct_family).
+    # family.relationships.is_direct_family).
     DIRECT_FAMILY_ONLY = "direct_family_only", "Direct family only"
 
 
@@ -220,10 +220,10 @@ class NotificationPreference(models.Model):
       type for that account. Its state can mute it entirely, force it
       on (overriding a default_state of muted), or restrict it to the
       account's immediate family (spouse/parent/child/sibling - see
-      notifications.audience.is_immediate_family) or direct family
+      family.relationships.is_immediate_family) or direct family
       (immediate family plus the whole ancestor/descendant line at any
       depth, for the account and its own current spouse alike - see
-      notifications.audience.is_direct_family) for everyone else -
+      family.relationships.is_direct_family) for everyone else -
       see EventType.allowed_states for which of these a given event
       type actually supports.
     - A row with person or union set narrows or overrides that down to
