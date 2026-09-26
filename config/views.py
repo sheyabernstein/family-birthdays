@@ -3,6 +3,13 @@ from django.db import connection
 from django.http import HttpResponse, JsonResponse
 from django.views.generic import View
 
+from config.logging_config import logger
+
+
+def _reason(exc: Exception) -> str:
+    """Collapses a driver's own multi-line error text (e.g. psycopg2's caret-pointer line) to one line."""
+    return " ".join(str(exc).split())
+
 
 class HealthView(View):
     """Liveness probe: proves the WSGI worker responds.
@@ -36,17 +43,20 @@ class ReadyView(View):
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
             checks["database"] = "ok"
-        except Exception:  # noqa E401
+        except Exception as exc:
             checks["database"] = "error"
             ok = False
+            logger.warning("readyz check failed", check="database", reason=_reason(exc))
 
         try:
             cache.set("readyz", "1", 5)
-            checks["cache"] = "ok" if cache.get("readyz") == "1" else "error"
-            ok = ok and checks["cache"] == "ok"
-        except Exception:  # noqa E401
+            if cache.get("readyz") != "1":
+                raise RuntimeError("round-trip mismatch")
+            checks["cache"] = "ok"
+        except Exception as exc:
             checks["cache"] = "error"
             ok = False
+            logger.warning("readyz check failed", check="cache", reason=_reason(exc))
 
         return JsonResponse(
             {"status": "ok" if ok else "degraded", "checks": checks},
