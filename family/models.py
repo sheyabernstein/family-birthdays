@@ -212,9 +212,10 @@ class Person(models.Model):
         default=Visibility.EVERYONE,
         blank=True,
         help_text=(
-            "Who can see this person and get notified about them (besides owners/editors, who always "
-            "can). Restricting this also hides this person's own descendants from anyone who wouldn't "
-            "otherwise be able to see this person - see the Help page for details."
+            "Who can see this person, and who's even eligible to get notified about them (owners/"
+            "editors can always see everyone, regardless of this). Restricting this also hides this "
+            "person's own descendants from anyone who wouldn't otherwise be able to see this person - "
+            "see the Help page for details."
         ),
     )
 
