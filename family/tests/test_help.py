@@ -40,6 +40,7 @@ def test_help_page_gates_owner_editor_section_by_role(client, role, owner_editor
     resp = client.get("/help/")
 
     assert (b'id="contact-info"' in resp.content) == owner_editor_section_shown
+    assert (b'id="person-visibility"' in resp.content) == owner_editor_section_shown
 
 
 @pytest.mark.parametrize(
