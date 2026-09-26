@@ -110,12 +110,16 @@
                 <div class="form-field">{% field_label form.family_role %}{{ form.family_role }}{{ form.family_role.errors }}</div>
             </div>
             <p class="help-text">{{ form.family_role.help_text }}</p>
-            <div class="form-field checkbox-field">{{ form.notifications_enabled }}{% field_label form.notifications_enabled %}</div>
-            <p class="help-text">Turn off for someone recorded for lineage only - e.g. an in-law's own parent - so they never get birthday/yahrzeit notifications.</p>
-            <div class="form-row">
-                <div class="form-field">{% field_label form.visibility %}{{ form.visibility }}</div>
+            <div class="form-field checkbox-field">
+                {{ form.notifications_enabled }}{% field_label form.notifications_enabled %}
+                <p class="help-text">Turn off for someone recorded for lineage only - e.g. an in-law's own parent - so they never get birthday/yahrzeit notifications.</p>
             </div>
-            <p class="help-text">{{ form.visibility.help_text }}</p>
+            <div class="form-row">
+                <div class="form-field">
+                    {% field_label form.visibility %}{{ form.visibility }}
+                    <p class="help-text">{{ form.visibility.help_text }}</p>
+                </div>
+            </div>
         </div>
         <div class="card form-section">
             <h2>More</h2>
