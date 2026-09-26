@@ -8,6 +8,7 @@ __pycache__/
 **/__pycache__/
 *.pyc
 **/*.pyc
+.cache/
 .venv/
 venv/
 .*_cache/

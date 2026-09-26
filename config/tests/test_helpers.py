@@ -1,7 +1,14 @@
 import pytest
+from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 
-from config.helpers import check_email_security_settings, get_env_bool, get_env_int, get_env_list
+from config.helpers import (
+    check_email_security_settings,
+    get_env_bool,
+    get_env_int,
+    get_env_list,
+    increment_counter,
+)
 
 
 @pytest.mark.parametrize(
@@ -146,3 +153,30 @@ def test_check_email_security_settings_allows_non_conflicting_combinations(use_t
 def test_check_email_security_settings_rejects_both_true():
     with pytest.raises(ImproperlyConfigured):
         check_email_security_settings(use_tls=True, use_ssl=True)
+
+
+def test_increment_counter_starts_a_fresh_window_at_one():
+    assert increment_counter("test:increment_counter:a", window_seconds=60) == 1
+
+
+def test_increment_counter_increments_within_the_same_window():
+    increment_counter("test:increment_counter:b", window_seconds=60)
+    increment_counter("test:increment_counter:b", window_seconds=60)
+
+    assert increment_counter("test:increment_counter:b", window_seconds=60) == 3
+
+
+def test_increment_counter_treats_an_expired_window_as_a_fresh_one(monkeypatch):
+    # Simulates the key existing (so add() fails) but expiring before the
+    # follow-up incr() actually runs - cache.incr() raises ValueError for a
+    # missing key (unlike raw Redis's own auto-vivifying INCR), and this
+    # must recover by treating it as a brand new window rather than
+    # letting that escape to the caller.
+    cache.set("test:increment_counter:c", 5, timeout=60)
+
+    def _raise(key):
+        raise ValueError(f"Key '{key}' not found.")
+
+    monkeypatch.setattr("config.helpers.cache.incr", _raise)
+
+    assert increment_counter("test:increment_counter:c", window_seconds=60) == 1

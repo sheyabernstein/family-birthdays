@@ -1,17 +1,29 @@
 import socket
 
 import pytest
+from django.core.cache import cache
 from django.core.management import CommandError, call_command
+from django_redis import get_redis_connection
 
-from tenants.management.commands import migrate_with_lock
 from tenants.management.commands.migrate_with_lock import LOCK_KEY, Command
+
+_redis = get_redis_connection("default")
+
+
+def _lock_value() -> str | None:
+    # cache.lock()'s token is a raw SET, not run through django-redis's own
+    # pickle serializer - cache.get(LOCK_KEY) would throw UnpicklingError on
+    # an actively-held lock, so tests read it back the same way
+    # migrate_with_lock.py's own owner-logging peek does.
+    raw = _redis.get(cache.make_key(LOCK_KEY))
+    return raw.decode() if raw is not None else None
 
 
 def test_lock_id_is_hostname_prefixed_with_an_8_char_uuid_suffix(monkeypatch):
     seen_lock_id = {}
 
     def _fake_migrate(*args, **kwargs):
-        seen_lock_id["value"] = migrate_with_lock._redis_client.get(LOCK_KEY).decode()
+        seen_lock_id["value"] = _lock_value()
 
     monkeypatch.setattr("tenants.management.commands.migrate_with_lock.call_command", _fake_migrate)
 
@@ -32,7 +44,7 @@ def test_acquires_the_lock_runs_migrate_and_releases_the_lock(monkeypatch):
     call_command("migrate_with_lock")
 
     assert calls == [(("migrate",), {"interactive": False, "verbosity": 1})]
-    assert migrate_with_lock._redis_client.get(LOCK_KEY) is None
+    assert _lock_value() is None
 
 
 def test_passes_app_label_and_migration_name_through_to_migrate(monkeypatch):
@@ -56,60 +68,108 @@ def test_releases_the_lock_even_when_migrate_raises(monkeypatch):
     with pytest.raises(RuntimeError):
         call_command("migrate_with_lock")
 
-    assert migrate_with_lock._redis_client.get(LOCK_KEY) is None
+    assert _lock_value() is None
 
 
 def test_raises_command_error_when_the_lock_cannot_be_acquired_in_time(monkeypatch):
-    # Someone else already holds the lock, and the wait timeout is
-    # patched to a value the very first (failed) attempt already
-    # exceeds - no need to actually wait for the real 600-second default.
-    migrate_with_lock._redis_client.set(LOCK_KEY, "other-lock-id", ex=300)
+    # A real second lock instance stands in for "another pod already holds
+    # it" - the wait timeout is patched to a value the very first (failed)
+    # attempt already exceeds, so there's no need to actually wait out the
+    # real 600-second default.
+    other_pod_lock = cache.lock(LOCK_KEY, timeout=300)
+    other_pod_lock.acquire()
     monkeypatch.setattr("tenants.management.commands.migrate_with_lock.LOCK_WAIT_TIMEOUT", -1)
 
     with pytest.raises(CommandError, match="Migration lock unavailable"):
         call_command("migrate_with_lock")
 
+    other_pod_lock.release()
+
 
 def test_waits_for_the_lock_to_be_released_then_acquires_it(monkeypatch):
-    # Held by "another pod" when the command starts - time.sleep is
-    # patched to release it (simulating that other pod finishing) rather
-    # than actually sleeping, so the retry loop's next set(nx=True) call
-    # succeeds immediately instead of after a real wait.
-    migrate_with_lock._redis_client.set(LOCK_KEY, "other-lock-id", ex=300)
+    # Held by "another pod" when the command starts - Command._sleep (not
+    # the real time.sleep - see its own comment on the class) is patched
+    # to release it (simulating that other pod finishing) rather than
+    # actually sleeping, so the retry loop's next attempt succeeds
+    # immediately instead of after a real wait.
+    other_pod_lock = cache.lock(LOCK_KEY, timeout=300)
+    other_pod_lock.acquire()
 
     def _fake_sleep(_seconds):
-        migrate_with_lock._redis_client.delete(LOCK_KEY)
+        other_pod_lock.release()
 
-    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.time.sleep", _fake_sleep)
+    monkeypatch.setattr(
+        "tenants.management.commands.migrate_with_lock.Command._sleep", staticmethod(_fake_sleep)
+    )
     monkeypatch.setattr("tenants.management.commands.migrate_with_lock.call_command", lambda *a, **k: None)
 
     call_command("migrate_with_lock")
 
-    assert migrate_with_lock._redis_client.get(LOCK_KEY) is None
+    assert _lock_value() is None
 
 
-def test_release_lock_swallows_a_redis_error_instead_of_raising(monkeypatch):
-    migrate_with_lock._redis_client.set(LOCK_KEY, "some-lock-id", ex=300)
+def test_logs_periodically_while_waiting_for_the_lock(monkeypatch, caplog):
+    # A real redis-py Lock.acquire(blocking_timeout=...) would wait
+    # silently the whole time - no hook to log progress mid-wait - which
+    # is exactly why _acquire_lock polls non-blocking itself instead. This
+    # locks in that a longer wait actually retries more than once, rather
+    # than blocking on a single check. Asserted via how many times
+    # Command._sleep is called, not via caplog catching the "still
+    # waiting" debug line - found for real: that line only reaches
+    # stdlib logging/caplog at all when LOG_LEVEL=DEBUG, since structlog's
+    # own filtering bound logger (config/logging_config.py) drops a
+    # .debug() call before it ever gets there otherwise, regardless of
+    # caplog.set_level below. This made the test pass locally (.env sets
+    # LOG_LEVEL=DEBUG for dev) but fail every time in CI, which has no
+    # .env and defaults to LOG_LEVEL=INFO. caplog.set_level is still
+    # needed for the one INFO-level assertion below though - pytest's own
+    # capture defaults to WARNING, which would drop it too otherwise.
+    caplog.set_level("INFO", logger="family_birthdays")
+    other_pod_lock = cache.lock(LOCK_KEY, timeout=300)
+    other_pod_lock.acquire()
 
-    def _raise(*args, **kwargs):
+    sleep_calls = []
+
+    def _fake_sleep(_seconds):
+        sleep_calls.append(_seconds)
+        if len(sleep_calls) >= 3:
+            other_pod_lock.release()
+
+    monkeypatch.setattr(
+        "tenants.management.commands.migrate_with_lock.Command._sleep", staticmethod(_fake_sleep)
+    )
+    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.call_command", lambda *a, **k: None)
+
+    call_command("migrate_with_lock")
+
+    assert caplog.text.count("migration lock held, waiting for release") == 1
+    assert len(sleep_calls) == 3
+
+
+def test_release_lock_swallows_an_error_instead_of_raising(monkeypatch):
+    command = Command()
+    command._lock = cache.lock(LOCK_KEY, timeout=300)
+    command._lock.acquire()
+
+    def _raise():
         raise RuntimeError("redis unavailable")
 
-    monkeypatch.setattr(migrate_with_lock._redis_client, "pipeline", _raise)
+    monkeypatch.setattr(command._lock, "release", _raise)
 
-    command = Command()
-    command._lock_id = "some-lock-id"
-    command._release_lock()
+    command._release_lock()  # must not raise
 
 
 def test_release_lock_does_not_delete_a_lock_acquired_by_someone_else():
     # Simulates a lock that expired mid-migration and was re-acquired by a
     # different pod before this process's own (stale) release ran - the
-    # compare-and-delete unlock script must leave the new holder's lock
-    # alone instead of deleting it out from under them.
-    migrate_with_lock._redis_client.set(LOCK_KEY, "the-new-holders-id", ex=300)
-
+    # Lua compare-and-delete release script must leave the new holder's
+    # lock alone instead of deleting it out from under them.
     command = Command()
-    command._lock_id = "a-stale-id-from-an-earlier-acquisition"
+    command._lock = cache.lock(LOCK_KEY, timeout=300)
+    command._lock.acquire()
+
+    _redis.set(cache.make_key(LOCK_KEY), "the-new-holders-id")
+
     command._release_lock()
 
-    assert migrate_with_lock._redis_client.get(LOCK_KEY) == b"the-new-holders-id"
+    assert _lock_value() == "the-new-holders-id"

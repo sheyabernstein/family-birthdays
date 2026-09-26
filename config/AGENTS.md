@@ -98,7 +98,7 @@ these build on.
   independent knobs that could each be reused separately elsewhere the
   way `REDIS_HOST`/`_PORT`/`_DB`/`_PASSWORD` are.
 
-## Redis
+## Redis & cache
 
 - **Redis config is discrete env vars (`REDIS_HOST`/`_PORT`/`_DB`/
   `_PASSWORD`), not a single `REDIS_URL`** - mirrors the `POSTGRES_*`
@@ -116,6 +116,70 @@ these build on.
   `docker logs` when connecting - its own connection-established log
   line masks it (`Connected to redis://:**@redis:6379/0`) by default,
   so no extra redaction was needed on our side.
+- **All app-level Redis access goes through `CACHES`/`django.core.cache.cache`**
+  (`django_redis.cache.RedisCache`, pointed at the same `REDIS_URL` as
+  Celery/RedBeat) - there is no longer a module that opens its own
+  `redis.from_url(...)` client. `accounts/magic_links.py`,
+  `notifications/sms.py`, and `tenants/management/commands/
+  migrate_with_lock.py` used to (found for real: there was no `CACHES`
+  setting at all for a long time, so `cache` was silently per-process
+  `LocMemCache` and `config/views.py`'s readyz "cache" check never
+  actually touched Redis, passing even when Redis was down).
+  **`django-redis`, not Django's own built-in `django.core.cache.backends.
+  redis.RedisCache`** - the built-in backend's generic cache API genuinely
+  can't do everything two of these modules need (confirmed directly in a
+  running web container, see below), and its escape hatch for that
+  (`cache._cache.get_client()`) is an undocumented private implementation
+  detail, not a supported API - Django's own cache docs don't mention it
+  anywhere. `django-redis` formalizes the same need as a real, documented
+  public API instead:
+  - `cache.add(key, value, timeout)` is a real atomic `SET NX EX` - safe
+    for reserving a key (magic-link codes).
+  - `cache.incr(key)` is a real atomic `INCR`, but **raises `ValueError`
+    if the key doesn't exist** rather than auto-vivifying at 0 the way a
+    raw Redis `INCR` does. Every fixed-window rate-limit counter
+    (magic-link requests, code guesses, the SNS publish limiter) goes
+    through `config.helpers.increment_counter`, which papers over this
+    with an add-then-incr fallback rather than each call site
+    reimplementing it.
+  - **`magic_links.consume_token`'s single-use token fetch needs a real
+    atomic GETDEL**, which no generic cache API (Django's own or
+    django-redis's) exposes - `get_redis_connection("default")` is
+    django-redis's own documented escape hatch for exactly this, used for
+    every op on that one key (not just the `GETDEL`) so there's no
+    encoding mismatch between its own raw bytes and `django.core.cache`'s
+    pickle serializer.
+  - **`migrate_with_lock` needs a real distributed lock**, so it uses
+    `cache.lock(key, timeout=..., blocking_timeout=..., sleep=...)` -
+    django-redis's thin wrapper over redis-py's own `Lock` class, not a
+    hand-rolled `WATCH`/`MULTI` transaction. redis-py's `Lock.release()`
+    does the compare-and-delete atomically server-side via a Lua script
+    (`EVALSHA`) in one round trip. **Found for real**: that Lock stores
+    its token via a raw `SET`, bypassing `django-redis`'s own pickle
+    serializer entirely - reading it back with `cache.get(LOCK_KEY)`
+    throws `UnpicklingError` on an actively-held lock (confirmed
+    directly: `invalid load key, 'm'`), so `migrate_with_lock.py`'s own
+    "who's currently holding this" log peek goes through
+    `get_redis_connection("default").get(cache.make_key(LOCK_KEY))`
+    instead, matching how the value was actually written. **Also found
+    for real**: `Lock(thread_local=True)` (the default) stores its
+    acquire token in thread-local storage - a lock acquired on one thread
+    and released from another (a real scenario in a test simulating a
+    second pod) silently finds no token and raises inside whichever
+    thread calls `release()`, which the test's own assertion would never
+    see, so it just waits out the full timeout instead of failing loudly.
+    `thread_local=False` is required whenever acquire/release cross a
+    thread boundary like that.
+  - Testing this needs a `CACHES` that's actually the same `django-redis`
+    backend, backed by fakeredis instead of a real Redis
+    (`config/settings_test.py`, via fakeredis's own documented recipe:
+    `OPTIONS.CONNECTION_POOL_KWARGS.connection_class = FakeRedisConnection`),
+    rather than falling back to `LocMemCache` - `cache.lock()`/
+    `get_redis_connection()` don't exist on `LocMemCache`. This also
+    needs fakeredis's `lua` extra (`fakeredis[lua]`, pulling in `lupa`) -
+    **found for real**: without it, `Lock.release()`'s `EVALSHA` fails
+    with `ResponseError: unknown command 'evalsha'`, since fakeredis only
+    emulates Lua scripting with that extra installed.
 
 ## Logging
 
