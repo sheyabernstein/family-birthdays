@@ -1,4 +1,5 @@
 import socket
+from uuid import uuid4
 
 from django.core.cache import cache
 from django.db import connection
@@ -51,10 +52,11 @@ class ReadyView(View):
             logger.warning("readyz check failed", check="database", reason=_reason(exc))
 
         readyz_key = f"readyz:{socket.gethostname()}"
+        readyz_value = str(uuid4())
 
         try:
-            cache.set(readyz_key, "1", 5)
-            if cache.get(readyz_key) != "1":
+            cache.set(readyz_key, readyz_value, 5)
+            if cache.get(readyz_key) != readyz_value:
                 raise RuntimeError("round-trip mismatch")
             checks["cache"] = "ok"
         except Exception as exc:

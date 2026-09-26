@@ -1,5 +1,6 @@
 import os
 
+from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -61,6 +62,40 @@ def get_env_list(key: str, default: list[str] | None = None, delimiter: str = ",
         return default
 
     return [x.strip() for x in val.split(delimiter) if x.strip()]
+
+
+def increment_counter(key: str, *, window_seconds: int) -> int:
+    """Atomically increments a fixed-window counter, creating it at 1 if it doesn't exist yet.
+
+    Redis's own INCR auto-vivifies a missing key at 0 before incrementing,
+    but `cache.incr()` raises `ValueError` instead - this fills that gap
+    with an add-then-incr fallback. `cache.add` is itself an atomic
+    SET-if-absent, so whichever concurrent caller's `add` actually lands
+    is the one that creates the window (and gets 1 back); everyone else
+    falls through to `cache.incr`, which is a real atomic INCR once the
+    key exists. Used by accounts.magic_links and notifications.sms for
+    their own per-account/per-second request counters.
+
+    Args:
+        key: Cache key naming this counter's window - the window boundary
+            itself (e.g. a per-second or per-hour timestamp) belongs in
+            the key; this function only knows how to count.
+        window_seconds: TTL to set on a newly created counter.
+
+    Returns:
+        The counter's new value after this call's own increment.
+    """
+    if cache.add(key, 1, timeout=window_seconds):
+        return 1
+    try:
+        return cache.incr(key)
+    except ValueError:
+        # The window expired in the gap between our failed add() and this
+        # incr() - vanishingly rare (window_seconds is always measured in
+        # whole seconds or more), but not impossible. Treat it as a fresh
+        # window rather than letting ValueError escape to the caller.
+        cache.add(key, 1, timeout=window_seconds)
+        return 1
 
 
 def check_email_security_settings(*, use_tls: bool, use_ssl: bool) -> None:

@@ -1,26 +1,28 @@
 import socket
-import time
 import uuid
 from typing import Any
 
-import redis
-from django.conf import settings
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+from django_redis import get_redis_connection
+from redis.exceptions import LockNotOwnedError
 
 from config.logging_config import logger
-
-# Talks to Redis directly rather than through Django's cache framework -
-# the default CACHES backend is per-process LocMemCache, which would make
-# this lock local to whichever pod happens to run it, defeating the whole
-# point. Mirrors accounts/magic_links.py, the first module to need genuinely
-# shared cross-process state for the same reason.
-_redis_client = redis.from_url(settings.REDIS_URL)
 
 LOCK_KEY = "migrations:lock"
 LOCK_TTL = 300  # 5 minutes - max time for migrations to complete
 LOCK_WAIT_TIMEOUT = 600  # 10 minutes - max time to wait for lock to be released
-LOCK_CHECK_INTERVAL = 1  # Check every 1 second
+LOCK_CHECK_INTERVAL = 1  # how often to poll for the lock while waiting
+
+# cache.lock() (below) stores its token via a raw SET, not through
+# django-redis's own pickle serializer - reading that value back with
+# cache.get() throws UnpicklingError (confirmed directly: 'invalid load
+# key' on the raw bytes), so peeking at who currently holds the lock (for
+# logging only - never for the acquire/release logic itself, which the
+# Lock object already handles atomically) goes through this raw connection
+# and cache.make_key() instead, matching how the value was actually written.
+_redis = get_redis_connection("default")
 
 
 class Command(BaseCommand):
@@ -46,22 +48,36 @@ class Command(BaseCommand):
         migration_name = options.get("migration_name")
         verbosity = options.get("verbosity", 1)
 
-        # hostname prefix is just for readable logs (which pod holds/held
-        # the lock); the uuid suffix is what actually makes this unique
-        # per acquisition, which lets _release_lock tell "the lock I
-        # acquired" apart from "a lock this same host acquired some other
-        # time" - matters once the lock can expire and be re-acquired by
-        # someone else while this process is still running.
+        # hostname prefix is just for readable logs/redis-cli GET output
+        # (which pod holds/held the lock); the uuid suffix is the actual
+        # per-acquisition token cache.lock() (django-redis, backed by
+        # redis-py's own Lock) uses to tell "the lock I hold right now"
+        # apart from "a lock this same host held earlier that already
+        # expired and was re-acquired by someone else" - matters once the
+        # lock can expire while this process is still running.
         hostname = socket.gethostname()
-        uid = uuid.uuid4().hex[:8]
-        self._lock_id = f"{hostname}:{uid}"
+        lock_id = f"{hostname}:{uuid.uuid4().hex[:8]}"
 
-        if not self._acquire_lock():
-            logger.error("migration lock unavailable", wait_timeout_seconds=LOCK_WAIT_TIMEOUT)
+        self._lock = cache.lock(
+            LOCK_KEY,
+            timeout=LOCK_TTL,
+            blocking_timeout=LOCK_WAIT_TIMEOUT,
+            sleep=LOCK_CHECK_INTERVAL,
+        )
+
+        if held_by := _redis.get(cache.make_key(LOCK_KEY)):
+            logger.info(
+                "migration lock held, waiting for release",
+                owner=held_by.decode(),
+                wait_timeout_seconds=LOCK_WAIT_TIMEOUT,
+            )
+
+        if not self._lock.acquire(token=lock_id):
+            logger.error("timed out waiting for migration lock", wait_timeout_seconds=LOCK_WAIT_TIMEOUT)
             raise CommandError("Migration lock unavailable")
 
+        logger.info("acquired migration lock", owner=lock_id, ttl_seconds=LOCK_TTL)
         try:
-            # Run migrations
             logger.debug("running migrations", app_label=app_label, migration_name=migration_name)
             migrate_args = []
             if app_label:
@@ -72,68 +88,23 @@ class Command(BaseCommand):
             call_command("migrate", *migrate_args, interactive=False, verbosity=verbosity)
             logger.debug("migrations complete", app_label=app_label, migration_name=migration_name)
         finally:
-            # Always release lock
             self._release_lock()
-
-    def _acquire_lock(self) -> bool:
-        """Try to acquire a distributed lock.
-
-        Waits up to LOCK_WAIT_TIMEOUT seconds for the lock to become
-        available.
-
-        Returns:
-            Whether the lock was actually acquired before timing out.
-        """
-        start_time = time.time()
-        lock_owner_logged = False
-
-        while True:
-            # Set the lock key only if it doesn't exist, with a TTL, in one
-            # atomic call.
-            acquired = _redis_client.set(LOCK_KEY, self._lock_id, nx=True, ex=LOCK_TTL)
-
-            if acquired:
-                logger.info("acquired migration lock", owner=self._lock_id, ttl_seconds=LOCK_TTL)
-                return True
-
-            elapsed = time.time() - start_time
-            if elapsed > LOCK_WAIT_TIMEOUT:
-                logger.error("timed out waiting for migration lock", elapsed_seconds=elapsed)
-                return False
-
-            if owner := _redis_client.get(LOCK_KEY):
-                owner = owner.decode()
-
-            remaining = LOCK_WAIT_TIMEOUT - elapsed
-
-            if not lock_owner_logged:
-                logger.info(
-                    "migration lock held, waiting for release", owner=owner, remaining_seconds=remaining
-                )
-                lock_owner_logged = True
-            else:
-                logger.debug("still waiting for migration lock", owner=owner, remaining_seconds=remaining)
-            time.sleep(LOCK_CHECK_INTERVAL)
 
     def _release_lock(self) -> None:
         """Release the distributed lock - but only if it's still the one this process acquired.
 
-        A plain GET-then-DEL would have a race where a lock that expired
-        and was re-acquired by another pod gets deleted out from under
-        that pod instead of left alone, so this uses WATCH/MULTI as a
-        compare-and-delete: the transaction only commits if the key
-        hasn't changed since the GET, and a change - e.g. someone else
-        acquiring it - aborts it harmlessly (redis.WatchError).
+        cache.lock() (django-redis, backed by redis-py's own Lock class)
+        does this compare-and-delete atomically via a Lua script executed
+        server-side in one round trip - GET, compare the stored token,
+        DEL only on a match - rather than a hand-rolled WATCH/MULTI
+        transaction. LockNotOwnedError means the lock already expired and
+        was re-acquired by someone else while this process was still
+        running, which is expected and left alone rather than raised.
         """
         try:
-            with _redis_client.pipeline() as pipe:
-                pipe.watch(LOCK_KEY)
-                if pipe.get(LOCK_KEY) == self._lock_id.encode():
-                    pipe.multi()
-                    pipe.delete(LOCK_KEY)
-                    pipe.execute()
+            self._lock.release()
             logger.debug("released migration lock")
-        except redis.WatchError:
+        except LockNotOwnedError:
             logger.debug("lock changed before release - left it alone")
         except Exception as exc:
             logger.warning("could not release migration lock", exc_info=exc)

@@ -255,6 +255,25 @@ REDIS_URL = (
     else f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
 )
 
+# --- Cache ---
+# Backed by the same Redis instance as Celery/RedBeat above. accounts/
+# magic_links.py, notifications/sms.py, and tenants/management/commands/
+# migrate_with_lock.py all go through this rather than a raw redis-py client
+# of their own. django-redis (not Django's own built-in RedisCache backend)
+# specifically because two of those modules need real primitives the plain
+# django.core.cache API can't express - a distributed lock (migrate_with_lock,
+# via cache.lock(), which redis-py itself implements with a Lua compare-and-
+# delete release, not a hand-rolled WATCH/MULTI) and an atomic GETDEL
+# (magic_links.consume_token, via get_redis_connection("default").getdel(),
+# django-redis's own documented escape hatch for exactly this - not Django's
+# private, undocumented cache._cache.get_client()).
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL,
+    }
+}
+
 # --- Celery ---
 CELERY_BROKER_URL = REDIS_URL
 # Stored in Postgres (via django-celery-results), not Redis, so a

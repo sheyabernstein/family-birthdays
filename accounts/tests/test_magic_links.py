@@ -1,5 +1,7 @@
 import uuid
 
+from django.core.cache import cache
+
 from accounts import magic_links
 
 
@@ -118,7 +120,7 @@ def test_code_guessing_locks_out_after_too_many_wrong_attempts_on_one_code():
 def test_issue_unique_code_retries_on_a_collision(monkeypatch):
     # Force the very first roll to land on a code that's already reserved
     # by someone else's still-pending sign-in.
-    magic_links._redis_client.set(magic_links._code_key("AAAAAA"), "other-token", ex=60)
+    cache.set(magic_links._code_key("AAAAAA"), "other-token", timeout=60)
     rolls = iter(["A"] * magic_links.CODE_LENGTH + list("BBBBBB"))
     monkeypatch.setattr(magic_links.secrets, "choice", lambda alphabet: next(rolls))
 
@@ -127,17 +129,17 @@ def test_issue_unique_code_retries_on_a_collision(monkeypatch):
     assert code == "BBBBBB"
     # The collided-with code's own entry is untouched - never silently
     # repointed at this token instead of the one it actually belongs to.
-    assert magic_links._redis_client.get(magic_links._code_key("AAAAAA")).decode() == "other-token"
+    assert cache.get(magic_links._code_key("AAAAAA")) == "other-token"
 
 
 def test_issue_unique_code_falls_back_to_overwrite_after_exhausting_retries(monkeypatch):
-    magic_links._redis_client.set(magic_links._code_key("AAAAAA"), "other-token", ex=60)
+    cache.set(magic_links._code_key("AAAAAA"), "other-token", timeout=60)
     monkeypatch.setattr(magic_links.secrets, "choice", lambda alphabet: "A")
 
     code = magic_links._issue_unique_code("real-token")
 
     assert code == "AAAAAA"
-    assert magic_links._redis_client.get(magic_links._code_key("AAAAAA")).decode() == "real-token"
+    assert cache.get(magic_links._code_key("AAAAAA")) == "real-token"
 
 
 def test_code_guessing_locks_out_the_whole_account_after_too_many_attempts():

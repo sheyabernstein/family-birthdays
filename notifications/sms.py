@@ -11,18 +11,13 @@ change.
 import time
 
 import boto3
-import redis
 from botocore.exceptions import ClientError
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from config.exceptions import FamilyBirthdaysError
+from config.helpers import increment_counter
 from config.logging_config import logger
-
-# Module-level, unlike SnsSmsBackend's boto3 client below - redis-py
-# connects lazily on first command, so this doesn't hit the same
-# post-fork hazard; matches accounts/magic_links.py's own client.
-_redis_client = redis.from_url(settings.REDIS_URL)
 
 
 class SmsUnrecoverableError(FamilyBirthdaysError):
@@ -50,11 +45,11 @@ class SmsRateLimitedError(Exception):
 def _check_sns_publish_rate_limit() -> None:
     """Raises SmsRateLimitedError if this second's global SNS Publish budget is already spent.
 
-    A plain Redis INCR per 1-second window - shared by every process that
-    calls this, regardless of worker count or concurrency, which is the
-    whole point: AWS's own Publish throttle (10 req/s) is an account/
-    region-wide limit, not a per-process one, so Celery's own per-worker
-    `rate_limit=` can't enforce it correctly once more than one
+    A plain cache-backed counter per 1-second window - shared by every
+    process that calls this, regardless of worker count or concurrency,
+    which is the whole point: AWS's own Publish throttle (10 req/s) is an
+    account/region-wide limit, not a per-process one, so Celery's own
+    per-worker `rate_limit=` can't enforce it correctly once more than one
     worker/replica exists. A fixed window has known burst behavior right
     at the window boundary, but that's an acceptable trade for staying
     well under the real limit (see settings.SNS_PUBLISH_RATE_LIMIT_PER_
@@ -63,9 +58,7 @@ def _check_sns_publish_rate_limit() -> None:
     """
     window = int(time.time())
     key = f"sns_publish_rate:{window}"
-    count = _redis_client.incr(key)
-    if count == 1:
-        _redis_client.expire(key, 2)
+    count = increment_counter(key, window_seconds=2)
     if count > settings.SNS_PUBLISH_RATE_LIMIT_PER_SECOND:
         logger.warning(
             "sns publish rate limited",

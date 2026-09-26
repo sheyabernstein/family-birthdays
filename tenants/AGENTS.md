@@ -88,26 +88,36 @@ for the project-wide orientation these build on.
 
 ## Infra
 
-- **`tenants.management.commands.migrate_with_lock` talks to Redis
-  directly** (`redis.from_url(settings.REDIS_URL)`), the same pattern as
-  `accounts/magic_links.py` (the two are now the only modules that do this)
-  - not Django's cache framework. There's no `CACHES` setting in
-  `config/settings.py`, so `django.core.cache.cache` is per-process
-  `LocMemCache` by default; a distributed migration lock built on it would
-  give every pod its own useless local lock, silently defeating the whole
-  point (confirmed directly against a running container: the lock key never
-  showed up in `redis-cli KEYS "*"`, only in each pod's own memory). The
-  lock's value is `hostname:8-char-uuid` - the hostname alone can't
+- **`tenants.management.commands.migrate_with_lock` goes through Django's
+  cache framework** (`django.core.cache.cache`, backed by `CACHES` in
+  `config/settings.py` - `django-redis`, pointed at real Redis in every
+  deployed environment and at fakeredis in tests), same as
+  `accounts/magic_links.py` and `notifications/sms.py`. This used to be a
+  raw `redis.from_url(...)` client of its own - a distributed lock needs
+  state shared across every pod, and there was no `CACHES` setting at
+  all until it was added specifically so this (and the two other
+  modules) could stop bypassing Django's cache API. The lock itself is
+  `cache.lock(LOCK_KEY, timeout=..., blocking_timeout=..., sleep=...)` -
+  django-redis's wrapper over redis-py's own battle-tested `Lock` class
+  (atomic `SET NX` acquire, Lua-script atomic compare-and-delete
+  release), not a hand-rolled `WATCH`/`MULTI` transaction. See
+  `config/AGENTS.md`'s own Redis/cache section for what Django's generic
+  cache API can and can't do atomically, why that's what pushed this
+  module onto `django-redis` specifically rather than Django's own
+  built-in `RedisCache` backend, and two things found for real while
+  building it: the lock's token is written via a raw `SET` that bypasses
+  `django-redis`'s pickle serializer (so peeking at the current holder
+  for logging has to go through a raw connection too, not `cache.get`),
+  and `Lock(thread_local=True)` (the default) can't have its `release()`
+  called from a different thread than `acquire()`. The lock's own
+  acquire token is `hostname:8-char-uuid` - the hostname alone can't
   distinguish "the lock this process holds right now" from "a lock this
   same host held earlier that already expired and was re-acquired by
   someone else" (that's what the uuid suffix is for), but a bare uuid on
-  its own makes `redis-cli GET`/the structured logs useless for "which
-  pod is actually holding this" - and release is a `WATCH`/`MULTI`
-  compare-and-delete (get the value, only commit the `DELETE` if it hasn't
-  changed), not a plain `GET`-then-`DEL`, so a stale release can't delete a
-  lock someone else has since legitimately acquired. `conftest.py`'s
-  `_fake_redis` fixture fakes both modules' clients separately with
-  `fakeredis.FakeStrictRedis()` for the test suite.
+  its own makes the structured logs useless for "which pod is actually
+  holding this". `conftest.py`'s autouse `_clear_cache` fixture resets
+  the cache between tests, since fakeredis is one process-wide fake
+  store for the whole suite rather than a fresh connection per test.
 
 ## Workspace terminology & self-service
 

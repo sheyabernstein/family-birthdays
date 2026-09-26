@@ -1,15 +1,26 @@
-"""Magic-link tokens, stored in Redis instead of a DB table.
+"""Magic-link tokens, stored in the cache (Redis in every real environment) instead of a DB table.
 
-A login token is single-use and short-lived by nature - Redis's native
-key expiry (TTL) is exactly that, for free, with no stale-row cleanup job
-needed. GETDEL makes "fetch and invalidate" atomic, so a token can't be
-raced into being used twice.
+A login token is single-use and short-lived by nature - the cache's
+native key expiry (TTL) is exactly that, for free, with no stale-row
+cleanup job needed. "Fetch and invalidate" is a real atomic GETDEL - see
+consume_token's own docstring for why that needs django-redis's raw
+connection rather than the generic django.core.cache API.
 """
 
 import secrets
 
-import redis
-from django.conf import settings
+from django.core.cache import cache
+from django_redis import get_redis_connection
+
+from config.helpers import increment_counter
+
+# consume_token needs a real atomic GETDEL, which the generic cache API
+# doesn't have - the raw connection is used for every op on _token_key
+# specifically (not just the GETDEL), so there's no read/write mismatch
+# between this client's own encoding and django.core.cache's serializer.
+# Everything else in this module (codes, spent tombstones, rate-limit
+# counters) has no such requirement and stays on the plain `cache` API.
+_redis = get_redis_connection("default")
 
 TOKEN_TTL_SECONDS = 15 * 60
 RATE_LIMIT_WINDOW_SECONDS = 60 * 60
@@ -46,8 +57,6 @@ CODE_MAX_ATTEMPTS_PER_CODE = 5
 CODE_MAX_ATTEMPTS_PER_ACCOUNT = 10
 CODE_ATTEMPTS_WINDOW_SECONDS = RATE_LIMIT_WINDOW_SECONDS
 
-_redis_client = redis.from_url(settings.REDIS_URL)
-
 
 def _token_key(token: str) -> str:
     return f"magic_link:{token}"
@@ -78,10 +87,7 @@ def is_rate_limited(account_uuid: str) -> bool:
 
     Every call counts, so check-and-issue in that order.
     """
-    key = _rate_limit_key(account_uuid)
-    count = _redis_client.incr(key)
-    if count == 1:
-        _redis_client.expire(key, RATE_LIMIT_WINDOW_SECONDS)
+    count = increment_counter(_rate_limit_key(account_uuid), window_seconds=RATE_LIMIT_WINDOW_SECONDS)
     return count > RATE_LIMIT_MAX_PER_WINDOW
 
 
@@ -95,7 +101,7 @@ def issue_token(*, account_uuid: str, channel: str, destination: str) -> tuple[s
     """
     token = secrets.token_urlsafe(32)
     payload = f"{account_uuid}:{channel}:{destination}"
-    _redis_client.set(_token_key(token), payload, ex=TOKEN_TTL_SECONDS)
+    _redis.set(_token_key(token), payload, ex=TOKEN_TTL_SECONDS)
 
     code = _issue_unique_code(token)
     return token, code
@@ -114,13 +120,13 @@ def _issue_unique_code(token: str) -> str:
     """
     for _ in range(CODE_COLLISION_RETRIES):
         code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
-        if _redis_client.set(_code_key(code), token, ex=TOKEN_TTL_SECONDS, nx=True):
+        if cache.add(_code_key(code), token, timeout=TOKEN_TTL_SECONDS):
             return code
     # Never observed in practice - every retry landing on an already-
     # taken code would take a truly pathological run of bad luck. Falls
     # back to a plain overwrite rather than failing the sign-in request
     # outright over odds this remote.
-    _redis_client.set(_code_key(code), token, ex=TOKEN_TTL_SECONDS)
+    cache.set(_code_key(code), token, timeout=TOKEN_TTL_SECONDS)
     return code
 
 
@@ -138,19 +144,19 @@ def peek_token(token: str) -> dict | None:
     confirm page a real person would, since nothing about this call
     changes what's in Redis.
     """
-    payload = _redis_client.get(_token_key(token))
+    payload = _redis.get(_token_key(token))
     return _decode_payload(payload) if payload is not None else None
 
 
 def is_token_spent(token: str) -> bool:
     """Whether this token was already consumed (vs. never existing/malformed/genuinely expired).
 
-    Redis can't tell those apart once the key's gone, which is why
+    The cache can't tell those apart once the key's gone, which is why
     consume_token leaves this separate tombstone behind - lets the
     confirm page distinguish "someone already opened this" (worth a
     resend nudge) from a plain bad/old link.
     """
-    return bool(_redis_client.exists(_spent_key(token)))
+    return cache.has_key(_spent_key(token))
 
 
 def consume_token(token: str) -> dict | None:
@@ -163,11 +169,16 @@ def consume_token(token: str) -> dict | None:
     page). Also the engine behind consume_code below - a code is just a
     pointer at a token, so redeeming one this way burns it for the other
     path too.
+
+    GETDEL isn't part of Django's generic cache API, so this goes through
+    django-redis's own raw-connection escape hatch (get_redis_connection)
+    instead - a real atomic fetch-and-delete, not a get()-then-delete()
+    that could race two concurrent redemptions of the same token.
     """
-    payload = _redis_client.getdel(_token_key(token))
+    payload = _redis.getdel(_token_key(token))
     if payload is None:
         return None
-    _redis_client.set(_spent_key(token), "1", ex=SPENT_TOMBSTONE_TTL_SECONDS)
+    cache.set(_spent_key(token), "1", timeout=SPENT_TOMBSTONE_TTL_SECONDS)
     return _decode_payload(payload)
 
 
@@ -178,10 +189,9 @@ def is_code_guess_blocked(account_uuid: str) -> bool:
     same "every attempt counts" shape as is_rate_limited, just scoped to
     guesses rather than requests.
     """
-    key = _code_attempts_by_account_key(account_uuid)
-    count = _redis_client.incr(key)
-    if count == 1:
-        _redis_client.expire(key, CODE_ATTEMPTS_WINDOW_SECONDS)
+    count = increment_counter(
+        _code_attempts_by_account_key(account_uuid), window_seconds=CODE_ATTEMPTS_WINDOW_SECONDS
+    )
     return count > CODE_MAX_ATTEMPTS_PER_ACCOUNT
 
 
@@ -204,27 +214,23 @@ def consume_code(*, account_uuid: str, code: str) -> dict | None:
     if is_code_guess_blocked(account_uuid):
         return None
 
-    attempts_key = _code_attempts_key(code)
-    attempts = _redis_client.incr(attempts_key)
-    if attempts == 1:
-        _redis_client.expire(attempts_key, TOKEN_TTL_SECONDS)
+    attempts = increment_counter(_code_attempts_key(code), window_seconds=TOKEN_TTL_SECONDS)
     if attempts > CODE_MAX_ATTEMPTS_PER_CODE:
         return None
 
-    token_bytes = _redis_client.get(_code_key(code))
-    if token_bytes is None:
+    token = cache.get(_code_key(code))
+    if token is None:
         return None
-    token = token_bytes.decode()
 
-    # Peeks at the payload (a plain GET, not GETDEL) before actually
-    # consuming anything - a wrong account_uuid claimed alongside a real
-    # code must reject cleanly, not burn the token out from under
+    # Peeks at the payload (a plain get, not a fetch-and-invalidate) before
+    # actually consuming anything - a wrong account_uuid claimed alongside a
+    # real code must reject cleanly, not burn the token out from under
     # whoever the code actually belongs to. Found for real: an earlier
     # version called consume_token() first and checked account_uuid
     # after, so a wrong guess here could invalidate someone else's
     # perfectly legitimate pending sign-in.
-    payload_bytes = _redis_client.get(_token_key(token))
-    if payload_bytes is None or payload_bytes.decode().split(":", 1)[0] != account_uuid:
+    payload = _redis.get(_token_key(token))
+    if payload is None or payload.decode().split(":", 1)[0] != account_uuid:
         return None
 
     return consume_token(token)

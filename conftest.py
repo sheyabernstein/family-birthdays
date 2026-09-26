@@ -3,26 +3,23 @@ only one test module lives in that module; anything shared within a
 single app's tests lives in that app's tests/conftest.py - see AGENTS.md's
 "Test layout" section."""
 
-import fakeredis
 import pytest
+from django.core.cache import cache
 
-from accounts import magic_links
 from accounts.models import Account
-from notifications import sms
-from tenants.management.commands import migrate_with_lock
 from tenants.models import Family, FamilyMembership
 
 
 @pytest.fixture(autouse=True)
-def _fake_redis(monkeypatch):
-    """Every test gets its own in-process fake Redis, so the suite never
-    needs a real Redis server - see accounts/magic_links.py,
-    tenants/management/commands/migrate_with_lock.py, and
-    notifications/sms.py, the modules that talk to Redis directly
-    (separate fake instances - nothing relies on them sharing keyspace)."""
-    monkeypatch.setattr(magic_links, "_redis_client", fakeredis.FakeStrictRedis())
-    monkeypatch.setattr(migrate_with_lock, "_redis_client", fakeredis.FakeStrictRedis())
-    monkeypatch.setattr(sms, "_redis_client", fakeredis.FakeStrictRedis())
+def _clear_cache():
+    """Resets the (fakeredis-backed, in tests - see config/settings_test.py) cache before every test.
+
+    fakeredis is one process-wide fake store for the whole suite, not a
+    fresh connection per test - without this, a key like
+    migrate_with_lock's fixed LOCK_KEY would leak state between tests
+    that run in the same process.
+    """
+    cache.clear()
 
 
 @pytest.fixture
