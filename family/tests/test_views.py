@@ -677,6 +677,46 @@ def test_family_tree_404s_for_a_nobody_visibility_person(client, family):
     assert resp.status_code == 404
 
 
+def test_family_tree_cuts_a_nobody_visibility_persons_branch_for_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    root = Person.objects.create(family=family, first_name_en="Root", last_name_en="Person")
+    private_child = Person.objects.create(
+        family=family,
+        first_name_en="Private",
+        last_name_en="Person",
+        father=root,
+        visibility=Person.Visibility.NOBODY,
+    )
+    Person.objects.create(
+        family=family, first_name_en="Grandchild", last_name_en="Person", father=private_child
+    )
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{root.uuid}/tree/")
+
+    ids = {node["id"] for node in resp.context["chart_data"]}
+    assert str(root.uuid) in ids
+    assert str(private_child.uuid) not in ids
+
+
+def test_family_tree_shows_a_nobody_visibility_persons_branch_to_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    root = Person.objects.create(family=family, first_name_en="Root", last_name_en="Person")
+    private_child = Person.objects.create(
+        family=family,
+        first_name_en="Private",
+        last_name_en="Person",
+        father=root,
+        visibility=Person.Visibility.NOBODY,
+    )
+    _login_as(client, editor, family)
+
+    resp = client.get(f"/people/{root.uuid}/tree/")
+
+    ids = {node["id"] for node in resp.context["chart_data"]}
+    assert str(private_child.uuid) in ids
+
+
 def test_birthday_and_bar_mitzvah_toggles_hide_and_yahrzeit_shows_for_a_deceased_person(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)

@@ -15,6 +15,8 @@ visible to a family per person_is_visible and still invisible to a
 particular plain member of it, per their own relationship distance.
 """
 
+from collections.abc import Iterable
+
 from django.db.models import Q, QuerySet
 
 from family.models import Person, Union
@@ -145,3 +147,35 @@ def person_is_visible_to(person: Person, *, viewer: Person | None, can_edit: boo
     person.
     """
     return PersonVisibility(viewer).can_see(person, can_edit=can_edit)
+
+
+def visible_people_for_tree(
+    people: Iterable[Person], *, viewer: Person | None, can_edit: bool, keep_id: int
+) -> list[Person]:
+    """Cuts an invisible person, and their whole descendant line, out of a tree's own node list.
+
+    family-chart has no way to draw a child whose parent isn't in the
+    payload at all, so an invisible person's descendants (any depth) are
+    cut along with them, not just their own card - see /help/ for the
+    tradeoff this accepts (a viewer who could otherwise see a more
+    distant descendant loses that too) and why this is addressed with a
+    warning at edit time, not a partial-tree workaround.
+
+    keep_id is the tree's own subject (already confirmed visible to get
+    this far - see FamilyTreeView.get_object) - it must never be cut just
+    because *its own* ancestor happens to be invisible to this viewer;
+    Person.visibility restricts a person's own card, not their
+    descendants' independent visibility.
+    """
+    if can_edit:
+        return list(people)
+
+    people = list(people)
+    visibility = PersonVisibility(viewer)
+    cut_ids: set[int] = set()
+    for person in people:
+        if person.id != keep_id and not visibility.can_see(person, can_edit=False):
+            cut_ids.add(person.id)
+            cut_ids.update(person.descendant_ids())
+    cut_ids.discard(keep_id)
+    return [person for person in people if person.id not in cut_ids]

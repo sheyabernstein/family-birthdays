@@ -112,3 +112,18 @@ def test_build_chart_data_omits_the_hebrew_name_subtitle_for_the_no_english_name
 
     by_id = {n["id"]: n for n in nodes}
     assert by_id[str(hebrew_only.uuid)]["data"]["hebrew_name"] == ""
+
+
+def test_build_chart_data_omits_a_parent_excluded_from_the_given_people(family):
+    # Same in-set check children_by_parent already applies - a parent
+    # cut from this viewer's own tree (Person.visibility, see
+    # family.access.visible_people_for_tree) must not leave a node's own
+    # "parents" pointing at an id with no matching node in the payload.
+    excluded_parent = Person.objects.create(family=family, first_name_en="Cut", last_name_en="Parent")
+    child = Person.objects.create(
+        family=family, first_name_en="Kept", last_name_en="Child", father=excluded_parent
+    )
+
+    nodes = build_chart_data([child], main_person=child)
+
+    assert nodes[0]["rels"]["parents"] == []

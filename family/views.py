@@ -23,6 +23,7 @@ from family.access import (
     can_see_birth_year,
     person_is_visible,
     person_is_visible_to,
+    visible_people_for_tree,
     visible_people_queryset,
 )
 from family.forms import PersonForm, UnionEditForm, UnionForm
@@ -547,6 +548,12 @@ class FamilyTreeView(FamilyRequiredMixin, DetailView):
     def get_context_data(self, **kwargs) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         people = visible_people_queryset(self.request.family).select_related("father", "mother")
+        people = visible_people_for_tree(
+            people,
+            viewer=self.request.self_person,
+            can_edit=self.request.family_permissions.can_edit,
+            keep_id=self.object.id,
+        )
         context["chart_data"] = build_chart_data(
             people, main_person=self.object, editable_family_id=self.request.family.id
         )

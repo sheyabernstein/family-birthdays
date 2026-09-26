@@ -118,7 +118,12 @@ def build_chart_data(
     nodes = []
     for p in people:
         first_name, last_name = _display_name(p)
-        parents = [str(x.uuid) for x in (p.father, p.mother) if x is not None]
+        # Same in-set check children_by_parent already applies (built
+        # from ids above) - father/mother could otherwise reference a
+        # parent excluded from this viewer's own tree (Person.visibility,
+        # see family.access.visible_people_for_tree), leaving a node's
+        # own "parents" pointing at an id with no matching node at all.
+        parents = [str(x.uuid) for x in (p.father, p.mother) if x is not None and x.id in ids]
         # Only show the Hebrew name as a second line when it's not already
         # doing double duty as the primary name above (the no-English-name
         # fallback in _display_name).
