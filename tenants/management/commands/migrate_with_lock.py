@@ -31,6 +31,15 @@ class Command(BaseCommand):
         "Run Django migrations with a distributed lock to prevent multiple "
         "pods from migrating simultaneously."
     )
+    # A dedicated hook, not a bare `time.sleep(...)` call below - tests
+    # patch this instead of the real (shared, global) time.sleep to
+    # control the retry loop's pacing. Patching time.sleep itself would
+    # count any unrelated sleep call made by something else during the
+    # test (e.g. redis-py's own connection retry/backoff) - found for
+    # real: exactly that made a CI run's test_logs_periodically... flaky,
+    # since an incidental extra sleep call there released the simulated
+    # other pod's lock earlier than the test intended.
+    _sleep = staticmethod(time.sleep)
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument(
@@ -116,7 +125,7 @@ class Command(BaseCommand):
                 lock_owner_logged = True
             else:
                 logger.debug("still waiting for migration lock", owner=owner, remaining_seconds=remaining)
-            time.sleep(LOCK_CHECK_INTERVAL)
+            self._sleep(LOCK_CHECK_INTERVAL)
 
     def _release_lock(self) -> None:
         """Release the distributed lock - but only if it's still the one this process acquired.

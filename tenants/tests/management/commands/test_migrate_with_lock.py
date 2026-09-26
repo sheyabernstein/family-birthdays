@@ -87,9 +87,10 @@ def test_raises_command_error_when_the_lock_cannot_be_acquired_in_time(monkeypat
 
 
 def test_waits_for_the_lock_to_be_released_then_acquires_it(monkeypatch):
-    # Held by "another pod" when the command starts - time.sleep is
-    # patched to release it (simulating that other pod finishing) rather
-    # than actually sleeping, so the retry loop's next attempt succeeds
+    # Held by "another pod" when the command starts - Command._sleep (not
+    # the real time.sleep - see its own comment on the class) is patched
+    # to release it (simulating that other pod finishing) rather than
+    # actually sleeping, so the retry loop's next attempt succeeds
     # immediately instead of after a real wait.
     other_pod_lock = cache.lock(LOCK_KEY, timeout=300)
     other_pod_lock.acquire()
@@ -97,7 +98,9 @@ def test_waits_for_the_lock_to_be_released_then_acquires_it(monkeypatch):
     def _fake_sleep(_seconds):
         other_pod_lock.release()
 
-    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.time.sleep", _fake_sleep)
+    monkeypatch.setattr(
+        "tenants.management.commands.migrate_with_lock.Command._sleep", staticmethod(_fake_sleep)
+    )
     monkeypatch.setattr("tenants.management.commands.migrate_with_lock.call_command", lambda *a, **k: None)
 
     call_command("migrate_with_lock")
@@ -110,9 +113,11 @@ def test_logs_periodically_while_waiting_for_the_lock(monkeypatch, caplog):
     # silently the whole time - no hook to log progress mid-wait - which
     # is exactly why _acquire_lock polls non-blocking itself instead. This
     # locks in that a longer wait actually produces more than just the
-    # first "waiting for release" line - time.sleep is patched to a no-op
-    # for a few iterations (rather than actually sleeping) before releasing
-    # the lock, so the test stays instant.
+    # first "waiting for release" line - Command._sleep is patched to a
+    # no-op for a few iterations (rather than actually sleeping) before
+    # releasing the lock, so the test stays instant. Patched here, not the
+    # real time.sleep - see Command._sleep's own comment for why counting
+    # calls to the shared, global time.sleep instead made this flaky in CI.
     caplog.set_level("DEBUG", logger="family_birthdays")
     other_pod_lock = cache.lock(LOCK_KEY, timeout=300)
     other_pod_lock.acquire()
@@ -124,7 +129,9 @@ def test_logs_periodically_while_waiting_for_the_lock(monkeypatch, caplog):
         if len(sleep_calls) >= 3:
             other_pod_lock.release()
 
-    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.time.sleep", _fake_sleep)
+    monkeypatch.setattr(
+        "tenants.management.commands.migrate_with_lock.Command._sleep", staticmethod(_fake_sleep)
+    )
     monkeypatch.setattr("tenants.management.commands.migrate_with_lock.call_command", lambda *a, **k: None)
 
     call_command("migrate_with_lock")
