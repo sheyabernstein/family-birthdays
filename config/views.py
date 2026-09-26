@@ -1,3 +1,5 @@
+import socket
+
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpResponse, JsonResponse
@@ -48,9 +50,11 @@ class ReadyView(View):
             ok = False
             logger.warning("readyz check failed", check="database", reason=_reason(exc))
 
+        readyz_key = f"readyz:{socket.gethostname()}"
+
         try:
-            cache.set("readyz", "1", 5)
-            if cache.get("readyz") != "1":
+            cache.set(readyz_key, "1", 5)
+            if cache.get(readyz_key) != "1":
                 raise RuntimeError("round-trip mismatch")
             checks["cache"] = "ok"
         except Exception as exc:
