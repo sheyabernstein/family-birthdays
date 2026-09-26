@@ -81,6 +81,7 @@ class PersonForm(forms.ModelForm):
             "father",
             "mother",
             "notifications_enabled",
+            "visibility",
             "dob_gregorian",
             "dob_hebrew_year",
             "dob_hebrew_month",

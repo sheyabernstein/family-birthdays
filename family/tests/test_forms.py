@@ -13,6 +13,22 @@ def test_phone_field_renders_as_a_tel_input_for_the_intl_tel_input_widget(family
     assert form.fields["phone"].widget.input_type == "tel"
 
 
+def test_visibility_is_optional_and_defaults_to_everyone(family):
+    form = PersonForm(
+        data={
+            "first_name_he": "חדש",
+            "yahrzeit_adar_observance": "adar_ii",
+            "yahrzeit_day30_observance": "start_of_next_month",
+        },
+        family=family,
+    )
+
+    assert form.is_valid(), form.errors
+    person = form.save()
+
+    assert person.visibility == Person.Visibility.EVERYONE
+
+
 def test_first_name_he_is_required_but_first_name_en_is_not(family):
     form = PersonForm(data={"first_name_en": "New", "last_name_en": "Person"}, family=family)
 
