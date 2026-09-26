@@ -10,6 +10,7 @@ from collections.abc import Callable
 
 from django.http import HttpRequest, HttpResponse
 from django.urls import Resolver404, resolve
+from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from config.observability import metrics
 
@@ -41,7 +42,11 @@ class ObservabilityMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         if request.path in EXCLUDED_PATHS:
-            return self.get_response(request)
+            # DjangoInstrumentor's excluded_urls only skips its own request
+            # span - psycopg2/redis instrumentation still fires for readyz's
+            # dependency checks otherwise, each becoming its own orphaned trace.
+            with suppress_instrumentation():
+                return self.get_response(request)
 
         method = request.method or ""
         route, tag = _resolve_route(request)

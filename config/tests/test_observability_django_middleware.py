@@ -1,4 +1,6 @@
 from django.test import RequestFactory
+from opentelemetry.context import get_current
+from opentelemetry.instrumentation.utils import _SUPPRESS_INSTRUMENTATION_KEY
 
 from config.observability import metrics
 from config.observability.django_middleware import UNMATCHED, ObservabilityMiddleware
@@ -7,6 +9,18 @@ from config.tests.conftest import sample_value
 
 def _middleware(get_response):
     return ObservabilityMiddleware(get_response)
+
+
+def test_excluded_path_suppresses_instrumentation_for_the_view():
+    seen = {}
+
+    def get_response(request):
+        seen["suppressed"] = get_current().get(_SUPPRESS_INSTRUMENTATION_KEY)
+        return _response(200)
+
+    _middleware(get_response)(RequestFactory().get("/readyz"))
+
+    assert seen["suppressed"] is True
 
 
 def test_excluded_path_skips_all_metrics_on_the_way_in():
