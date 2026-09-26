@@ -18,7 +18,13 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, T
 from hdate import HebrewDate
 from hdate.hebrew_date import Months
 
-from family.access import can_see_birth_year, person_is_visible, visible_people_queryset
+from family.access import (
+    PersonVisibility,
+    can_see_birth_year,
+    person_is_visible,
+    person_is_visible_to,
+    visible_people_queryset,
+)
 from family.forms import PersonForm, UnionEditForm, UnionForm
 from family.hebrew import gregorian_to_hebrew, hebrew_to_gregorian
 from family.history import person_history
@@ -310,7 +316,18 @@ class PersonListView(FamilyRequiredMixin, ListView):
                 | models.Q(first_name_he__icontains=query)
                 | models.Q(last_name_he__icontains=query)
             )
-        return people
+
+        if self.request.family_permissions.can_edit:
+            return people
+
+        # Person.visibility can't be expressed as a plain filter() - it's
+        # relative to this one viewer's own relationship distance, not a
+        # column value. PersonVisibility computes that distance once and
+        # reuses it for every candidate below, instead of once per person
+        # (see its own docstring and AGENTS.md).
+        visibility = PersonVisibility(self.request.self_person)
+        visible_ids = [person.id for person in people if visibility.can_see(person, can_edit=False)]
+        return people.filter(pk__in=visible_ids)
 
     def get_context_data(self, **kwargs) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -332,6 +349,10 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
     def get_object(self, queryset: QuerySet[Person] | None = None) -> Person:
         person = super().get_object(queryset)
         if not person_is_visible(person, self.request.family):
+            raise Http404
+        if not person_is_visible_to(
+            person, viewer=self.request.self_person, can_edit=self.request.family_permissions.can_edit
+        ):
             raise Http404
         return person
 
@@ -516,6 +537,10 @@ class FamilyTreeView(FamilyRequiredMixin, DetailView):
     def get_object(self, queryset: QuerySet[Person] | None = None) -> Person:
         person = super().get_object(queryset)
         if not person_is_visible(person, self.request.family):
+            raise Http404
+        if not person_is_visible_to(
+            person, viewer=self.request.self_person, can_edit=self.request.family_permissions.can_edit
+        ):
             raise Http404
         return person
 
