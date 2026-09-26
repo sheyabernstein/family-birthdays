@@ -59,27 +59,27 @@ CODE_ATTEMPTS_WINDOW_SECONDS = RATE_LIMIT_WINDOW_SECONDS
 
 
 def _token_key(token: str) -> str:
-    return f"magic_link:{token}"
+    return f"magic-link:{token}"
 
 
 def _spent_key(token: str) -> str:
-    return f"magic_link_spent:{token}"
+    return f"magic-link-spent:{token}"
 
 
 def _code_key(code: str) -> str:
-    return f"magic_code:{code}"
+    return f"magic-code:{code}"
 
 
 def _code_attempts_key(code: str) -> str:
-    return f"magic_code_attempts:{code}"
+    return f"magic-code-attempts:{code}"
 
 
 def _code_attempts_by_account_key(account_uuid: str) -> str:
-    return f"magic_code_attempts_account:{account_uuid}"
+    return f"magic-code-attempts-account:{account_uuid}"
 
 
 def _rate_limit_key(account_uuid: str) -> str:
-    return f"magic_link_rate:{account_uuid}"
+    return f"magic-link-rate:{account_uuid}"
 
 
 def is_rate_limited(account_uuid: str) -> bool:
