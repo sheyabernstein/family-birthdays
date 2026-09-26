@@ -51,7 +51,11 @@ class ReadyView(View):
             ok = False
             logger.warning("readyz check failed", check="database", reason=_reason(exc))
 
-        readyz_key, readyz_value = f"readyz:{socket.gethostname()}", str(uuid4())
+        # The hostname alone collided across concurrent requests hitting
+        # this same pod (see #76's own fix) - a uuid suffix makes the key
+        # itself unique per request instead, so two requests racing here
+        # can never read back the other's value.
+        readyz_key, readyz_value = f"readyz:{socket.gethostname()}:{uuid4()}", "1"
 
         try:
             cache.set(readyz_key, readyz_value, 5)
@@ -62,6 +66,8 @@ class ReadyView(View):
             checks["cache"] = "error"
             ok = False
             logger.warning("readyz check failed", check="cache", reason=_reason(exc))
+        finally:
+            cache.delete(readyz_key)
 
         return JsonResponse(
             {"status": "ok" if ok else "degraded", "checks": checks},

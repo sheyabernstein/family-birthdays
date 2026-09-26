@@ -277,8 +277,14 @@ CACHES = {
         # would separate this app's keys from another app's in a Redis
         # instance shared between them (not the case here - REDIS_DB is
         # this instance's own); VERSION lets a future incompatible change
-        # to what a key stores (e.g. magic_links' payload format) roll
-        # out without colliding with whatever an old value there means.
+        # to what a cache-backed key stores (e.g. a rate-limit counter's
+        # own value shape) roll out without colliding with whatever an
+        # old value there means. Doesn't cover everything Redis-backed
+        # though: accounts/magic_links.py's token storage goes through
+        # get_redis_connection() directly, not django.core.cache's own
+        # make_key(), so this VERSION has no effect on it - a future
+        # incompatible change to that key's format would need its own
+        # versioning scheme (e.g. a new key prefix), not a bump here.
         "VERSION": 1,
         "KEY_PREFIX": "",
     }
