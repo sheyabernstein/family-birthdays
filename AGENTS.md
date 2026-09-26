@@ -216,6 +216,15 @@ Enforced by ruff's `D` rules (`[tool.ruff.lint.pydocstyle]`,
 `convention = "google"`); `D100`-`D107` (missing-docstring) are off, matching
 the "not mandatory everywhere" rule above.
 
+## Comments
+
+An inline `#` comment is one or two short sentences, never a wall of text -
+say the short why, not the implementation detail behind it. It's not the
+place for "found for real"/incident narration or a restatement of what the
+next line already says; that kind of depth belongs in a docstring, a
+nested `AGENTS.md`, or the PR description, not stacked above the line it's
+about.
+
 ## Type hints
 
 Every function/method we write (not Django/Celery's own base-class
