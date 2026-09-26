@@ -1,4 +1,5 @@
 import socket
+import time
 import uuid
 from typing import Any
 
@@ -58,21 +59,9 @@ class Command(BaseCommand):
         hostname = socket.gethostname()
         lock_id = f"{hostname}:{uuid.uuid4().hex[:8]}"
 
-        self._lock = cache.lock(
-            LOCK_KEY,
-            timeout=LOCK_TTL,
-            blocking_timeout=LOCK_WAIT_TIMEOUT,
-            sleep=LOCK_CHECK_INTERVAL,
-        )
+        self._lock = cache.lock(LOCK_KEY, timeout=LOCK_TTL)
 
-        if held_by := _redis.get(cache.make_key(LOCK_KEY)):
-            logger.info(
-                "migration lock held, waiting for release",
-                owner=held_by.decode(),
-                wait_timeout_seconds=LOCK_WAIT_TIMEOUT,
-            )
-
-        if not self._lock.acquire(token=lock_id):
+        if not self._acquire_lock(lock_id):
             logger.error("timed out waiting for migration lock", wait_timeout_seconds=LOCK_WAIT_TIMEOUT)
             raise CommandError("Migration lock unavailable")
 
@@ -89,6 +78,45 @@ class Command(BaseCommand):
             logger.debug("migrations complete", app_label=app_label, migration_name=migration_name)
         finally:
             self._release_lock()
+
+    def _acquire_lock(self, lock_id: str) -> bool:
+        """Try to acquire self._lock, waiting up to LOCK_WAIT_TIMEOUT seconds and logging periodically.
+
+        A plain `self._lock.acquire(token=lock_id, blocking_timeout=
+        LOCK_WAIT_TIMEOUT)` would do the same waiting, but silently -
+        redis-py's own blocking retry loop has no hook for logging
+        progress mid-wait, so a real 10-minute wait would produce no
+        "still waiting" logs at all between the initial attempt and
+        either success or the final timeout. This polls non-blocking
+        instead, purely to get a log line in every LOCK_CHECK_INTERVAL.
+
+        Returns:
+            Whether the lock was actually acquired before timing out.
+        """
+        start_time = time.monotonic()
+        lock_owner_logged = False
+
+        while True:
+            if self._lock.acquire(token=lock_id, blocking=False):
+                return True
+
+            elapsed = time.monotonic() - start_time
+            if elapsed > LOCK_WAIT_TIMEOUT:
+                return False
+
+            owner = None
+            if held_by := _redis.get(cache.make_key(LOCK_KEY)):
+                owner = held_by.decode()
+            remaining = LOCK_WAIT_TIMEOUT - elapsed
+
+            if not lock_owner_logged:
+                logger.info(
+                    "migration lock held, waiting for release", owner=owner, remaining_seconds=remaining
+                )
+                lock_owner_logged = True
+            else:
+                logger.debug("still waiting for migration lock", owner=owner, remaining_seconds=remaining)
+            time.sleep(LOCK_CHECK_INTERVAL)
 
     def _release_lock(self) -> None:
         """Release the distributed lock - but only if it's still the one this process acquired.

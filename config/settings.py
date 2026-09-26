@@ -271,6 +271,16 @@ CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": REDIS_URL,
+        # Both are Django's own defaults - set explicitly (not left
+        # implicit) so a future bump to either is a deliberate, visible
+        # diff here rather than a silent behavior change. KEY_PREFIX
+        # would separate this app's keys from another app's in a Redis
+        # instance shared between them (not the case here - REDIS_DB is
+        # this instance's own); VERSION lets a future incompatible change
+        # to what a key stores (e.g. magic_links' payload format) roll
+        # out without colliding with whatever an old value there means.
+        "VERSION": 1,
+        "KEY_PREFIX": "",
     }
 }
 

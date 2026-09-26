@@ -1,6 +1,4 @@
 import socket
-import threading
-import time
 
 import pytest
 from django.core.cache import cache
@@ -89,32 +87,50 @@ def test_raises_command_error_when_the_lock_cannot_be_acquired_in_time(monkeypat
 
 
 def test_waits_for_the_lock_to_be_released_then_acquires_it(monkeypatch):
-    # Held by "another pod" when the command starts; a background thread
-    # releases it shortly after, so the command's own blocking acquire()
-    # (redis-py's real retry/poll loop, not a hand-rolled one) succeeds
-    # once it actually becomes free instead of timing out.
-    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.LOCK_CHECK_INTERVAL", 0.05)
-    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.LOCK_WAIT_TIMEOUT", 2)
-    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.call_command", lambda *a, **k: None)
-
-    # thread_local=False: acquire() and release() happen on different
-    # threads here (standing in for different processes/pods), and
-    # redis-py's Lock otherwise stores its token in thread-local storage -
-    # release() from a different thread than acquire() would silently find
-    # no token there and raise inside the background thread, which the
-    # main thread would never see, and just wait out the full timeout.
-    other_pod_lock = cache.lock(LOCK_KEY, timeout=300, thread_local=False)
+    # Held by "another pod" when the command starts - time.sleep is
+    # patched to release it (simulating that other pod finishing) rather
+    # than actually sleeping, so the retry loop's next attempt succeeds
+    # immediately instead of after a real wait.
+    other_pod_lock = cache.lock(LOCK_KEY, timeout=300)
     other_pod_lock.acquire()
 
-    def _release_soon():
-        time.sleep(0.1)
+    def _fake_sleep(_seconds):
         other_pod_lock.release()
 
-    threading.Thread(target=_release_soon).start()
+    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.time.sleep", _fake_sleep)
+    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.call_command", lambda *a, **k: None)
 
     call_command("migrate_with_lock")
 
     assert _lock_value() is None
+
+
+def test_logs_periodically_while_waiting_for_the_lock(monkeypatch, caplog):
+    # A real redis-py Lock.acquire(blocking_timeout=...) would wait
+    # silently the whole time - no hook to log progress mid-wait - which
+    # is exactly why _acquire_lock polls non-blocking itself instead. This
+    # locks in that a longer wait actually produces more than just the
+    # first "waiting for release" line - time.sleep is patched to a no-op
+    # for a few iterations (rather than actually sleeping) before releasing
+    # the lock, so the test stays instant.
+    caplog.set_level("DEBUG", logger="family_birthdays")
+    other_pod_lock = cache.lock(LOCK_KEY, timeout=300)
+    other_pod_lock.acquire()
+
+    sleep_calls = []
+
+    def _fake_sleep(_seconds):
+        sleep_calls.append(_seconds)
+        if len(sleep_calls) >= 3:
+            other_pod_lock.release()
+
+    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.time.sleep", _fake_sleep)
+    monkeypatch.setattr("tenants.management.commands.migrate_with_lock.call_command", lambda *a, **k: None)
+
+    call_command("migrate_with_lock")
+
+    assert caplog.text.count("migration lock held, waiting for release") == 1
+    assert caplog.text.count("still waiting for migration lock") >= 2
 
 
 def test_release_lock_swallows_an_error_instead_of_raising(monkeypatch):

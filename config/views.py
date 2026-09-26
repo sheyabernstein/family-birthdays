@@ -51,8 +51,7 @@ class ReadyView(View):
             ok = False
             logger.warning("readyz check failed", check="database", reason=_reason(exc))
 
-        readyz_key = f"readyz:{socket.gethostname()}"
-        readyz_value = str(uuid4())
+        readyz_key, readyz_value = f"readyz:{socket.gethostname()}", str(uuid4())
 
         try:
             cache.set(readyz_key, readyz_value, 5)
