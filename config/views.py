@@ -51,10 +51,10 @@ class ReadyView(View):
             ok = False
             logger.warning("readyz check failed", check="database", reason=_reason(exc))
 
-        # The hostname alone collided across concurrent requests hitting
-        # this same pod (see #76's own fix) - a uuid suffix makes the key
-        # itself unique per request instead, so two requests racing here
-        # can never read back the other's value.
+        # The hostname alone collides across concurrent requests hitting
+        # this same pod - a uuid suffix makes the key itself unique per
+        # request instead, so two requests racing here can never read back
+        # the other's value.
         readyz_key, readyz_value = f"readyz:{socket.gethostname()}:{uuid4()}", "1"
 
         try:
