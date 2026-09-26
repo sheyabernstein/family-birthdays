@@ -161,3 +161,43 @@ def is_direct_family(
     if _covers(viewer):
         return True
     return any(_covers(spouse) for spouse in spouses_of_fn(viewer))
+
+
+def person_visible_to(
+    viewer: Person | None,
+    subject: Person,
+    *,
+    spouse_check: Callable[[Person, Person], bool] = _is_spouse,
+    ancestor_ids_fn: Callable[[Person], set[int]] = _ancestor_ids_for,
+    descendant_ids_fn: Callable[[Person], set[int]] = _descendant_ids_for,
+    spouses_of_fn: Callable[[Person], list[Person]] = _spouses_of,
+) -> bool:
+    """Whether `viewer` may see `subject` at all, per subject.visibility.
+
+    Shared by family.access.PersonVisibility (People list/tree) and
+    notifications.audience.PreferenceResolver (notification eligibility)
+    - one definition of what each Person.visibility level means,
+    regardless of which of those wraps it. Neither "owners/editors
+    always see everyone" nor any caching lives here - each caller
+    applies its own bypass/cache first, since "can edit" means something
+    different in each context (a family role vs. nothing this module
+    knows about).
+    """
+    if subject.visibility == Person.Visibility.EVERYONE:
+        return True
+    if viewer is None:
+        return False
+    if subject.visibility == Person.Visibility.NOBODY:
+        return False
+    if subject.visibility == Person.Visibility.IMMEDIATE_FAMILY:
+        return is_immediate_family(viewer, subject, spouse_check=spouse_check)
+    if subject.visibility == Person.Visibility.DIRECT_FAMILY:
+        return is_direct_family(
+            viewer,
+            subject,
+            spouse_check=spouse_check,
+            ancestor_ids_fn=ancestor_ids_fn,
+            descendant_ids_fn=descendant_ids_fn,
+            spouses_of_fn=spouses_of_fn,
+        )
+    raise ValueError(f"Unrecognized Person.Visibility: {subject.visibility!r}")

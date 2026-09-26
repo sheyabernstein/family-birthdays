@@ -2,7 +2,8 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from family.models import Person
+from accounts.models import Account
+from family.models import Person, Union
 from notifications.audience import (
     channels_for_account,
     preference_status,
@@ -11,7 +12,7 @@ from notifications.audience import (
 )
 from notifications.models import EventType, NotificationPreference
 from notifications.tests.conftest import member as _member
-from tenants.models import Family
+from tenants.models import Family, FamilyMembership
 
 pytestmark = pytest.mark.django_db
 
@@ -224,6 +225,90 @@ def test_immediate_family_only_fails_closed_without_a_viewer_person(family, birt
     status = preference_status(account, birthday_event_type, person=person, channel="email")
 
     assert status.subscribed is False
+
+
+def _editor(family, email="editor@example.com"):
+    account = Account.objects.create_user(email=email)
+    FamilyMembership.objects.create(account=account, family=family, role=FamilyMembership.Role.EDITOR)
+    return account
+
+
+def test_visibility_nobody_excludes_a_default_subscribed_member(family, birthday_event_type):
+    person = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+    account = _member(family)
+
+    status = preference_status(account, birthday_event_type, person=person, channel="email")
+
+    assert status.subscribed is False
+    assert status.reason == "not_visible"
+
+
+def test_visibility_nobody_still_includes_an_editor(family, birthday_event_type):
+    person = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+    editor = _editor(family)
+
+    assert preference_status(editor, birthday_event_type, person=person, channel="email").subscribed is True
+
+
+def test_visibility_immediate_family_includes_a_parent_and_excludes_a_stranger(family, birthday_event_type):
+    parent_account = _member(family, email="parent@example.com")
+    parent = Person.objects.create(
+        family=family, first_name_en="Parent", last_name_en="Person", account=parent_account
+    )
+    person = Person.objects.create(
+        family=family,
+        first_name_en="Kid",
+        last_name_en="Person",
+        father=parent,
+        visibility=Person.Visibility.IMMEDIATE_FAMILY,
+    )
+    stranger = _member(family, email="stranger@example.com")
+
+    assert (
+        preference_status(parent_account, birthday_event_type, person=person, channel="email").subscribed
+        is True
+    )
+    assert (
+        preference_status(stranger, birthday_event_type, person=person, channel="email").subscribed is False
+    )
+
+
+def test_visibility_cannot_be_overridden_by_a_specific_subscribe(family, birthday_event_type):
+    """The whole point of a ceiling: an explicit per-account "subscribed"
+    override for this person must not see past their own visibility."""
+    person = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+    account = _member(family)
+    _preference(account, birthday_event_type, NotificationPreference.State.SUBSCRIBED, person=person)
+
+    status = preference_status(account, birthday_event_type, person=person, channel="email")
+
+    assert status.subscribed is False
+    assert status.reason == "not_visible"
+
+
+def test_visibility_for_a_union_is_satisfied_by_either_spouse(family):
+    # Anniversary defaults to opt-in (MUTED), unrelated to visibility - an
+    # explicit whole-type subscribe isolates the visibility check itself.
+    anniversary = EventType.objects.get(family=None, code=EventType.BuiltinCode.ANNIVERSARY)
+    visible_spouse = Person.objects.create(family=family, first_name_en="A", last_name_en="Person")
+    private_spouse = Person.objects.create(
+        family=family, first_name_en="B", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+    union = Union.objects.create(
+        person_a=visible_spouse, person_b=private_spouse, status=Union.Status.MARRIED
+    )
+    account = _member(family)
+    _preference(account, anniversary, NotificationPreference.State.SUBSCRIBED)
+
+    status = preference_status(account, anniversary, union=union, channel="email")
+
+    assert status.subscribed is True
 
 
 @pytest.fixture

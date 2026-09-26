@@ -27,10 +27,10 @@ from django.db import models
 
 from accounts.models import Account
 from family.models import Person, Union
-from family.relationships import _ancestor_ids, is_direct_family, is_immediate_family
+from family.relationships import _ancestor_ids, is_direct_family, is_immediate_family, person_visible_to
 from notifications.enums import ChannelEnum
 from notifications.models import EventType, NotificationPreference
-from tenants.models import Family
+from tenants.models import Family, FamilyMembership
 
 _CHANNEL_SPECS = [
     (ChannelEnum.EMAIL, "email_notifications_enabled", lambda account: account.email),
@@ -89,12 +89,42 @@ def _in_direct_family(account: Account, *, person: Person | None, union: Union |
     return is_direct_family(viewer, union.person_a) or is_direct_family(viewer, union.person_b)
 
 
+def _can_edit(account: Account, *, person: Person | None, union: Union | None) -> bool:
+    family_ids = (
+        [person.family_id] if person is not None else [union.person_a.family_id, union.person_b.family_id]
+    )
+    return FamilyMembership.objects.filter(
+        account=account, family_id__in=family_ids, role__in=FamilyMembership.EDITOR_ROLES
+    ).exists()
+
+
+def _visible_to(account: Account, *, person: Person | None, union: Union | None) -> bool:
+    """Person.visibility's own gate - a ceiling under every preference state above, not a replacement.
+
+    No subject at all (a Broadcast with no tied people) has nothing to
+    check visibility against, so it's always visible - see
+    resolve_broadcast_audience's own docstring for why that combination
+    is otherwise unreachable anyway. Owners/editors bypass this, same as
+    everywhere else this app checks visibility (family.access).
+    """
+    if person is None and union is None:
+        return True
+    if _can_edit(account, person=person, union=union):
+        return True
+    viewer = _viewer_person(account, person=person, union=union)
+    if person is not None:
+        return person_visible_to(viewer, person)
+    return person_visible_to(viewer, union.person_a) or person_visible_to(viewer, union.person_b)
+
+
 @dataclass
 class PreferenceStatus:
     """Enough detail for the UI to explain *why* someone is or isn't subscribed, not just whether they are."""
 
     subscribed: bool
     # What's actually driving the result, for display purposes:
+    # "not_visible" - Person.visibility ruled this out before any
+    #   preference was even consulted - a ceiling, not one more state
     # "specific_subscribed" / "specific_muted" - a person/union override
     # "type_subscribed" / "type_muted" - an explicit whole-type row
     # "type_immediate_only" - an explicit whole-type immediate_family_only row
@@ -114,6 +144,7 @@ def _preference_status_from_rows(
     event_type: EventType,
     in_family_fn: Callable[[], bool],
     in_direct_family_fn: Callable[[], bool],
+    visible_fn: Callable[[], bool],
 ) -> PreferenceStatus:
     """The actual state-branching decision, shared by preference_status and PreferenceResolver.
 
@@ -128,7 +159,14 @@ def _preference_status_from_rows(
     is_direct_family check an explicit override would use, just tagged
     "default" instead of "type_direct_family_only" for display
     purposes.
+
+    visible_fn is checked before any of that - Person.visibility is a
+    ceiling on eligibility, not one more preference state, so even a
+    specific per-account "subscribed" override can't see past it.
     """
+    if not visible_fn():
+        return PreferenceStatus(subscribed=False, reason="not_visible")
+
     if specific is not None:
         subscribed = specific.state == NotificationPreference.State.SUBSCRIBED
         return PreferenceStatus(
@@ -189,6 +227,7 @@ def preference_status(
         event_type=event_type,
         in_family_fn=lambda: _in_immediate_family(account, person=person, union=union),
         in_direct_family_fn=lambda: _in_direct_family(account, person=person, union=union),
+        visible_fn=lambda: _visible_to(account, person=person, union=union),
     )
 
 
@@ -214,9 +253,10 @@ class PreferenceResolver:
     PersonDetailView) but turns into a real N+1 when resolving an audience
     across every account in a family, or every candidate occurrence on the
     Dashboard - see AGENTS.md's notes on this. This loads every relevant
-    NotificationPreference row, viewer-Person, and married-couple pair for
-    the given accounts/families in three queries total, then answers every
-    subsequent preference_status()/channels_for_account() call from memory.
+    NotificationPreference row, viewer-Person, married-couple pair, and
+    editor/owner FamilyMembership for the given accounts/families in four
+    queries total, then answers every subsequent preference_status()/
+    channels_for_account() call from memory.
 
     Scope this to exactly the accounts/families a given call site actually
     needs - it isn't meant to be built once and reused globally.
@@ -239,6 +279,13 @@ class PreferenceResolver:
             person.account_id: person
             for person in Person.objects.filter(account_id__in=account_ids, family_id__in=family_ids)
         }
+        # Person.visibility's own owners/editors-always-see-everyone bypass -
+        # see family.access for the People list/tree side of the same rule.
+        self._editor_account_ids: set[int] = set(
+            FamilyMembership.objects.filter(
+                account_id__in=account_ids, family_id__in=family_ids, role__in=FamilyMembership.EDITOR_ROLES
+            ).values_list("account_id", flat=True)
+        )
         self._spouse_pairs: set[frozenset[int]] = {
             frozenset((union.person_a_id, union.person_b_id))
             for union in Union.objects.filter(
@@ -324,6 +371,26 @@ class PreferenceResolver:
             viewer, union.person_b, **kwargs
         )
 
+    def _person_visible(self, viewer: Person | None, subject: Person) -> bool:
+        return person_visible_to(
+            viewer,
+            subject,
+            spouse_check=self._cached_spouse_check,
+            ancestor_ids_fn=self._cached_ancestor_ids,
+            descendant_ids_fn=self._cached_descendant_ids,
+            spouses_of_fn=self._cached_spouses_of,
+        )
+
+    def _visible_to(self, account_id: int, *, person: Person | None, union: Union | None) -> bool:
+        if person is None and union is None:
+            return True
+        if account_id in self._editor_account_ids:
+            return True
+        viewer = self._viewer_by_account.get(account_id)
+        if person is not None:
+            return self._person_visible(viewer, person)
+        return self._person_visible(viewer, union.person_a) or self._person_visible(viewer, union.person_b)
+
     def preference_status(
         self,
         account: Account,
@@ -342,6 +409,7 @@ class PreferenceResolver:
             event_type=event_type,
             in_family_fn=lambda: self._in_immediate_family(account.id, person=person, union=union),
             in_direct_family_fn=lambda: self._in_direct_family(account.id, person=person, union=union),
+            visible_fn=lambda: self._visible_to(account.id, person=person, union=union),
         )
 
     def channels_for_account(
