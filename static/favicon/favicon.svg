@@ -1,0 +1,25 @@
+<!--
+  Source SVG for the app's own favicon - one global mark for every tenant
+  (a family's own name is already the topbar wordmark; the tab icon isn't
+  per-family branding). Rasterized once into this same directory's
+  favicon-*.png/favicon.ico/apple-touch-icon.png - not served as-is, since
+  Safari still doesn't honor an SVG favicon in the tab. Regenerate via:
+    rsvg-convert -w 16 -h 16 favicon.svg -o favicon-16.png
+    rsvg-convert -w 32 -h 32 favicon.svg -o favicon-32.png
+    rsvg-convert -w 48 -h 48 favicon.svg -o /tmp/favicon-48.png
+    rsvg-convert -w 180 -h 180 favicon.svg -o apple-touch-icon.png
+    magick favicon-16.png favicon-32.png /tmp/favicon-48.png favicon.ico
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#f6f4ec"/>
+  <rect x="29" y="38" width="6" height="15" rx="1.5" fill="#6e5726"/>
+  <!-- Canopy in family-chart's own female/male card colors (see the
+       vendored family-chart.css this app links from family_tree.html) -
+       the same blue/pink every card in the actual tree view is colored
+       by, rather than this app's separate birth/death/marriage event
+       palette (sage/wine/slate), which isn't what a tree's cards
+       themselves look like. -->
+  <circle cx="22" cy="29" r="10" fill="rgb(196, 138, 146)"/>
+  <circle cx="42" cy="29" r="10" fill="rgb(120, 159, 172)"/>
+  <circle cx="32" cy="20" r="12" fill="#9c8e97"/>
+</svg>
