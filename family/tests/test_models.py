@@ -450,6 +450,38 @@ def test_union_is_upcoming_ignores_engagement_date_once_a_marriage_date_is_known
     assert union.is_upcoming is False
 
 
+def test_ordered_pair_names_the_viewers_own_side_first(two_families):
+    family_a, family_b, _account_a, _account_b = two_families
+    # Alphabetically, "Ackerman" would sort before "Zilberman" - the
+    # point of this test is that the viewer's own side wins regardless
+    # of what alphabetical order would otherwise pick.
+    person_a = Person.objects.create(family=family_a, first_name_en="A", last_name_en="Zilberman")
+    person_b = Person.objects.create(family=family_b, first_name_en="B", last_name_en="Ackerman")
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+
+    assert union.ordered_pair(family_a.id) == (person_a, person_b)
+    assert union.ordered_pair(family_b.id) == (person_b, person_a)
+
+
+def test_ordered_pair_falls_back_to_alphabetical_for_a_same_family_union(family):
+    # Both spouses in the same family - there's no in-law side to
+    # prefer, so any family id (even the shared one) can't disambiguate.
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Zilberman")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Ackerman")
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+
+    assert union.ordered_pair(family.id) == (person_b, person_a)
+
+
+def test_ordered_pair_falls_back_to_alphabetical_for_an_unplaceable_viewer(two_families):
+    family_a, family_b, _account_a, _account_b = two_families
+    person_a = Person.objects.create(family=family_a, first_name_en="A", last_name_en="Zilberman")
+    person_b = Person.objects.create(family=family_b, first_name_en="B", last_name_en="Ackerman")
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+
+    assert union.ordered_pair(None) == (person_b, person_a)
+
+
 def test_engagement_hebrew_display_formats_the_full_engagement_date(family):
     person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
     person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")

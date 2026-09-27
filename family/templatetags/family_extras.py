@@ -8,9 +8,21 @@ from django.utils.safestring import SafeString
 from django.utils.translation import gettext
 
 from family.hebrew import format_hebrew_date, gregorian_to_hebrew
-from family.models import Person
+from family.models import Person, Union
 
 register = template.Library()
+
+
+@register.filter
+def ordered_union_pair(union: Union, viewer_family_id: int | None) -> tuple[Person, Person]:
+    """Template-filter wrapper for Union.ordered_pair - see its own docstring.
+
+    Lets a plain template (dashboard.html's Upcoming list) put the
+    viewer's own side first without a view needing to precompute it per
+    occurrence, the way notifications.tasks/views already do for the
+    actual rendered messages.
+    """
+    return union.ordered_pair(viewer_family_id)
 
 
 @register.simple_tag
