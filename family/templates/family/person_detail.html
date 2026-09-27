@@ -32,6 +32,12 @@
                     </div>
                 {% endif %}
             </div>
+            {% if person.visibility and not person.has_default_visibility %}
+                <p class="muted" style="margin-top: 1rem;">
+                    <span class="info-icon"></span>
+                    Visible to {{ person.get_visibility_display }}
+                </p>
+            {% endif %}
             <p style="margin-top: 1rem;">
                 <a class="btn btn-outline btn-sm"
                    href="{% url 'family:family_tree' person.uuid %}">View in family tree</a>

@@ -427,6 +427,10 @@ class Person(models.Model):
             return None
         return (timezone.localdate() - self.dob_gregorian).days / 365
 
+    @property
+    def has_default_visibility(self) -> bool:
+        return self.visibility == Person._meta.get_field("visibility").default
+
     def clean(self) -> None:
         if self.father_id and self.father_id == self.pk:
             raise ValidationError("A person cannot be their own father.")
