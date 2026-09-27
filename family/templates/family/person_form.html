@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static form_extras %}
+{% load static form_extras family_extras %}
 {% block title %}{% if object %}Edit {{ object.display_name }}{% else %}Add someone{% endif %} - {{ block.super }}{% endblock %}
 {% block content %}
     <div class="page-header">
@@ -36,8 +36,8 @@
         <div class="card form-section">
             <h2>Family links</h2>
             {% if link_as %}
-                <p class="muted warning-icon">
-                    These are <strong>the new person's own</strong> father and mother - a further-back generation than {{ link_of.display_name }}, not {{ link_of.display_name }} themselves. Leave blank unless you actually know the new person's own parents too.
+                <p class="muted">
+                    {% icon "triangle-alert" %}These are <strong>the new person's own</strong> father and mother - a further-back generation than {{ link_of.display_name }}, not {{ link_of.display_name }} themselves. Leave blank unless you actually know the new person's own parents too.
                 </p>
             {% endif %}
             <div class="form-row">
@@ -62,12 +62,8 @@
                 <div class="form-field">{% field_label form.dob_hebrew_month %}{{ form.dob_hebrew_month }}</div>
                 <div class="form-field">{% field_label form.dob_hebrew_day %}{{ form.dob_hebrew_day }}</div>
             </div>
-            <p id="dob-hebrew-autofill-note"
-               class="autofill-note warning-icon"
-               hidden>Prefilled from the Gregorian date above - double check it, especially if the birth was after sunset (the Hebrew date may have already advanced to the next day).</p>
-            <p id="dob-hebrew-mismatch-warning"
-               class="autofill-note warning-icon"
-               hidden>This Hebrew date doesn't match the Gregorian date above by more than a day - double check them, unless the birth was after sunset and this is intentional.</p>
+            <p id="dob-hebrew-autofill-note" class="autofill-note" hidden>{% icon "triangle-alert" %}Prefilled from the Gregorian date above - double check it, especially if the birth was after sunset (the Hebrew date may have already advanced to the next day).</p>
+            <p id="dob-hebrew-mismatch-warning" class="autofill-note" hidden>{% icon "triangle-alert" %}This Hebrew date doesn't match the Gregorian date above by more than a day - double check them, unless the birth was after sunset and this is intentional.</p>
         </div>
         <div class="card form-section">
             <h2>Death</h2>
@@ -83,12 +79,8 @@
                 <div class="form-field">{% field_label form.dod_hebrew_month %}{{ form.dod_hebrew_month }}</div>
                 <div class="form-field">{% field_label form.dod_hebrew_day %}{{ form.dod_hebrew_day }}</div>
             </div>
-            <p id="dod-hebrew-autofill-note"
-               class="autofill-note warning-icon"
-               hidden>Prefilled from the Gregorian date above - double check it, especially if the death was after sunset (the Hebrew date may have already advanced to the next day).</p>
-            <p id="dod-hebrew-mismatch-warning"
-               class="autofill-note warning-icon"
-               hidden>This Hebrew date doesn't match the Gregorian date above by more than a day - double check them, unless the death was after sunset and this is intentional.</p>
+            <p id="dod-hebrew-autofill-note" class="autofill-note" hidden>{% icon "triangle-alert" %}Prefilled from the Gregorian date above - double check it, especially if the death was after sunset (the Hebrew date may have already advanced to the next day).</p>
+            <p id="dod-hebrew-mismatch-warning" class="autofill-note" hidden>{% icon "triangle-alert" %}This Hebrew date doesn't match the Gregorian date above by more than a day - double check them, unless the death was after sunset and this is intentional.</p>
             <div class="form-row">
                 <div class="form-field">{% field_label form.yahrzeit_adar_observance %}{{ form.yahrzeit_adar_observance }}</div>
                 <div class="form-field">{% field_label form.yahrzeit_day30_observance %}{{ form.yahrzeit_day30_observance }}</div>

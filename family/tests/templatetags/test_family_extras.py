@@ -9,11 +9,16 @@ from family.models import Person
 from family.templatetags.family_extras import (
     display_name_with_marker,
     hebrew_str,
+    icon,
     weekday_naturalday,
     with_hebrew_first_name,
 )
 
 pytestmark = pytest.mark.django_db
+
+
+def test_icon_references_the_named_symbol_in_the_shared_sprite():
+    assert '<use href="/static/icons/sprite.svg#icon-info">' in icon("info")
 
 
 def test_hebrew_str_omits_the_thousands_digit():

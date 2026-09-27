@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static form_extras %}
+{% load static form_extras family_extras %}
 {% block title %}{% if object %}Edit marriage{% else %}Add a spouse for {{ person_a.display_name }}{% endif %} - {{ block.super }}{% endblock %}
 {% block content %}
     <div class="page-header">
@@ -66,9 +66,7 @@
                 <div class="form-field">{% field_label form.engagement_hebrew_month %}{{ form.engagement_hebrew_month }}</div>
                 <div class="form-field">{% field_label form.engagement_hebrew_day %}{{ form.engagement_hebrew_day }}</div>
             </div>
-            <p id="engagement-hebrew-autofill-note"
-               class="autofill-note warning-icon"
-               hidden>Prefilled from the Gregorian date above - double check it, especially if the engagement was after sunset (the Hebrew date may have already advanced to the next day).</p>
+            <p id="engagement-hebrew-autofill-note" class="autofill-note" hidden>{% icon "triangle-alert" %}Prefilled from the Gregorian date above - double check it, especially if the engagement was after sunset (the Hebrew date may have already advanced to the next day).</p>
         </div>
         <div class="card form-section">
             <h2>Marriage</h2>
@@ -87,9 +85,7 @@
                 <div class="form-field">{% field_label form.marriage_hebrew_month %}{{ form.marriage_hebrew_month }}</div>
                 <div class="form-field">{% field_label form.marriage_hebrew_day %}{{ form.marriage_hebrew_day }}</div>
             </div>
-            <p id="marriage-hebrew-autofill-note"
-               class="autofill-note warning-icon"
-               hidden>Prefilled from the Gregorian date above - double check it, especially if the wedding was after sunset (the Hebrew date may have already advanced to the next day).</p>
+            <p id="marriage-hebrew-autofill-note" class="autofill-note" hidden>{% icon "triangle-alert" %}Prefilled from the Gregorian date above - double check it, especially if the wedding was after sunset (the Hebrew date may have already advanced to the next day).</p>
             {% if object %}
                 {# Only UnionEditForm (editing an existing marriage) has this field at all - #}
                 {# UnionForm (adding a new spouse) doesn't, so this must stay nested inside #}

@@ -769,12 +769,15 @@ label {
 }
 
 /* --- Icons --- */
-.info-icon::before {
-  content: "ℹ ";
-}
 
-.warning-icon::before {
-  content: "⚠ ";
+/* Sized/colored to read like a glyph inline with surrounding text -
+   1em/currentColor is what a unicode character (this app's own previous
+   ℹ/⚠ approach) gets for free, so this mirrors it explicitly. */
+.icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  margin-right: 0.3em;
 }
 
 /* --- Person create/edit form --- */
@@ -1319,9 +1322,10 @@ main.full-bleed {
     color 0.15s;
 }
 
-#family-chart-mount .card-view-profile svg {
+#family-chart-mount .card-view-profile svg.icon {
   width: 0.65rem;
   height: 0.65rem;
+  margin-right: 0;
 }
 
 #family-chart-mount .card-view-profile:hover {
@@ -1339,10 +1343,15 @@ main.full-bleed {
   position: absolute !important;
   top: 0.35rem;
   left: 0.35rem;
-  font-size: 0.75rem;
-  line-height: 1;
+  display: flex;
   color: rgb(255 255 255 / 55%);
   cursor: help;
+}
+
+#family-chart-mount .card-visibility-icon svg.icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0;
 }
 
 /* Matches the --wine/.event-death convention used everywhere else a
