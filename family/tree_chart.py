@@ -158,6 +158,11 @@ def build_chart_data(
                     "own_family": p.family_id == editable_family_id,
                     "upcoming_wedding_partner": upcoming_wedding_partner.get(p.id, ""),
                     "upcoming_wedding_partner_id": upcoming_wedding_partner_uuid.get(p.id, ""),
+                    # Empty for the common case (default EVERYONE
+                    # visibility) so the card only grows the icon below
+                    # when there's actually something non-default to
+                    # explain.
+                    "visibility_label": "" if p.has_default_visibility else p.get_visibility_display(),
                 },
                 "rels": {
                     "parents": parents,

@@ -127,3 +127,19 @@ def test_build_chart_data_omits_a_parent_excluded_from_the_given_people(family):
     nodes = build_chart_data([child], main_person=child)
 
     assert nodes[0]["rels"]["parents"] == []
+
+
+def test_build_chart_data_only_labels_non_default_visibility(family):
+    default_visibility = Person.objects.create(family=family, first_name_en="Default", last_name_en="Test")
+    restricted = Person.objects.create(
+        family=family,
+        first_name_en="Restricted",
+        last_name_en="Test",
+        visibility=Person.Visibility.IMMEDIATE_FAMILY,
+    )
+
+    nodes = build_chart_data(Person.objects.filter(family=family), main_person=default_visibility)
+
+    by_id = {n["id"]: n for n in nodes}
+    assert by_id[str(default_visibility.uuid)]["data"]["visibility_label"] == ""
+    assert by_id[str(restricted.uuid)]["data"]["visibility_label"] == "Immediate family only"
