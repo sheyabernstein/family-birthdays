@@ -66,6 +66,52 @@ def test_help_page_shows_the_viewers_own_role_to_everyone(client, role):
     assert b'id="roles"' in resp.content
 
 
+@pytest.mark.parametrize(
+    ["role"],
+    [
+        [FamilyMembership.Role.OWNER],
+        [FamilyMembership.Role.EDITOR],
+        [FamilyMembership.Role.MEMBER],
+    ],
+    ids=["owner", "editor", "member"],
+)
+def test_help_page_shows_the_family_reach_section_to_everyone(client, role):
+    # Immediate/direct family come up on My Notifications, a page every
+    # role uses - the canonical definition isn't owner/editor-gated.
+    family = Family.objects.create(name="Test Family")
+    account = _member(family, role)
+    _login_as(client, account, family)
+
+    resp = client.get("/help/")
+
+    assert b'id="family-reach"' in resp.content
+
+
+@pytest.mark.parametrize(
+    ["role", "nobody_bullet_shown"],
+    [
+        [FamilyMembership.Role.OWNER, True],
+        [FamilyMembership.Role.EDITOR, True],
+        [FamilyMembership.Role.MEMBER, False],
+    ],
+    ids=[
+        "owner sees the nobody-but-owners/editors bullet",
+        "editor sees the nobody-but-owners/editors bullet",
+        "member does not see it - only owners/editors can set that anyway",
+    ],
+)
+def test_help_page_family_reach_section_hides_the_visibility_only_bullet_from_members(
+    client, role, nobody_bullet_shown
+):
+    family = Family.objects.create(name="Test Family")
+    account = _member(family, role)
+    _login_as(client, account, family)
+
+    resp = client.get("/help/")
+
+    assert (b"nobody</strong> but owners/editors" in resp.content) == nobody_bullet_shown
+
+
 def test_help_page_works_before_joining_any_family(client):
     account = Account.objects.create_user(email="new@example.com")
     client.force_login(account)

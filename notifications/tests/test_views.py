@@ -494,6 +494,9 @@ def test_subscriptions_page_lists_every_family_event_type(client, family, birthd
     assert resp.status_code == 200
     event_types_shown = {row["event_type"] for row in resp.context["event_type_rows"]}
     assert birthday_event_type in event_types_shown
+    # The immediate/direct family definitions live on the Help page's own
+    # canonical section, not restated here - see AGENTS.md.
+    assert b'href="/help/#family-reach"' in resp.content
 
 
 def test_subscriptions_page_reflects_a_whole_type_override(client, family, birthday_event_type):
