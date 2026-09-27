@@ -54,13 +54,11 @@
             <p class="muted">Add an email or phone number to your account to set these.</p>
         {% else %}
             <div class="muted">
-                <p>For each event type, choose who you hear about:</p>
-                <ul>
-                    <li><strong>Everyone</strong> in the family</li>
-                    <li>Only your <strong>immediate family</strong> (spouse, parents, children, and siblings - nobody further out)</li>
-                    <li>Only your <strong>direct family</strong> (immediate family, plus your full ancestor and descendant line either way, and the same again through your own spouse - available for Yahrzeit)</li>
-                    <li><strong>Muted</strong> entirely</li>
-                </ul>
+                <p>
+                    For each event type, choose who you hear about: everyone, your
+                    <a href="{% url 'family:help' %}#family-reach">immediate or direct family</a>, or muted
+                    entirely.
+                </p>
                 <p>
                     For exceptions to whatever you pick here - one specific person
                     included or excluded - use the toggle on that person's own page instead; it always wins over this.

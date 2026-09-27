@@ -802,7 +802,12 @@ label {
   margin-bottom: 0;
 }
 
-.form-field .help-text {
+/* Plain .help-text, not scoped to .form-field - not every help text sits
+   next to a single field (union_form.html's "Existing marriage" note
+   explains a whole section) or even inside a form at all
+   (person_detail.html's history caption) - .help-text is only ever used
+   for this one purpose, so it doesn't need a parent to earn the style. */
+.help-text {
   font-size: 0.75rem;
   color: var(--ink-soft);
   margin-top: 0.3rem;
@@ -1322,6 +1327,22 @@ main.full-bleed {
 #family-chart-mount .card-view-profile:hover {
   background: rgb(255 255 255 / 20%);
   color: #fff;
+}
+
+/* Mirrors .card-view-profile's own corner placement (top-left instead of
+   top-right) - only rendered at all when the person has non-default
+   Person.visibility (see tree_chart.py's visibility_label), so most
+   cards never show it. A native title attribute is enough for this -
+   the label itself already links to the Help page's full explanation
+   from the person detail page, no need to duplicate that here. */
+#family-chart-mount .card-visibility-icon {
+  position: absolute !important;
+  top: 0.35rem;
+  left: 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: rgb(255 255 255 / 55%);
+  cursor: help;
 }
 
 /* Matches the --wine/.event-death convention used everywhere else a

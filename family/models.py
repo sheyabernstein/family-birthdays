@@ -59,6 +59,12 @@ class Person(models.Model):
         MALE = "M", "Male"
         FEMALE = "F", "Female"
 
+    class Visibility(models.TextChoices):
+        EVERYONE = "everyone", "Everyone"
+        DIRECT_FAMILY = "direct_family", "Direct family only"
+        IMMEDIATE_FAMILY = "immediate_family", "Immediate family only"
+        NOBODY = "nobody", "Owners/editors only"
+
     # Used in URLs instead of the database pk, so a person's id in the app
     # can't be enumerated or reused as a hint about record count/order.
     uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
@@ -188,6 +194,30 @@ class Person(models.Model):
     # yahrzeit occurrences computed or sent just because their child
     # married in.
     notifications_enabled = models.BooleanField(default=True)
+
+    # Independent of notifications_enabled above, and of an account's own
+    # NotificationPreference (notifications/models.py): this is the
+    # subject's own ceiling on who else can see them at all - in the
+    # People list, the family tree, and in who's even eligible to be
+    # notified about them - not an account deciding what it wants to be
+    # notified about. Owners/editors always see and can edit everyone
+    # regardless (see tenants.permissions), same as every other
+    # visibility rule in this app. Restricting this on someone with
+    # descendants also hides those descendants from anyone who doesn't
+    # already have visibility of this person - see the help_text below
+    # and /help/.
+    visibility = models.CharField(
+        max_length=20,
+        choices=Visibility.choices,
+        default=Visibility.EVERYONE,
+        blank=True,
+        help_text=(
+            "Who can see this person, and who's even eligible to get notified about them (owners/"
+            "editors can always see everyone, regardless of this). Restricting this also hides this "
+            "person's own descendants from anyone who wouldn't otherwise be able to see this person - "
+            "see the Help page for details."
+        ),
+    )
 
     notes = models.TextField(blank=True)
 
@@ -396,6 +426,10 @@ class Person(models.Model):
         if not self.dob_gregorian:
             return None
         return (timezone.localdate() - self.dob_gregorian).days / 365
+
+    @property
+    def has_default_visibility(self) -> bool:
+        return self.visibility == Person._meta.get_field("visibility").default
 
     def clean(self) -> None:
         if self.father_id and self.father_id == self.pk:

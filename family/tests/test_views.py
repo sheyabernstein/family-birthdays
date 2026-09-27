@@ -641,6 +641,149 @@ def test_person_detail_200s_for_an_in_law_through_marriage(client, two_families)
     assert resp.status_code == 200
 
 
+def test_person_detail_404s_for_a_nobody_visibility_person(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    person = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{person.uuid}/")
+
+    assert resp.status_code == 404
+
+
+def test_person_detail_200s_for_a_nobody_visibility_person_to_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    person = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+    _login_as(client, editor, family)
+
+    resp = client.get(f"/people/{person.uuid}/")
+
+    assert resp.status_code == 200
+
+
+def test_family_tree_404s_for_a_nobody_visibility_person(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    person = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{person.uuid}/tree/")
+
+    assert resp.status_code == 404
+
+
+def test_family_tree_cuts_a_nobody_visibility_persons_branch_for_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    root = Person.objects.create(family=family, first_name_en="Root", last_name_en="Person")
+    private_child = Person.objects.create(
+        family=family,
+        first_name_en="Private",
+        last_name_en="Person",
+        father=root,
+        visibility=Person.Visibility.NOBODY,
+    )
+    Person.objects.create(
+        family=family, first_name_en="Grandchild", last_name_en="Person", father=private_child
+    )
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{root.uuid}/tree/")
+
+    ids = {node["id"] for node in resp.context["chart_data"]}
+    assert str(root.uuid) in ids
+    assert str(private_child.uuid) not in ids
+
+
+def test_family_tree_shows_a_nobody_visibility_persons_branch_to_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    root = Person.objects.create(family=family, first_name_en="Root", last_name_en="Person")
+    private_child = Person.objects.create(
+        family=family,
+        first_name_en="Private",
+        last_name_en="Person",
+        father=root,
+        visibility=Person.Visibility.NOBODY,
+    )
+    _login_as(client, editor, family)
+
+    resp = client.get(f"/people/{root.uuid}/tree/")
+
+    ids = {node["id"] for node in resp.context["chart_data"]}
+    assert str(private_child.uuid) in ids
+
+
+def test_person_detail_hides_a_nobody_visibility_father_from_a_plain_member(client, family):
+    # A visible person's own father/mother is a different Person record
+    # than the page's own subject (already checked in get_object) - a
+    # restricted father must not still leak through as a link straight to
+    # their own 404'd page.
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    father = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Father", visibility=Person.Visibility.NOBODY
+    )
+    child = Person.objects.create(family=family, first_name_en="Visible", last_name_en="Child", father=father)
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{child.uuid}/")
+
+    assert resp.context["father"] is None
+    assert b"Private" not in resp.content
+
+
+def test_person_detail_shows_a_nobody_visibility_father_to_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    father = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Father", visibility=Person.Visibility.NOBODY
+    )
+    child = Person.objects.create(family=family, first_name_en="Visible", last_name_en="Child", father=father)
+    _login_as(client, editor, family)
+
+    resp = client.get(f"/people/{child.uuid}/")
+
+    assert resp.context["father"] == father
+
+
+def test_person_detail_hides_a_nobody_visibility_child_from_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    parent = Person.objects.create(family=family, first_name_en="Visible", last_name_en="Parent")
+    Person.objects.create(
+        family=family,
+        first_name_en="Private",
+        last_name_en="Child",
+        father=parent,
+        visibility=Person.Visibility.NOBODY,
+    )
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{parent.uuid}/")
+
+    assert resp.context["children"] == []
+    assert b"No relations to show" in resp.content
+
+
+def test_person_detail_hides_a_nobody_visibility_spouse_from_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    visible = Person.objects.create(family=family, first_name_en="Visible", last_name_en="Person")
+    private_spouse = Person.objects.create(
+        family=family,
+        first_name_en="Private",
+        last_name_en="Spouse",
+        visibility=Person.Visibility.NOBODY,
+    )
+    Union.objects.create(person_a=visible, person_b=private_spouse)
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{visible.uuid}/")
+
+    assert resp.context["unions"] == []
+    assert b"Private" not in resp.content
+
+
 def test_birthday_and_bar_mitzvah_toggles_hide_and_yahrzeit_shows_for_a_deceased_person(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)
@@ -947,6 +1090,48 @@ def test_person_list_show_untracked_reveals_them_for_an_editor(client, family):
     resp = client.get("/people/?show_untracked=1")
 
     assert "Stub Ancestor" in resp.content.decode()
+
+
+def test_person_list_hides_a_nobody_visibility_person_from_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+    _login_as(client, member, family)
+
+    resp = client.get("/people/")
+
+    assert "Private Person" not in resp.content.decode()
+
+
+def test_person_list_shows_a_nobody_visibility_person_to_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+    _login_as(client, editor, family)
+
+    resp = client.get("/people/")
+
+    assert "Private Person" in resp.content.decode()
+
+
+def test_person_list_shows_an_immediate_family_person_to_their_own_child(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    parent = Person.objects.create(
+        family=family,
+        first_name_en="Private",
+        last_name_en="Parent",
+        visibility=Person.Visibility.IMMEDIATE_FAMILY,
+    )
+    Person.objects.create(
+        family=family, first_name_en="Kid", last_name_en="Person", father=parent, account=member
+    )
+    _login_as(client, member, family)
+
+    resp = client.get("/people/")
+
+    assert "Private Parent" in resp.content.decode()
 
 
 def test_owner_can_add_a_brand_new_spouse(client, family):

@@ -11,7 +11,7 @@
         </div>
     </div>
     <p class="muted">
-        Drag to pan, scroll to zoom, click anyone to re-center the tree on them. A small icon on a card means there's more of the tree in that direction - click it to expand.
+        Drag to pan, scroll to zoom, click anyone to re-center the tree on them. A small icon on a card means there's more of the tree in that direction - click it to expand. An ℹ in the top-left corner means this person's visibility is restricted - hover it for who can see them.
     </p>
     <div id="family-chart-mount" class="f3"></div>
     {{ chart_data|json_script:"family-chart-data" }}
@@ -415,6 +415,7 @@
           const hebrewName = person.hebrew_name;
           const upcomingPartner = person.upcoming_wedding_partner;
           const deceased = person.living === false;
+          const visibilityLabel = person.visibility_label;
           // Plain "${fullName}${marker}" concatenation with the marker
           // in its own isolated-RTL span (.hebrew-suffix) only reads
           // correctly when fullName is English - when it's Hebrew
@@ -434,6 +435,9 @@
             : escapeHtml(fullName);
           return `
             <div class="card-inner card-rect${deceased ? " card-deceased" : ""}">
+              ${visibilityLabel
+                ? `<span class="card-visibility-icon" title="Visible to ${escapeHtml(visibilityLabel)}">ℹ</span>`
+                : ""}
               <a class="card-view-profile"
                  href="${personDetailUrlFor(d.data.id)}"
                  title="View ${escapeHtml(fullName)}'s profile"

@@ -23,6 +23,7 @@
             <li><a href="#signing-in">Signing in</a></li>
             <li><a href="#tree">The family tree</a></li>
             <li><a href="#notifications">Your own notifications</a></li>
+            <li><a href="#family-reach">Immediate family vs. direct family</a></li>
             <li><a href="#tracked">Why some people don't show up in the list</a></li>
             <li><a href="#roles">Roles</a></li>
         </ul>
@@ -35,6 +36,7 @@
                 <li><a href="#death">Recording a death</a></li>
                 <li><a href="#coming-of-age">Bar and Bat Mitzvah</a></li>
                 <li><a href="#cross-family">In-laws and cross-family visibility</a></li>
+                <li><a href="#person-visibility">Restricting who can see someone</a></li>
                 <li><a href="#resolution">How notification settings are decided</a></li>
                 <li><a href="#site-admins">Site admins</a></li>
                 <li><a href="#broadcasts">Broadcasts</a></li>
@@ -79,12 +81,25 @@
         <p>
             <a href="{% url 'notifications:subscriptions' %}">My Notifications</a> is where you manage what you personally hear about, and on which
             channel (email or SMS). For each event type you can choose to hear about everyone, just
-            your immediate family (spouse, parents, children, siblings), or mute it entirely. On any
+            your <a href="#family-reach">immediate or direct family</a>, or mute it entirely. On any
             specific person's own page, a button next to each event type lets you add a one-off
             exception for just that person - included even though you'd normally miss it, or excluded
             even though you'd normally hear about it. That exception always wins over your general
             setting.
         </p>
+    </div>
+    <div class="card">
+        <h2 id="family-reach">Immediate family vs. direct family</h2>
+        <p>These terms come up wherever this app asks "who":</p>
+        <ul>
+            <li><strong>Everyone</strong> in the family</li>
+            <li>Only your <strong>immediate family</strong> (spouse, parents, children, and siblings - nobody further out)</li>
+            <li>Only your <strong>direct family</strong> (immediate family, plus your full ancestor and descendant line either way, and the same again through your own spouse - available for Yahrzeit)</li>
+            <li><strong>Muted</strong> entirely</li>
+            {% if request.family_permissions.can_edit %}
+                <li>For who can see someone: <strong>nobody</strong> but owners/editors</li>
+            {% endif %}
+        </ul>
     </div>
     <div class="card">
         <h2 id="tracked">Why some people don't show up in the list</h2>
@@ -108,7 +123,7 @@
             <p class="muted"><span class="info-icon"></span> You currently have the <strong>{{ request.family_role|title }}</strong> role in {{ request.family.name }}.</p>
         {% endif %}
         {% if family_owners %}
-            <p class="muted" style="margin-bottom: 0.5rem;">Reach out to {{ request.family.name }}'s owner{{ family_owners|length|pluralize }} for anything only an owner can do:</p>
+            <p style="margin-bottom: 0.5rem;">Reach out to {{ request.family.name }}'s owner{{ family_owners|length|pluralize }} for anything only an owner can do:</p>
             <ul>
                 {% for owner in family_owners %}
                     <li><strong>{{ owner.name }}</strong>{% if owner.email %} (<a href="mailto:{{ owner.email }}">{{ owner.email }}</a>){% endif %}</li>
@@ -197,12 +212,30 @@
             </p>
         </div>
         <div class="card">
+            <h2 id="person-visibility">Restricting who can see someone</h2>
+            <p>
+                Each person's own page has a "Who can see this person" setting: everyone,
+                <a href="#family-reach">direct or immediate family</a>, or nobody but owners and
+                editors. This controls more than the People list and tree - it's also who's even
+                eligible to be notified about that person's birthday or yahrzeit, on top of everyone's
+                own notification settings. Owners and editors always see and can edit everyone,
+                regardless of this setting.
+            </p>
+            <p>
+                Restricting this also hides that person's own descendants from anyone who couldn't
+                already see them - the family tree has no way to draw a child whose parent isn't shown
+                at all, so the whole branch below a restricted person is cut, not just their own card.
+                If that's not what you want, direct family (which still reaches every descendant) may
+                be enough instead of nobody.
+            </p>
+        </div>
+        <div class="card">
             <h2 id="resolution">How notification settings are decided</h2>
             <p>
                 For any given event, the most specific setting wins: a one-off exception on that
                 particular person or marriage beats your own general setting for that event type, which
-                beats the family's default for it if you've never touched it. "Immediate family" always
-                means spouse, parent, child, or sibling - that definition doesn't change per family.
+                beats the family's default for it if you've never touched it. See
+                <a href="#family-reach">Immediate family vs. direct family</a> for what those terms mean.
             </p>
         </div>
         <div class="card">
