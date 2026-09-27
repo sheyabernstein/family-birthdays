@@ -21,7 +21,7 @@ from family.hebrew import (
 )
 from family.models import Person, Union
 from family.templatetags.family_extras import weekday_naturalday
-from notifications.audience import resolve_audience, resolve_broadcast_audience
+from notifications.audience import resolve_audience, resolve_broadcast_audience, viewer_family_ids_for_union
 from notifications.enums import ChannelEnum
 from notifications.helpers import html_to_plain_text
 from notifications.models import Broadcast, EventType, Message, Occurrence
@@ -566,15 +566,39 @@ def send_due_notifications() -> None:
             audience = resolve_audience(
                 event_type=occurrence.event_type, person=occurrence.person, union=occurrence.union
             )
-            # Rendered once per channel actually needed for this
-            # occurrence, not once per recipient - most occurrences have
-            # several recipients on the same channel, and re-rendering
-            # the same template for each would just be wasted work.
-            rendered: dict[str, tuple[str, str, str]] = {}
+            # Rendered once per (channel, viewer_family_id) actually
+            # needed for this occurrence, not once per recipient - most
+            # occurrences have several recipients on the same channel
+            # (and the same side of a union, when there is one), and
+            # re-rendering the same template for each would just be
+            # wasted work. viewer_family_id is only ever one of at most
+            # three values for a given occurrence - person_a's family,
+            # person_b's family, or None (an account that can't be
+            # placed on either side - see Union.ordered_pair) - so this
+            # cache never grows past 3x the channel count regardless of
+            # how many recipients are on it.
+            rendered: dict[tuple[str, int | None], tuple[str, str, str]] = {}
+            # One query for every recipient's own side of the union at
+            # once (see viewer_family_ids_for_union's own docstring),
+            # not one query per recipient - a union-anchored occurrence
+            # can have as many recipients as any other, and this is
+            # exactly the kind of per-recipient cost the rendered cache
+            # above is already careful to avoid.
+            viewer_family_ids = (
+                viewer_family_ids_for_union(
+                    [a.id for a, _channel, _destination in audience], occurrence.union
+                )
+                if occurrence.union
+                else {}
+            )
             for account, channel, destination in audience:
-                if channel not in rendered:
-                    rendered[channel] = _render_occurrence_message(occurrence, channel=channel)
-                subject, body, html_body = rendered[channel]
+                viewer_family_id = viewer_family_ids.get(account.id)
+                cache_key = (channel, viewer_family_id)
+                if cache_key not in rendered:
+                    rendered[cache_key] = _render_occurrence_message(
+                        occurrence, channel=channel, viewer_family_id=viewer_family_id
+                    )
+                subject, body, html_body = rendered[cache_key]
 
                 message = Message.objects.create(
                     occurrence=occurrence,
@@ -624,9 +648,24 @@ def _personalize(html_body: str, *, destination: str) -> str:
     return html_body.replace(IDENTIFIER_PLACEHOLDER, quote(destination)) if html_body else html_body
 
 
-def _occurrence_template_context(occurrence: Occurrence, *, as_of: dt.date | None = None) -> dict:
+def _occurrence_template_context(
+    occurrence: Occurrence, *, viewer_family_id: int | None = None, as_of: dt.date | None = None
+) -> dict:
     family = occurrence.person.family if occurrence.person else occurrence.union.person_a.family
     today = as_of or timezone.localdate()
+    # first_person/second_person are only meaningful for a union-anchored
+    # occurrence - see Union.ordered_pair's own docstring for why raw
+    # person_a/person_b would otherwise read as arbitrary once a
+    # marriage crosses family lines. Every union-anchored template uses
+    # these instead of occurrence.union.person_a/person_b directly.
+    first_person, second_person = (
+        occurrence.union.ordered_pair(viewer_family_id)
+        if occurrence.union
+        else (
+            None,
+            None,
+        )
+    )
     # occurrence_date < today only when this send is genuinely late (a
     # missed run, an outage - see send_due_notifications' own docstring),
     # not when it's early for Shabbos/Yom Tov (occurrence_date > today,
@@ -656,10 +695,19 @@ def _occurrence_template_context(occurrence: Occurrence, *, as_of: dt.date | Non
         "family_name": family.name,
         "is_late": occurrence.occurrence_date < today,
         "today": today,
+        "first_person": first_person,
+        "second_person": second_person,
     }
 
 
-def _occurrence_subject(occurrence: Occurrence, *, is_late: bool, today: dt.date) -> str:
+def _occurrence_subject(
+    occurrence: Occurrence,
+    *,
+    is_late: bool,
+    today: dt.date,
+    first_person: Person | None,
+    second_person: Person | None,
+) -> str:
     """Builds the email subject line for one occurrence.
 
     Mirrors the body templates' own on-time/late/coming-up wording (see
@@ -669,9 +717,16 @@ def _occurrence_subject(occurrence: Occurrence, *, is_late: bool, today: dt.date
     <date>" (a late catch-up send) or "coming up" (Wedding, sent
     notify_days_before ahead of the day itself) would be a confusing
     mismatch for whoever's just glancing at their inbox.
+
+    first_person/second_person (already resolved by
+    _occurrence_template_context, per-recipient - see Union.ordered_pair)
+    stand in for a plain "occurrence.union" here for the same reason the
+    body templates use them instead of raw person_a/person_b.
     """
-    subject_obj = occurrence.person or occurrence.union
-    name = getattr(subject_obj, "display_name", str(subject_obj))
+    if occurrence.person:
+        name = occurrence.person.display_name
+    else:
+        name = f"{first_person.display_name} & {second_person.display_name}"
     event_name = occurrence.event_type.name
     if is_late:
         return f"{name} - {event_name} was {weekday_naturalday(occurrence.occurrence_date, today)}"
@@ -681,7 +736,11 @@ def _occurrence_subject(occurrence: Occurrence, *, is_late: bool, today: dt.date
 
 
 def _render_occurrence_message(
-    occurrence: Occurrence, *, channel: str, as_of: dt.date | None = None
+    occurrence: Occurrence,
+    *,
+    channel: str,
+    viewer_family_id: int | None = None,
+    as_of: dt.date | None = None,
 ) -> tuple[str, str, str]:
     """Renders (subject, body, html_body) for one occurrence on one channel.
 
@@ -703,19 +762,28 @@ def _render_occurrence_message(
     Args:
         occurrence: The occurrence to render a message for.
         channel: Which ChannelEnum to render for.
+        viewer_family_id: Which side of a union-anchored occurrence to
+            name first - see Union.ordered_pair. Ignored for a
+            person-anchored occurrence.
         as_of: The date to treat as "today" - the real send_date for an
             actual send (the default, real timezone.localdate()), or an
             occurrence's own send_date for a preview rendered ahead of
             time (see OccurrencePreviewView).
     """
-    context = _occurrence_template_context(occurrence, as_of=as_of)
+    context = _occurrence_template_context(occurrence, viewer_family_id=viewer_family_id, as_of=as_of)
     if channel == ChannelEnum.EMAIL:
         html = render_to_string(
             [f"notifications/email/{occurrence.event_type.code}.html", "notifications/email/_default.html"],
             context,
         )
         body = html_to_plain_text(html)
-        subject = _occurrence_subject(occurrence, is_late=context["is_late"], today=context["today"])
+        subject = _occurrence_subject(
+            occurrence,
+            is_late=context["is_late"],
+            today=context["today"],
+            first_person=context["first_person"],
+            second_person=context["second_person"],
+        )
         return subject, body, html
 
     text = render_to_string(

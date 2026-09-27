@@ -572,6 +572,37 @@ class Union(models.Model):
     def __str__(self) -> str:
         return f"{self.person_a} & {self.person_b}"
 
+    def ordered_pair(self, viewer_family_id: int | None) -> tuple[Person, Person]:
+        """The two spouses ordered "the viewer's own side first", for prose like "X & Y's wedding".
+
+        person_a/person_b carry no such meaning themselves - they're just
+        whichever slot the editor filled in when this Union was created
+        (whoever's own profile page they were adding a spouse from - see
+        family.views.UnionCreateView), so rendering them in that raw
+        order reads as arbitrary once a marriage crosses family lines.
+        viewer_family_id resolves the ambiguity per recipient: someone in
+        person_a's own family reads it as "person_a & person_b", someone
+        in person_b's own family reads the reverse. Falls back to
+        alphabetical (the same (last_name_en, first_name_en) tie-break
+        Meta.ordering already uses) whenever there's no side to prefer -
+        a same-family union (no in-law to name second), or a recipient
+        who can't be placed on either side at all (e.g. a site-admin-only
+        login previewing a message).
+
+        Args:
+            viewer_family_id: The family id to prefer if it matches
+                exactly one side, or None to always fall back.
+        """
+        a_is_viewers = viewer_family_id is not None and viewer_family_id == self.person_a.family_id
+        b_is_viewers = viewer_family_id is not None and viewer_family_id == self.person_b.family_id
+        if a_is_viewers and not b_is_viewers:
+            return self.person_a, self.person_b
+        if b_is_viewers and not a_is_viewers:
+            return self.person_b, self.person_a
+        a_key = (self.person_a.last_name_en, self.person_a.first_name_en)
+        b_key = (self.person_b.last_name_en, self.person_b.first_name_en)
+        return (self.person_a, self.person_b) if a_key <= b_key else (self.person_b, self.person_a)
+
     @property
     def marriage_hebrew_anchor(self) -> tuple[Months, int] | None:
         if self.marriage_hebrew_month and self.marriage_hebrew_day:

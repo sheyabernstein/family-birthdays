@@ -54,7 +54,7 @@ def available_channels(account: Account) -> list[tuple[str, str]]:
     return result
 
 
-def _viewer_person(account: Account, *, person: Person | None, union: Union | None) -> Person | None:
+def viewer_person(account: Account, *, person: Person | None, union: Union | None) -> Person | None:
     """The account's own Person record in whichever family this event belongs to.
 
     An account can be linked to a Person in more than one family (e.g. an
@@ -68,8 +68,28 @@ def _viewer_person(account: Account, *, person: Person | None, union: Union | No
     return account.people.filter(family_id__in=family_ids).first()
 
 
+def viewer_family_ids_for_union(account_ids: list[int], union: Union) -> dict[int, int]:
+    """Batch form of viewer_person for a union, in one query instead of one per account.
+
+    notifications.tasks.send_due_notifications needs "which side is this
+    account on" for every recipient of a union-anchored occurrence (see
+    Union.ordered_pair) - calling viewer_person per account there turned
+    a same-cost-regardless-of-recipient-count render into one query per
+    recipient. Only the two families a union could ever place someone on
+    are candidates, so a single filter covers every account at once.
+
+    An account missing from the returned dict couldn't be placed on
+    either side (viewer_person would have returned None for it too) -
+    callers already treat that the same way.
+    """
+    rows = Person.objects.filter(
+        account_id__in=account_ids, family_id__in=[union.person_a.family_id, union.person_b.family_id]
+    ).values_list("account_id", "family_id")
+    return dict(rows)
+
+
 def _in_immediate_family(account: Account, *, person: Person | None, union: Union | None) -> bool:
-    viewer = _viewer_person(account, person=person, union=union)
+    viewer = viewer_person(account, person=person, union=union)
     if viewer is None:
         # Can't place this account in the family tree at all (e.g. an
         # admin-only login) - "immediate family only" can't be satisfied,
@@ -81,7 +101,7 @@ def _in_immediate_family(account: Account, *, person: Person | None, union: Unio
 
 
 def _in_direct_family(account: Account, *, person: Person | None, union: Union | None) -> bool:
-    viewer = _viewer_person(account, person=person, union=union)
+    viewer = viewer_person(account, person=person, union=union)
     if viewer is None:
         return False
     if person is not None:
@@ -111,7 +131,7 @@ def _visible_to(account: Account, *, person: Person | None, union: Union | None)
         return True
     if _can_edit(account, person=person, union=union):
         return True
-    viewer = _viewer_person(account, person=person, union=union)
+    viewer = viewer_person(account, person=person, union=union)
     if person is not None:
         return person_visible_to(viewer, person)
     return person_visible_to(viewer, union.person_a) or person_visible_to(viewer, union.person_b)

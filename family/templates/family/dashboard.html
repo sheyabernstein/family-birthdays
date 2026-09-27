@@ -28,13 +28,15 @@
                                             <small class="muted">{{ occurrence.person.first_name_he }}</small>
                                         {% endif %}
                                     {% elif occurrence.union %}
-                                        <span>
-                                            <a class="who-name"
-                                               href="{% url 'family:person_detail' occurrence.union.person_a.uuid %}">{{ occurrence.union.person_a|display_name_with_marker }}</a>
-                                            &amp;
-                                            <a class="who-name"
-                                               href="{% url 'family:person_detail' occurrence.union.person_b.uuid %}">{{ occurrence.union.person_b|display_name_with_marker }}</a>
-                                        </span>
+                                        {% with pair=occurrence.union|ordered_union_pair:request.family.id %}
+                                            <span>
+                                                <a class="who-name"
+                                                   href="{% url 'family:person_detail' pair.0.uuid %}">{{ pair.0|display_name_with_marker }}</a>
+                                                &amp;
+                                                <a class="who-name"
+                                                   href="{% url 'family:person_detail' pair.1.uuid %}">{{ pair.1|display_name_with_marker }}</a>
+                                            </span>
+                                        {% endwith %}
                                     {% endif %}
                                     {% if request.family_permissions.can_edit %}
                                         <button type="button"

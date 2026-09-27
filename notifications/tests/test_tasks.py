@@ -12,6 +12,7 @@ from accounts.models import Account
 from config.enums import TaskPriority
 from family.hebrew import gregorian_to_hebrew, resolve_send_date
 from family.models import Person, Union
+from notifications.audience import viewer_family_ids_for_union
 from notifications.enums import ChannelEnum, ShiftReason
 from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
@@ -237,6 +238,82 @@ def test_send_due_notifications_personalizes_the_manage_settings_link_per_recipi
     assert "identifier=second%40example.com" in second_message.html_body
     assert "__RECIPIENT_IDENTIFIER__" not in first_message.html_body
     assert "__RECIPIENT_IDENTIFIER__" not in second_message.html_body
+
+
+def test_send_due_notifications_orders_a_cross_family_wedding_by_each_recipients_own_side(two_families):
+    # person_a/person_b carry no display-order meaning of their own (see
+    # Union.ordered_pair) - a recipient in family_a's own workspace
+    # should read "Sprintse & Yidi", and a recipient in family_b's own
+    # workspace should read the reverse, from the very same Occurrence
+    # and the very same send_due_notifications run.
+    family_a, family_b, account_a, account_b = two_families
+    person_a = Person.objects.create(family=family_a, first_name_en="Sprintse", last_name_en="Bernstein")
+    person_b = Person.objects.create(family=family_b, first_name_en="Yidi", last_name_en="Herzog")
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+    # viewer_person (notifications.audience) places a recipient on a
+    # side via their own Person record, not their FamilyMembership alone
+    # - each account needs one in its own family for this to resolve.
+    Person.objects.create(family=family_a, account=account_a, first_name_en="Viewer", last_name_en="A")
+    Person.objects.create(family=family_b, account=account_b, first_name_en="Viewer", last_name_en="B")
+    wedding = EventType.objects.get(family=None, code=EventType.BuiltinCode.WEDDING)
+    Occurrence.objects.create(
+        union=union,
+        event_type=wedding,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    send_due_notifications()
+
+    message_a = Message.objects.get(account=account_a)
+    message_b = Message.objects.get(account=account_b)
+    assert message_a.subject.startswith("Sprintse Bernstein & Yidi Herzog")
+    assert message_b.subject.startswith("Yidi Herzog & Sprintse Bernstein")
+    assert "Sprintse Bernstein</strong> &amp;" in message_a.html_body
+    assert "Yidi Herzog</strong> &amp;" in message_b.html_body
+
+
+def test_send_due_notifications_resolves_viewer_side_once_per_occurrence_not_per_recipient(
+    family, monkeypatch
+):
+    # Union.ordered_pair needs each recipient's own side of the union
+    # (see notifications.audience.viewer_family_ids_for_union) - calling
+    # that once per recipient instead of once for the whole occurrence
+    # used to cost one extra Person query per recipient. Message.objects.
+    # create (one INSERT per recipient, always) means a raw total query
+    # count still legitimately scales with recipient count here, unlike
+    # the sibling parents-per-occurrence test below (pinned at a single
+    # recipient throughout, so it never runs into this) - so this checks
+    # the call count on the batching function itself instead.
+    calls = []
+    real_viewer_family_ids_for_union = viewer_family_ids_for_union
+
+    def _spy(account_ids, union):
+        calls.append(account_ids)
+        return real_viewer_family_ids_for_union(account_ids, union)
+
+    monkeypatch.setattr("notifications.tasks.viewer_family_ids_for_union", _spy)
+
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+    wedding = EventType.objects.get(family=None, code=EventType.BuiltinCode.WEDDING)
+
+    for i in range(5):
+        _member(family, email=f"member{i}@example.com")
+    Occurrence.objects.create(
+        union=union,
+        event_type=wedding,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    send_due_notifications()
+
+    assert len(calls) == 1
+    assert len(calls[0]) == 5
 
 
 def test_send_due_notifications_does_not_query_parents_per_occurrence(family, birthday_event_type):

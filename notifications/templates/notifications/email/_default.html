@@ -14,20 +14,20 @@
                 <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} is {{ occurrence.occurrence_date|weekday_naturalday:today }}.
             {% endif %}
         {% elif is_late %}
-            <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
-            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} was
+            <strong>{{ first_person.display_name }}</strong>{{ first_person|with_hebrew_first_name }} &amp;
+            <strong>{{ second_person.display_name }}</strong>{{ second_person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} was
             {{ occurrence.occurrence_date|weekday_naturalday:today }}.
         {% else %}
-            <strong>{{ occurrence.union.person_a.display_name }}</strong>{{ occurrence.union.person_a|with_hebrew_first_name }} &amp;
-            <strong>{{ occurrence.union.person_b.display_name }}</strong>{{ occurrence.union.person_b|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} is
+            <strong>{{ first_person.display_name }}</strong>{{ first_person|with_hebrew_first_name }} &amp;
+            <strong>{{ second_person.display_name }}</strong>{{ second_person|with_hebrew_first_name }}'s {{ occurrence.event_type.name }} is
             {{ occurrence.occurrence_date|weekday_naturalday:today }}.
         {% endif %}
     </p>
     {% if occurrence.person %}
         {% include "notifications/email/_parents.html" with person=occurrence.person %}
     {% else %}
-        {% include "notifications/email/_parents.html" with person=occurrence.union.person_a %}
-        {% include "notifications/email/_parents.html" with person=occurrence.union.person_b %}
+        {% include "notifications/email/_parents.html" with person=first_person %}
+        {% include "notifications/email/_parents.html" with person=second_person %}
     {% endif %}
     <p class="muted" style="font-size: 14px;">
         {{ occurrence.occurrence_date|hebrew_str }} · {{ occurrence.occurrence_date|date:"l, F j, Y" }}

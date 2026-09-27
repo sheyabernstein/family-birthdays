@@ -874,7 +874,8 @@ def test_occurrence_preview_combines_lead_time_and_shift_reasons(client, family)
     content = resp.content.decode()
 
     assert (
-        "Wedding always sends 7 days ahead, moved earlier since that lands on Shabbos and Yom Tov" in content
+        "Wedding always sends 7 days ahead, moved earlier since that would land on Shabbos and Yom Tov"
+        in content
     )
 
 

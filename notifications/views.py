@@ -269,7 +269,7 @@ def _preview_send_note(occurrence: Occurrence) -> str | None:
         return lead_time_clause
     reasons = " and ".join(occurrence.shift_reason_labels)
     if lead_time_clause:
-        return f"{lead_time_clause}, moved earlier since that lands on {reasons}"
+        return f"{lead_time_clause}, moved earlier since that would land on {reasons}"
     return f"Moved up for {reasons}"
 
 
@@ -304,9 +304,17 @@ class OccurrencePreviewView(FamilyEditorRequiredMixin, FamilyScopedMixin, Detail
         context = super().get_context_data(**kwargs)
         occurrence = self.object
         as_of = occurrence.send_date
-        subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL, as_of=as_of)
+        # The viewer previewing this is always looking from their own
+        # current workspace, whichever side of a union that happens to
+        # be (see Union.ordered_pair) - there's no one real recipient to
+        # resolve a side from the way the real send path does per
+        # account (notifications.tasks.send_due_notifications).
+        viewer_family_id = self.request.family.id
+        subject, _body, html = _render_occurrence_message(
+            occurrence, channel=ChannelEnum.EMAIL, viewer_family_id=viewer_family_id, as_of=as_of
+        )
         _subject, sms_text, _html = _render_occurrence_message(
-            occurrence, channel=ChannelEnum.SMS, as_of=as_of
+            occurrence, channel=ChannelEnum.SMS, viewer_family_id=viewer_family_id, as_of=as_of
         )
         # One occurrence can have several recipients, each with their own
         # real destination (notifications.tasks._personalize swaps this
@@ -314,6 +322,12 @@ class OccurrencePreviewView(FamilyEditorRequiredMixin, FamilyScopedMixin, Detail
         # show here, so a generic example stands in rather than leaking
         # the internal IDENTIFIER_PLACEHOLDER token itself onto this page.
         html = _personalize(html, destination="you@example.com")
+        # This page's own <h2> names the union outside the rendered
+        # email/SMS bodies above, so it needs the same ordered pair those
+        # already used internally.
+        first_person, second_person = (
+            occurrence.union.ordered_pair(viewer_family_id) if occurrence.union else (None, None)
+        )
         context.update(
             {
                 "preview_as_of": as_of,
@@ -323,6 +337,8 @@ class OccurrencePreviewView(FamilyEditorRequiredMixin, FamilyScopedMixin, Detail
                 "sms_char_budget": SMS_CHAR_BUDGET,
                 "send_note": _preview_send_note(occurrence),
                 "recipients": _preview_recipients(occurrence),
+                "first_person": first_person,
+                "second_person": second_person,
             }
         )
         return context
