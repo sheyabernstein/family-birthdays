@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static family_extras %}
 {% block title %}Broadcasts - {{ block.super }}{% endblock %}
 {% block content %}
     <div class="page-header">
@@ -8,7 +8,7 @@
             A one-off update sent to everyone in the family who hasn't muted it.
             Sent broadcasts are shown to any owner/editor; a still-scheduled one is shown here to whoever created it.
             <br>
-            <small class="info-icon muted">All broadcasts are visible to site admins.</small>
+            <small class="muted">{% icon "info" %}All broadcasts are visible to site admins.</small>
         </p>
     </div>
     <div class="card form-section">

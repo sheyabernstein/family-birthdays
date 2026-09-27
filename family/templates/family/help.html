@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load family_extras %}
 {% block title %}Help - {{ block.super }}{% endblock %}
 {% block content %}
     <div class="page-header">
@@ -124,7 +125,7 @@
             marriage record - editors can't undo that.
         </p>
         {% if request.family_role %}
-            <p class="muted"><span class="info-icon"></span> You currently have the <strong>{{ request.family_role|title }}</strong> role in {{ request.family.name }}.</p>
+            <p class="muted">{% icon "info" %}You currently have the <strong>{{ request.family_role|title }}</strong> role in {{ request.family.name }}.</p>
         {% endif %}
         {% if family_owners %}
             <p style="margin-bottom: 0.5rem;">Reach out to {{ request.family.name }}'s owner{{ family_owners|length|pluralize }} for anything only an owner can do:</p>

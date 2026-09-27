@@ -1,6 +1,7 @@
 import datetime as dt
 
 from django import template
+from django.templatetags.static import static
 from django.utils import dateformat, formats, timezone
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
@@ -10,6 +11,24 @@ from family.hebrew import format_hebrew_date, gregorian_to_hebrew
 from family.models import Person
 
 register = template.Library()
+
+
+@register.simple_tag
+def icon(name: str) -> SafeString:
+    """Inline <svg><use> pointing at static/icons/sprite.svg's own <symbol id="icon-{name}">.
+
+    Real markup at render time, not a placeholder some later JS pass has
+    to inflate - see that sprite file's own comment for why that
+    distinction is the whole point. Safe inside a fragment rendered over
+    ajax (notifications/occurrence_preview.html) same as a full page.
+
+    Args:
+        name: The symbol's name, without its "icon-" id prefix (e.g.
+            "info", "triangle-alert").
+    """
+    return format_html(
+        '<svg class="icon"><use href="{}#icon-{}"></use></svg>', static("icons/sprite.svg"), name
+    )
 
 
 @register.filter
