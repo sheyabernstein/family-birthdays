@@ -35,7 +35,7 @@
             {% if person.visibility and not person.has_default_visibility %}
                 <p class="muted" style="margin-top: 1rem;">
                     <span class="info-icon"></span>
-                    Visible to {{ person.get_visibility_display }}
+                    Visible to <a href="{% url 'family:help' %}#family-reach">{{ person.get_visibility_display }}</a>
                 </p>
             {% endif %}
             <p style="margin-top: 1rem;">
