@@ -802,7 +802,12 @@ label {
   margin-bottom: 0;
 }
 
-.form-field .help-text {
+/* Plain .help-text, not scoped to .form-field - not every help text sits
+   next to a single field (union_form.html's "Existing marriage" note
+   explains a whole section) or even inside a form at all
+   (person_detail.html's history caption) - .help-text is only ever used
+   for this one purpose, so it doesn't need a parent to earn the style. */
+.help-text {
   font-size: 0.75rem;
   color: var(--ink-soft);
   margin-top: 0.3rem;
