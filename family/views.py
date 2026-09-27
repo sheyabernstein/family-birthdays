@@ -362,10 +362,25 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
         request = self.request
         person = self.object
 
+        can_edit = request.family_permissions.can_edit
         context["can_see_birth_year"] = can_see_birth_year(
             person,
-            can_edit=request.family_permissions.can_edit,
+            can_edit=can_edit,
             viewer_account_id=request.user.id,
+        )
+
+        # Person.visibility gates every OTHER person reachable from this
+        # page, not just this page's own subject (already checked in
+        # get_object) - a father/mother/child/spouse the viewer can't see
+        # would otherwise still render as a link straight to their 404'd
+        # detail page. Same "cut branch" reasoning as the family tree
+        # (family.tree_chart), just for this page's own relation lists.
+        visibility = PersonVisibility(request.self_person)
+        father = (
+            person.father if person.father and visibility.can_see(person.father, can_edit=can_edit) else None
+        )
+        mother = (
+            person.mother if person.mother and visibility.can_see(person.mother, can_edit=can_edit) else None
         )
 
         children = (
@@ -373,6 +388,7 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
             .distinct()
             .order_by("dob_gregorian")
         )
+        children = [c for c in children if visibility.can_see(c, can_edit=can_edit)]
         unions = list(
             Union.objects.filter(models.Q(person_a=person) | models.Q(person_b=person)).select_related(
                 "person_a", "person_b"
@@ -380,6 +396,7 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
         )
         for union in unions:
             union.other_person = union.other(person)
+        unions = [u for u in unions if visibility.can_see(u.other_person, can_edit=can_edit)]
 
         # Same "+ Add father/mother/child" placeholders as the family
         # tree (see family_tree.html's own goAddRelative()), landing on
@@ -507,6 +524,8 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
 
         context.update(
             {
+                "father": father,
+                "mother": mother,
                 "children": children,
                 "unions": unions,
                 "event_rows": event_rows,

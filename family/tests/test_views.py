@@ -717,6 +717,73 @@ def test_family_tree_shows_a_nobody_visibility_persons_branch_to_an_editor(clien
     assert str(private_child.uuid) in ids
 
 
+def test_person_detail_hides_a_nobody_visibility_father_from_a_plain_member(client, family):
+    # A visible person's own father/mother is a different Person record
+    # than the page's own subject (already checked in get_object) - a
+    # restricted father must not still leak through as a link straight to
+    # their own 404'd page.
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    father = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Father", visibility=Person.Visibility.NOBODY
+    )
+    child = Person.objects.create(family=family, first_name_en="Visible", last_name_en="Child", father=father)
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{child.uuid}/")
+
+    assert resp.context["father"] is None
+    assert b"Private" not in resp.content
+
+
+def test_person_detail_shows_a_nobody_visibility_father_to_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    father = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Father", visibility=Person.Visibility.NOBODY
+    )
+    child = Person.objects.create(family=family, first_name_en="Visible", last_name_en="Child", father=father)
+    _login_as(client, editor, family)
+
+    resp = client.get(f"/people/{child.uuid}/")
+
+    assert resp.context["father"] == father
+
+
+def test_person_detail_hides_a_nobody_visibility_child_from_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    parent = Person.objects.create(family=family, first_name_en="Visible", last_name_en="Parent")
+    Person.objects.create(
+        family=family,
+        first_name_en="Private",
+        last_name_en="Child",
+        father=parent,
+        visibility=Person.Visibility.NOBODY,
+    )
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{parent.uuid}/")
+
+    assert resp.context["children"] == []
+    assert b"No relations to show" in resp.content
+
+
+def test_person_detail_hides_a_nobody_visibility_spouse_from_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    visible = Person.objects.create(family=family, first_name_en="Visible", last_name_en="Person")
+    private_spouse = Person.objects.create(
+        family=family,
+        first_name_en="Private",
+        last_name_en="Spouse",
+        visibility=Person.Visibility.NOBODY,
+    )
+    Union.objects.create(person_a=visible, person_b=private_spouse)
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{visible.uuid}/")
+
+    assert resp.context["unions"] == []
+    assert b"Private" not in resp.content
+
+
 def test_birthday_and_bar_mitzvah_toggles_hide_and_yahrzeit_shows_for_a_deceased_person(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)
