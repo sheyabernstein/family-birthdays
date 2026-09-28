@@ -313,8 +313,9 @@ CELERY_TASK_RESULT_EXPIRES = get_env_int("CELERY_TASK_RESULT_EXPIRES", 60 * 60 *
 # set. There's no per-family or
 # admin-editable schedule requirement here, so the static dict below (not
 # a DB-backed one, like django_celery_beat's DatabaseScheduler would want)
-# is all this needs.
-CELERY_BEAT_SCHEDULER = "redbeat.RedBeatScheduler"
+# is all this needs. config.celery.ResilientRedBeatScheduler, not plain
+# RedBeatScheduler - see its own docstring for why.
+CELERY_BEAT_SCHEDULER = "config.celery.ResilientRedBeatScheduler"
 REDBEAT_REDIS_URL = REDIS_URL
 # RedBeat currently falls back to CELERY_BROKER_TRANSPORT_OPTIONS
 # (queue_order_strategy, below - a kombu/broker-only option, not a real
