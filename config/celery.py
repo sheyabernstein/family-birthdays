@@ -1,8 +1,15 @@
 import os
+import signal
+import time
 
 from celery import Celery
 from celery.signals import setup_logging, worker_process_init
 from django.conf import settings
+from redbeat.schedulers import RedBeatScheduler
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import TimeoutError as RedisTimeoutError
+
+from config.logging_config import logger
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
@@ -14,6 +21,46 @@ app.autodiscover_tasks()
 # metrics + a Sentry capture fallback - importing for its side effect of
 # connecting the receivers, same pattern as _use_structlog below.
 import config.observability.celery_signals  # noqa: E402,F401
+
+
+class ResilientRedBeatScheduler(RedBeatScheduler):
+    """RedBeatScheduler, but a transient Redis timeout doesn't kill Beat forever.
+
+    tick() extends its distributed lock with no exception handling around
+    it at all, and `celery worker --beat` runs Beat as a real forked
+    child process, not a thread - an uncaught connection timeout there
+    kills that child with nothing left to ever restart it, while the
+    worker it forked from keeps running none the wiser. This retries a
+    few times, then kills the parent process too (same fork relationship,
+    via os.getppid()) before re-raising, so an unrecoverable failure is
+    an ordinary container crash Kubernetes already knows how to restart,
+    not a silently dead scheduler.
+    """
+
+    TICK_MAX_ATTEMPTS = 3
+    TICK_RETRY_DELAY_SECONDS = 2
+
+    def tick(self, *args, **kwargs) -> float:
+        for attempt in range(1, self.TICK_MAX_ATTEMPTS + 1):
+            try:
+                return super().tick(*args, **kwargs)
+            except (RedisConnectionError, RedisTimeoutError) as exc:
+                if attempt < self.TICK_MAX_ATTEMPTS:
+                    logger.warning(
+                        "beat tick failed reaching Redis, retrying",
+                        attempt=attempt,
+                        max_attempts=self.TICK_MAX_ATTEMPTS,
+                        exc_info=exc,
+                    )
+                    time.sleep(self.TICK_RETRY_DELAY_SECONDS)
+                    continue
+                logger.error(
+                    "beat tick exhausted retries reaching Redis - killing the worker process",
+                    attempt=attempt,
+                    exc_info=exc,
+                )
+                os.kill(os.getppid(), signal.SIGTERM)
+                raise
 
 
 @worker_process_init.connect
