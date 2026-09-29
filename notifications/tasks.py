@@ -132,6 +132,25 @@ def _event_types_by_family() -> (
     return person_types, union_types
 
 
+def _person_event_type_applies(person: Person, event_type: EventType) -> bool:
+    """Whether event_type's per-Person eligibility filters allow it for person.
+
+    The always_schedule exception (see _subject_pairs' own docstring) and
+    the BIRTH/DEATH-anchor-vs-is_living checks - shared by _subject_pairs
+    (nightly sweep, every Person) and _event_types_for_person (single-
+    Person recompute) so this logic lives in exactly one place.
+    """
+    if not event_type.always_schedule and not person.notifications_enabled:
+        return False
+    if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
+        return False
+    # Symmetric to the DEATH-anchor check above: once someone has died
+    # there's no more birthday (or bar/bat mitzvah, which only ever
+    # supersedes a birthday - see _coming_of_age_code) to celebrate, only
+    # the yahrzeit going forward.
+    return not (event_type.anchor == EventType.Anchor.BIRTH and not person.is_living)
+
+
 def union_is_eligible_for_notifications(union: Union) -> bool:
     """Whether a union's events should fire at all.
 
@@ -175,17 +194,8 @@ def _subject_pairs() -> Iterator[tuple[Person | Union, EventType]]:
 
     for person in Person.objects.filter(models.Q(notifications_enabled=True) | models.Q(is_living=False)):
         for event_type in person_types[None] + person_types.get(person.family_id, []):
-            if not event_type.always_schedule and not person.notifications_enabled:
-                continue
-            if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
-                continue
-            # Symmetric to the DEATH-anchor check above: once someone has
-            # died there's no more birthday (or bar/bat mitzvah, which
-            # only ever supersedes a birthday - see _coming_of_age_code)
-            # to celebrate, only the yahrzeit going forward.
-            if event_type.anchor == EventType.Anchor.BIRTH and not person.is_living:
-                continue
-            yield person, event_type
+            if _person_event_type_applies(person, event_type):
+                yield person, event_type
 
     for union in Union.objects.filter(status=Union.Status.MARRIED).select_related("person_a", "person_b"):
         if not union_is_eligible_for_notifications(union):
@@ -219,16 +229,17 @@ def _event_types_for_person(person: Person) -> Iterator[EventType]:
         # runs for a tracked person, so it costs nothing in the common
         # (tracked) case either.
         return
-    person_types, _union_types = _event_types_by_family()
-    for event_type in person_types[None] + person_types.get(person.family_id, []):
-        # Same always_schedule exception as _subject_pairs above.
-        if not event_type.always_schedule and not person.notifications_enabled:
-            continue
-        if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
-            continue
-        if event_type.anchor == EventType.Anchor.BIRTH and not person.is_living:
-            continue
-        yield event_type
+    # Scoped to this person's own family (+ globals) rather than
+    # _event_types_by_family()'s every-family, every-kind fetch - this
+    # runs on every Person save via family.signals, so there's no reason
+    # to pull in other families' or Union event types just to filter them
+    # straight back out below.
+    event_types = EventType.objects.filter(
+        models.Q(family__isnull=True) | models.Q(family_id=person.family_id), applies_to_union=False
+    ).exclude(code__in=NON_SCHEDULED_CODES)
+    for event_type in event_types:
+        if _person_event_type_applies(person, event_type):
+            yield event_type
 
 
 def _event_types_for_union(union: Union) -> Iterator[EventType]:
