@@ -27,7 +27,14 @@ from django.db import models
 
 from accounts.models import Account
 from family.models import Person, Union
-from family.relationships import _ancestor_ids, is_direct_family, is_immediate_family, person_visible_to
+from family.relationships import (
+    _ancestor_ids_for,
+    _descendant_ids_for,
+    is_direct_family,
+    is_immediate_family,
+    memoize_by_person,
+    person_visible_to,
+)
 from notifications.enums import ChannelEnum
 from notifications.models import EventType, NotificationPreference
 from tenants.models import Family, FamilyMembership
@@ -319,8 +326,8 @@ class PreferenceResolver:
         # per-viewer rather than a fixed-size per-pair set the way spouse
         # pairs are; each is still only ever computed once regardless of
         # how many subjects it ends up checked against.
-        self._ancestor_ids_by_viewer: dict[int, set[int]] = {}
-        self._descendant_ids_by_viewer: dict[int, set[int]] = {}
+        self._ancestor_ids = memoize_by_person(_ancestor_ids_for)
+        self._descendant_ids = memoize_by_person(_descendant_ids_for)
         self._spouses_by_person: dict[int, list[Person]] = {}
         self._person_by_id: dict[int, Person] = {}
 
@@ -336,20 +343,6 @@ class PreferenceResolver:
         return is_immediate_family(
             viewer, union.person_a, spouse_check=self._cached_spouse_check
         ) or is_immediate_family(viewer, union.person_b, spouse_check=self._cached_spouse_check)
-
-    def _cached_ancestor_ids(self, viewer: Person) -> set[int]:
-        ids = self._ancestor_ids_by_viewer.get(viewer.id)
-        if ids is None:
-            ids = _ancestor_ids(viewer.id)
-            self._ancestor_ids_by_viewer[viewer.id] = ids
-        return ids
-
-    def _cached_descendant_ids(self, viewer: Person) -> set[int]:
-        ids = self._descendant_ids_by_viewer.get(viewer.id)
-        if ids is None:
-            ids = viewer.descendant_ids()
-            self._descendant_ids_by_viewer[viewer.id] = ids
-        return ids
 
     def _cached_spouses_of(self, person: Person) -> list[Person]:
         """Reuses the already-loaded _spouse_pairs (no extra query for the pairing itself).
@@ -381,8 +374,8 @@ class PreferenceResolver:
             return False
         kwargs = {
             "spouse_check": self._cached_spouse_check,
-            "ancestor_ids_fn": self._cached_ancestor_ids,
-            "descendant_ids_fn": self._cached_descendant_ids,
+            "ancestor_ids_fn": self._ancestor_ids,
+            "descendant_ids_fn": self._descendant_ids,
             "spouses_of_fn": self._cached_spouses_of,
         }
         if person is not None:
@@ -396,8 +389,8 @@ class PreferenceResolver:
             viewer,
             subject,
             spouse_check=self._cached_spouse_check,
-            ancestor_ids_fn=self._cached_ancestor_ids,
-            descendant_ids_fn=self._cached_descendant_ids,
+            ancestor_ids_fn=self._ancestor_ids,
+            descendant_ids_fn=self._descendant_ids,
             spouses_of_fn=self._cached_spouses_of,
         )
 
