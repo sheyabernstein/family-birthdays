@@ -20,7 +20,13 @@ from collections.abc import Iterable
 from django.db.models import Q, QuerySet
 
 from family.models import Person, Union
-from family.relationships import _ancestor_ids, _spouses_of, person_visible_to
+from family.relationships import (
+    _ancestor_ids,
+    _spouses_of,
+    is_direct_family,
+    is_immediate_family,
+    person_visible_to,
+)
 from tenants.models import Family
 
 
@@ -134,6 +140,97 @@ class PersonVisibility:
             ancestor_ids_fn=self._ancestor_ids,
             descendant_ids_fn=self._descendant_ids,
             spouses_of_fn=self._spouses_of,
+        )
+
+
+class PersonAccessContext:
+    """Single source for Person visibility/access decisions with internal caching.
+
+    Consolidates visibility, role-based access, and relationship distance checks
+    into one cohesive API. Use one per request/task for checking multiple people
+    (access is cached), or the single-pair person_is_visible_to() convenience
+    function for just one.
+
+    Args:
+        viewer: The person checking access (None for anon/unknown viewers).
+        is_editor: Whether the viewer has edit permissions (owner/editor role).
+    """
+
+    def __init__(self, viewer: Person | None, is_editor: bool = False) -> None:
+        self.viewer = viewer
+        self.is_editor = is_editor
+        self._ancestor_ids_cache: dict[int, set[int]] = {}
+        self._descendant_ids_cache: dict[int, set[int]] = {}
+        self._spouses_cache: dict[int, list[Person]] = {}
+
+    def _get_ancestor_ids(self, person: Person) -> set[int]:
+        ids = self._ancestor_ids_cache.get(person.id)
+        if ids is None:
+            ids = _ancestor_ids(person.id)
+            self._ancestor_ids_cache[person.id] = ids
+        return ids
+
+    def _get_descendant_ids(self, person: Person) -> set[int]:
+        ids = self._descendant_ids_cache.get(person.id)
+        if ids is None:
+            ids = person.descendant_ids()
+            self._descendant_ids_cache[person.id] = ids
+        return ids
+
+    def _get_spouses_of(self, person: Person) -> list[Person]:
+        spouses = self._spouses_cache.get(person.id)
+        if spouses is None:
+            spouses = _spouses_of(person)
+            self._spouses_cache[person.id] = spouses
+        return spouses
+
+    def _cached_spouse_check(self, a: Person, b: Person) -> bool:
+        return b in self._get_spouses_of(a) or a in self._get_spouses_of(b)
+
+    def can_see(self, subject: Person) -> bool:
+        """Whether the viewer can see this person at all.
+
+        Returns True if:
+        - The viewer is an editor/owner (can_edit=True), OR
+        - The person's visibility allows it (checks Person.visibility field
+          and relationship distance if needed)
+        """
+        if self.is_editor:
+            return True
+        return person_visible_to(
+            self.viewer,
+            subject,
+            spouse_check=self._cached_spouse_check,
+            ancestor_ids_fn=self._get_ancestor_ids,
+            descendant_ids_fn=self._get_descendant_ids,
+            spouses_of_fn=self._get_spouses_of,
+        )
+
+    def is_immediate_family(self, subject: Person) -> bool:
+        """Whether subject is in the viewer's immediate family (spouse/parent/child/sibling).
+
+        Used for IMMEDIATE_FAMILY_ONLY notification preferences.
+        Returns False if viewer is None.
+        """
+        if self.viewer is None:
+            return False
+        return is_immediate_family(self.viewer, subject, spouse_check=self._cached_spouse_check)
+
+    def is_direct_family(self, subject: Person) -> bool:
+        """Whether subject is in the viewer's direct family (extended ancestors/descendants + spouse's family).
+
+        Used for DIRECT_FAMILY_ONLY notification preferences.
+        Returns False if viewer is None.
+        """
+        if self.viewer is None:
+            return False
+        return is_direct_family(
+            self.viewer,
+            subject,
+            spouse_check=self._cached_spouse_check,
+            ancestor_ids_fn=self._get_ancestor_ids,
+            descendant_ids_fn=self._get_descendant_ids,
+            spouses_of_fn=self._get_spouses_of,
         )
 
 
