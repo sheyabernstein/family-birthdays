@@ -145,6 +145,39 @@ def test_compute_occurrences_skips_event_type(family, dob_kwargs, dod_days_ago, 
     assert Occurrence.objects.filter(event_type__code=event_code).count() == 0
 
 
+@pytest.mark.parametrize(
+    ["dob_kwargs", "dod_days_ago", "event_code"],
+    [
+        [{}, None, EventType.BuiltinCode.YAHRZEIT],
+        [
+            {"dob_hebrew_year": 5751, "dob_hebrew_month": 1, "dob_hebrew_day": 3},
+            1,
+            EventType.BuiltinCode.BIRTHDAY,
+        ],
+        [{}, None, EventType.BuiltinCode.BIRTHDAY],
+    ],
+    ids=[
+        "yahrzeit skipped for a living person",
+        "birthday skipped for a deceased person",
+        "birthday skipped for a person with no dob",
+    ],
+)
+def test_compute_occurrences_for_person_skips_event_type(family, dob_kwargs, dod_days_ago, event_code):
+    # Mirrors test_compute_occurrences_skips_event_type above, but through
+    # the single-person recompute path rather than the nightly sweep - the
+    # two paths share the same eligibility filter and should always agree.
+    dod_kwargs = {}
+    if dod_days_ago is not None:
+        dod_kwargs["dod_gregorian"] = timezone.localdate() - dt.timedelta(days=dod_days_ago)
+    person = Person.objects.create(
+        family=family, first_name_en="Test", last_name_en="Person", **dob_kwargs, **dod_kwargs
+    )
+
+    compute_occurrences_for_person(person)
+
+    assert Occurrence.objects.filter(person=person, event_type__code=event_code).count() == 0
+
+
 def test_compute_occurrences_for_person_removes_future_birthdays_once_deceased(family):
     person = Person.objects.create(
         family=family,
