@@ -86,63 +86,6 @@ def visible_people_queryset(family: Family | None) -> QuerySet[Person]:
     ).distinct()
 
 
-class PersonVisibility:
-    """Caches one fixed viewer's own relationship reach, for checking many candidate people cheaply.
-
-    is_immediate_family/is_direct_family (family.relationships) each
-    recompute the viewer's own ancestor/descendant chain from scratch by
-    default - fine for a single (viewer, person) pair, a real N+1 across
-    a whole People list or family tree (see AGENTS.md's own notes on
-    this - same shape as notifications.audience.PreferenceResolver, just
-    scoped to one viewer instead of every account in a family). Construct
-    once per request/page, then call can_see() for every candidate.
-    """
-
-    def __init__(self, viewer: Person | None) -> None:
-        self._viewer = viewer
-        self._ancestor_ids_cache: dict[int, set[int]] = {}
-        self._descendant_ids_cache: dict[int, set[int]] = {}
-        self._spouses_cache: dict[int, list[Person]] = {}
-
-    def _ancestor_ids(self, person: Person) -> set[int]:
-        ids = self._ancestor_ids_cache.get(person.id)
-        if ids is None:
-            ids = _ancestor_ids(person.id)
-            self._ancestor_ids_cache[person.id] = ids
-        return ids
-
-    def _descendant_ids(self, person: Person) -> set[int]:
-        ids = self._descendant_ids_cache.get(person.id)
-        if ids is None:
-            ids = person.descendant_ids()
-            self._descendant_ids_cache[person.id] = ids
-        return ids
-
-    def _spouses_of(self, person: Person) -> list[Person]:
-        spouses = self._spouses_cache.get(person.id)
-        if spouses is None:
-            spouses = _spouses_of(person)
-            self._spouses_cache[person.id] = spouses
-        return spouses
-
-    def can_see(self, person: Person, *, can_edit: bool) -> bool:
-        """Whether this checker's own viewer may see `person` at all, per Person.visibility.
-
-        Owners/editors always see everyone (can_edit=True short-circuits
-        this, same shape as can_see_birth_year above) - the rest defers
-        to person_visible_to for what each visibility level actually means.
-        """
-        if can_edit:
-            return True
-        return person_visible_to(
-            self._viewer,
-            person,
-            ancestor_ids_fn=self._ancestor_ids,
-            descendant_ids_fn=self._descendant_ids,
-            spouses_of_fn=self._spouses_of,
-        )
-
-
 class PersonAccessContext:
     """Single source for Person visibility/access decisions with internal caching.
 
@@ -235,15 +178,14 @@ class PersonAccessContext:
 
 
 def person_is_visible_to(person: Person, *, viewer: Person | None, can_edit: bool) -> bool:
-    """Single-pair convenience over PersonVisibility, for checking just one person.
+    """Single-pair convenience for checking just one person's visibility.
 
-    Checking many people for the same viewer (People list, family tree)
-    should build one PersonVisibility and call can_see() repeatedly
-    instead, so the viewer's own ancestor/descendant/spouse lookups are
-    computed once and shared across every candidate, not recomputed per
-    person.
+    For checking many people with the same viewer (People list, family tree),
+    build one PersonAccessContext and call can_see() repeatedly instead,
+    so the viewer's own ancestor/descendant/spouse lookups are computed once
+    and shared across every candidate, not recomputed per person.
     """
-    return PersonVisibility(viewer).can_see(person, can_edit=can_edit)
+    return PersonAccessContext(viewer=viewer, is_editor=can_edit).can_see(person)
 
 
 def visible_people_for_tree(
@@ -268,10 +210,10 @@ def visible_people_for_tree(
         return list(people)
 
     people = list(people)
-    visibility = PersonVisibility(viewer)
+    access = PersonAccessContext(viewer=viewer, is_editor=False)
     cut_ids: set[int] = set()
     for person in people:
-        if person.id != keep_id and not visibility.can_see(person, can_edit=False):
+        if person.id != keep_id and not access.can_see(person):
             cut_ids.add(person.id)
             cut_ids.update(person.descendant_ids())
     cut_ids.discard(keep_id)
