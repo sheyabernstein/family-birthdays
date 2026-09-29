@@ -132,26 +132,6 @@ def _event_types_by_family() -> (
     return person_types, union_types
 
 
-def union_is_eligible_for_notifications(union: Union) -> bool:
-    """Whether a union's events should fire at all.
-
-    A union's events only ever fire while it's actually a live marriage
-    between two people who are both still being tracked - an untracked
-    spouse (notifications_enabled=False - a lineage-only stub, e.g. an
-    in-law's own parent entered just so the tree renders) means nobody
-    should ever be notified about this marriage either, same as a
-    Person's own birthday/yahrzeit already stop for an untracked Person
-    (see Person.notifications_enabled in AGENTS.md).
-    """
-    return (
-        union.status == Union.Status.MARRIED
-        and union.person_a.is_living
-        and union.person_b.is_living
-        and union.person_a.notifications_enabled
-        and union.person_b.notifications_enabled
-    )
-
-
 def _subject_pairs() -> Iterator[tuple[Person | Union, EventType]]:
     """Yields every subject/event-type pair that could ever need scheduling.
 
@@ -188,7 +168,7 @@ def _subject_pairs() -> Iterator[tuple[Person | Union, EventType]]:
             yield person, event_type
 
     for union in Union.objects.filter(status=Union.Status.MARRIED).select_related("person_a", "person_b"):
-        if not union_is_eligible_for_notifications(union):
+        if not union.is_eligible_for_notifications():
             continue
         applicable = (
             union_types[None]
@@ -232,7 +212,7 @@ def _event_types_for_person(person: Person) -> Iterator[EventType]:
 
 
 def _event_types_for_union(union: Union) -> Iterator[EventType]:
-    if not union_is_eligible_for_notifications(union):
+    if not union.is_eligible_for_notifications():
         return
     _person_types, union_types = _event_types_by_family()
     yield from (

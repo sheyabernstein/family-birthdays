@@ -34,7 +34,7 @@ from family.tree_chart import build_chart_data
 from notifications.audience import PreferenceResolver, available_channels
 from notifications.helpers import channel_rows
 from notifications.models import EventType, Occurrence
-from notifications.tasks import person_has_passed_coming_of_age, union_is_eligible_for_notifications
+from notifications.tasks import person_has_passed_coming_of_age
 from tenants.mixins import (
     FamilyEditorRequiredMixin,
     FamilyOwnerRequiredMixin,
@@ -497,7 +497,7 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
             # for engagements), and "either spouse is untracked" - none of
             # these ever get an Occurrence computed (notifications.tasks),
             # so a toggle here would be a dead control either way.
-            if not union_is_eligible_for_notifications(union):
+            if not union.is_eligible_for_notifications():
                 continue
             for event_type in union_event_types:
                 # Wedding is only relevant before the wedding itself has
