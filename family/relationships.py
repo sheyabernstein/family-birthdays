@@ -108,6 +108,28 @@ def is_descendant(
     return subject.id in descendant_ids_fn(viewer)
 
 
+def memoize_by_person(compute: Callable[[Person], set[int]]) -> Callable[[Person], set[int]]:
+    """Wraps a Person -> set[int] lookup (e.g. _ancestor_ids_for/_descendant_ids_for) with a per-person cache.
+
+    family.access.PersonVisibility and notifications.audience.
+    PreferenceResolver each need this same get-or-compute shape, so a
+    viewer's own ancestor/descendant chain is only ever computed once
+    regardless of how many candidates it's checked against - see
+    PersonVisibility's own docstring. Build a fresh one per
+    request/task; it isn't meant to be shared across callers.
+    """
+    cache: dict[int, set[int]] = {}
+
+    def cached(person: Person) -> set[int]:
+        ids = cache.get(person.id)
+        if ids is None:
+            ids = compute(person)
+            cache[person.id] = ids
+        return ids
+
+    return cached
+
+
 def _spouses_of(person: Person) -> list[Person]:
     """Every person currently married to `person` - almost always zero or one, never assumed to be at most one."""
     unions = Union.objects.filter(

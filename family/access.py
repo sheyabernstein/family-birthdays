@@ -20,7 +20,13 @@ from collections.abc import Iterable
 from django.db.models import Q, QuerySet
 
 from family.models import Person, Union
-from family.relationships import _ancestor_ids, _spouses_of, person_visible_to
+from family.relationships import (
+    _ancestor_ids_for,
+    _descendant_ids_for,
+    _spouses_of,
+    memoize_by_person,
+    person_visible_to,
+)
 from tenants.models import Family
 
 
@@ -94,23 +100,9 @@ class PersonVisibility:
 
     def __init__(self, viewer: Person | None) -> None:
         self._viewer = viewer
-        self._ancestor_ids_cache: dict[int, set[int]] = {}
-        self._descendant_ids_cache: dict[int, set[int]] = {}
+        self._ancestor_ids = memoize_by_person(_ancestor_ids_for)
+        self._descendant_ids = memoize_by_person(_descendant_ids_for)
         self._spouses_cache: dict[int, list[Person]] = {}
-
-    def _ancestor_ids(self, person: Person) -> set[int]:
-        ids = self._ancestor_ids_cache.get(person.id)
-        if ids is None:
-            ids = _ancestor_ids(person.id)
-            self._ancestor_ids_cache[person.id] = ids
-        return ids
-
-    def _descendant_ids(self, person: Person) -> set[int]:
-        ids = self._descendant_ids_cache.get(person.id)
-        if ids is None:
-            ids = person.descendant_ids()
-            self._descendant_ids_cache[person.id] = ids
-        return ids
 
     def _spouses_of(self, person: Person) -> list[Person]:
         spouses = self._spouses_cache.get(person.id)

@@ -1,7 +1,13 @@
 import pytest
 
 from family.models import Person, Union
-from family.relationships import is_ancestor, is_descendant, is_direct_family, is_immediate_family
+from family.relationships import (
+    is_ancestor,
+    is_descendant,
+    is_direct_family,
+    is_immediate_family,
+    memoize_by_person,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -215,3 +221,30 @@ def test_direct_family_does_not_reach_my_own_relatives_for_a_spouses_grandmother
     )
 
     assert is_direct_family(my_sibling, spouses_grandmother) is False
+
+
+def test_memoize_by_person_returns_the_computed_value(family):
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    cached = memoize_by_person(lambda p: {p.id})
+
+    assert cached(person) == {person.id}
+
+
+def test_memoize_by_person_only_computes_once_per_person(family):
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    calls = []
+    cached = memoize_by_person(lambda p: calls.append(p.id) or {p.id})
+
+    cached(person)
+    cached(person)
+
+    assert calls == [person.id]
+
+
+def test_memoize_by_person_computes_separately_per_person(family):
+    a = Person.objects.create(family=family, first_name_en="A", last_name_en="Person")
+    b = Person.objects.create(family=family, first_name_en="B", last_name_en="Person")
+    cached = memoize_by_person(lambda p: {p.id})
+
+    assert cached(a) == {a.id}
+    assert cached(b) == {b.id}
