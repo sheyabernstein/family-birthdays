@@ -68,6 +68,22 @@ def test_toggle_mute_rejects_a_person_outside_your_family(client, two_families):
     assert resp.status_code == 404
 
 
+def test_toggle_mute_rejects_an_event_type_outside_your_family(client, two_families):
+    family_a, family_b, account_a, _account_b = two_families
+    person_a = Person.objects.create(family=family_a, first_name_en="Own", last_name_en="Family")
+    other_familys_event_type = EventType.objects.create(
+        family=family_b, code="reunion", name="Reunion", anchor="birth"
+    )
+    _login_as(client, account_a, family_a)
+
+    resp = client.post(
+        "/notifications/toggle/",
+        {"person_id": person_a.uuid, "event_type_id": other_familys_event_type.uuid, "channel": "email"},
+    )
+
+    assert resp.status_code == 404
+
+
 def test_toggle_mute_rejects_the_broadcast_event_type(client, family):
     # Broadcast has no per-person override - see NotificationPreference.
     # clean() and AGENTS.md. No UI ever posts this, but the endpoint
@@ -574,6 +590,21 @@ def test_update_event_type_preference_rejects_an_invalid_state(client, family, b
     resp = client.post(
         "/notifications/event-type/",
         {"event_type_id": birthday_event_type.uuid, "channel": "email", "state": "not-a-real-state"},
+    )
+
+    assert resp.status_code == 404
+
+
+def test_update_event_type_preference_404s_for_an_event_type_outside_your_family(client, two_families):
+    family_a, family_b, account_a, _account_b = two_families
+    other_familys_event_type = EventType.objects.create(
+        family=family_b, code="reunion", name="Reunion", anchor="birth"
+    )
+    _login_as(client, account_a, family_a)
+
+    resp = client.post(
+        "/notifications/event-type/",
+        {"event_type_id": other_familys_event_type.uuid, "channel": "email", "state": "muted"},
     )
 
     assert resp.status_code == 404

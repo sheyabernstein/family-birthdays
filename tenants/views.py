@@ -41,6 +41,9 @@ class CreateFamilyView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
 
 class SwitchFamilyView(LoginRequiredMixin, View):
+    def _memberships(self, request: HttpRequest) -> QuerySet[FamilyMembership]:
+        return FamilyMembership.objects.filter(account=request.user).select_related("family")
+
     def _no_memberships_redirect(self, request: HttpRequest) -> HttpResponse:
         # Same split as FamilyRequiredMixin, for someone who lands here
         # directly (e.g. a stale bookmark) rather than via that redirect.
@@ -49,13 +52,13 @@ class SwitchFamilyView(LoginRequiredMixin, View):
         return redirect("tenants:no_family_access")
 
     def get(self, request: HttpRequest) -> HttpResponse:
-        memberships = FamilyMembership.objects.filter(account=request.user).select_related("family")
+        memberships = self._memberships(request)
         if not memberships.exists():
             return self._no_memberships_redirect(request)
         return render(request, "tenants/switch_family.html", {"memberships": memberships})
 
     def post(self, request: HttpRequest) -> HttpResponse:
-        memberships = FamilyMembership.objects.filter(account=request.user).select_related("family")
+        memberships = self._memberships(request)
         if not memberships.exists():
             return self._no_memberships_redirect(request)
 

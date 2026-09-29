@@ -167,7 +167,11 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Whether to use the two-day Diaspora Yom Tov calendar (vs. one-day Israel)
-# for Shabbos/Yom Tov notification-shift calculations.
+# for Shabbos/Yom Tov notification-shift calculations. Not yet threaded
+# anywhere - family.hebrew's diaspora=True defaults are still hardcoded,
+# not read from here - so toggling this env var currently has no effect.
+# A placeholder for that wiring, not dead code left over from a removed
+# feature.
 DIASPORA = get_env_bool("DIASPORA", True)
 
 # --- Email ---

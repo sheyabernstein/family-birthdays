@@ -42,7 +42,7 @@ class CurrentFamilyMiddleware:
             if membership:
                 request.family = membership.family
                 request.family_role = membership.role
-                request.self_person = request.family.people.filter(account=request.user).first()
+                request.self_person = request.user.person_in_family(request.family.id)
         request.family_permissions = resolve_family_permissions(request.family_role)
         return self.get_response(request)
 
