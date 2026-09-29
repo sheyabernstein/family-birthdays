@@ -21,6 +21,21 @@ from notifications.forms import BroadcastForm
 from notifications.models import Broadcast, EventType, NotificationPreference, Occurrence
 from notifications.tasks import SMS_CHAR_BUDGET, _personalize, _render_occurrence_message
 from tenants.mixins import FamilyEditorRequiredMixin, FamilyRequiredMixin, FamilyScopedMixin
+from tenants.models import Family
+
+
+def _event_type_for_family(event_type_uuid: str | None, family: Family) -> EventType:
+    """The EventType for event_type_uuid, 404ing if it doesn't belong to family.
+
+    Global event types (family_id is None) are shared; anything else must
+    belong to this family - an EventType's uuid alone only stops
+    guessing, not a stale link from before this account left a family it
+    used to belong to.
+    """
+    event_type = get_object_or_404(EventType, uuid=event_type_uuid)
+    if event_type.family_id not in (None, family.id):
+        raise Http404
+    return event_type
 
 
 @method_decorator(staff_member_required, name="dispatch")
@@ -117,13 +132,7 @@ class UpdateEventTypePreferenceView(FamilyRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request: HttpRequest) -> HttpResponse:
-        event_type = get_object_or_404(EventType, uuid=request.POST.get("event_type_id"))
-        if event_type.family_id not in (None, request.family.id):
-            # Global event types (family_id is None) are shared; anything
-            # else must belong to this family - an EventType's uuid alone
-            # only stops guessing, not a stale link from before this
-            # account left a family it used to belong to.
-            raise Http404
+        event_type = _event_type_for_family(request.POST.get("event_type_id"), request.family)
         channel = request.POST.get("channel")
 
         if request.POST.get("action") == "reset":
@@ -167,9 +176,7 @@ class TogglePersonPreferenceView(FamilyRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request: HttpRequest) -> HttpResponse:
-        event_type = get_object_or_404(EventType, uuid=request.POST.get("event_type_id"))
-        if event_type.family_id not in (None, request.family.id):
-            raise Http404
+        event_type = _event_type_for_family(request.POST.get("event_type_id"), request.family)
         if event_type.code == EventType.BuiltinCode.BROADCAST:
             # No UI ever offers this (see family.views.PersonDetailView),
             # so reaching here means a crafted request - see

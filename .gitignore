@@ -3,6 +3,7 @@ __pycache__/
 .cache/
 .venv/
 venv/
+uv.lock
 db.sqlite3
 staticfiles/
 .env
