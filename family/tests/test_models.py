@@ -504,3 +504,57 @@ def test_engagement_hebrew_display_is_none_without_a_full_engagement_date(family
 
     assert union.engagement_hebrew_anchor is None
     assert union.engagement_hebrew_display is None
+
+
+# --- Union.is_eligible_for_notifications() tests ---
+
+
+def test_union_is_eligible_requires_married_status(family):
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+
+    union = Union.objects.create(person_a=person_a, person_b=person_b, status=Union.Status.DIVORCED)
+    assert union.is_eligible_for_notifications() is False
+
+    union.status = Union.Status.MARRIED
+    union.save()
+    assert union.is_eligible_for_notifications() is True
+
+
+def test_union_is_eligible_requires_both_spouses_living(family):
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(
+        family=family,
+        first_name_en="B",
+        last_name_en="Test",
+        dod_gregorian=dt.date(2020, 1, 1),
+    )
+
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+    assert union.is_eligible_for_notifications() is False
+
+    person_b.dod_gregorian = None
+    person_b.save()
+    assert union.is_eligible_for_notifications() is True
+
+
+def test_union_is_eligible_requires_both_spouses_tracked(family):
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(
+        family=family, first_name_en="B", last_name_en="Test", notifications_enabled=False
+    )
+
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+    assert union.is_eligible_for_notifications() is False
+
+    person_b.notifications_enabled = True
+    person_b.save()
+    assert union.is_eligible_for_notifications() is True
+
+
+def test_union_is_eligible_for_notifications_true_when_all_conditions_met(family):
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    union = Union.objects.create(person_a=person_a, person_b=person_b)
+
+    assert union.is_eligible_for_notifications() is True
