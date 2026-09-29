@@ -19,7 +19,7 @@ from hdate import HebrewDate
 from hdate.hebrew_date import Months
 
 from family.access import (
-    PersonVisibility,
+    PersonAccessContext,
     can_see_birth_year,
     person_is_visible,
     person_is_visible_to,
@@ -323,11 +323,11 @@ class PersonListView(FamilyRequiredMixin, ListView):
 
         # Person.visibility can't be expressed as a plain filter() - it's
         # relative to this one viewer's own relationship distance, not a
-        # column value. PersonVisibility computes that distance once and
+        # column value. PersonAccessContext computes that distance once and
         # reuses it for every candidate below, instead of once per person
         # (see its own docstring and AGENTS.md).
-        visibility = PersonVisibility(self.request.self_person)
-        visible_ids = [person.id for person in people if visibility.can_see(person, can_edit=False)]
+        access = PersonAccessContext(viewer=self.request.self_person, is_editor=False)
+        visible_ids = [person.id for person in people if access.can_see(person)]
         return people.filter(pk__in=visible_ids)
 
     def get_context_data(self, **kwargs) -> dict[str, Any]:
@@ -375,20 +375,16 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
         # would otherwise still render as a link straight to their 404'd
         # detail page. Same "cut branch" reasoning as the family tree
         # (family.tree_chart), just for this page's own relation lists.
-        visibility = PersonVisibility(request.self_person)
-        father = (
-            person.father if person.father and visibility.can_see(person.father, can_edit=can_edit) else None
-        )
-        mother = (
-            person.mother if person.mother and visibility.can_see(person.mother, can_edit=can_edit) else None
-        )
+        access = PersonAccessContext(viewer=request.self_person, is_editor=can_edit)
+        father = person.father if person.father and access.can_see(person.father) else None
+        mother = person.mother if person.mother and access.can_see(person.mother) else None
 
         children = (
             Person.objects.filter(models.Q(father=person) | models.Q(mother=person))
             .distinct()
             .order_by("dob_gregorian")
         )
-        children = [c for c in children if visibility.can_see(c, can_edit=can_edit)]
+        children = [c for c in children if access.can_see(c)]
         unions = list(
             Union.objects.filter(models.Q(person_a=person) | models.Q(person_b=person)).select_related(
                 "person_a", "person_b"
@@ -396,7 +392,7 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
         )
         for union in unions:
             union.other_person = union.other(person)
-        unions = [u for u in unions if visibility.can_see(u.other_person, can_edit=can_edit)]
+        unions = [u for u in unions if access.can_see(u.other_person)]
 
         # Same "+ Add father/mother/child" placeholders as the family
         # tree (see family_tree.html's own goAddRelative()), landing on
