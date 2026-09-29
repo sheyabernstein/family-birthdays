@@ -640,6 +640,25 @@ class Union(models.Model):
     def other(self, person: Person) -> Person:
         return self.person_b if person.pk == self.person_a_id else self.person_a
 
+    def is_eligible_for_notifications(self) -> bool:
+        """Whether this union's events should fire at all.
+
+        A union's events only ever fire while it's actually a live marriage
+        between two people who are both still being tracked - an untracked
+        spouse (notifications_enabled=False - a lineage-only stub, e.g. an
+        in-law's own parent entered just so the tree renders) means nobody
+        should ever be notified about this marriage either, same as a
+        Person's own birthday/yahrzeit already stop for an untracked Person
+        (see Person.notifications_enabled in AGENTS.md).
+        """
+        return (
+            self.status == Union.Status.MARRIED
+            and self.person_a.is_living
+            and self.person_b.is_living
+            and self.person_a.notifications_enabled
+            and self.person_b.notifications_enabled
+        )
+
     @property
     def is_upcoming(self) -> bool:
         """True for a recorded-as-married Union whose wedding day itself hasn't happened yet.
