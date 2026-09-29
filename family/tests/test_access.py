@@ -143,3 +143,33 @@ def test_visible_people_for_tree_is_a_no_op_for_an_editor(family):
     visible = visible_people_for_tree(people, viewer=None, can_edit=True, keep_id=999)
 
     assert visible == people
+
+
+# --- PersonAccessContext tests ---
+
+
+def test_person_access_context_can_see_everyone_as_editor(family):
+    # Editors can always see everyone, regardless of visibility settings
+    from family.access import PersonAccessContext
+
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    private = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+
+    ctx = PersonAccessContext(viewer=person, is_editor=True)
+    assert ctx.can_see(private) is True
+
+
+def test_person_access_context_can_see_respects_visibility(family):
+    from family.access import PersonAccessContext
+
+    viewer = Person.objects.create(family=family, first_name_en="Viewer", last_name_en="Person")
+    public = Person.objects.create(family=family, first_name_en="Public", last_name_en="Person")
+    private = Person.objects.create(
+        family=family, first_name_en="Private", last_name_en="Person", visibility=Person.Visibility.NOBODY
+    )
+
+    ctx = PersonAccessContext(viewer=viewer, is_editor=False)
+    assert ctx.can_see(public) is True
+    assert ctx.can_see(private) is False
