@@ -43,7 +43,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
 from config.logging_config import logger
-from config.observability.django_middleware import EXCLUDED_PATHS
+from config.observability.django_middleware import EXCLUDED_URLS_PATTERN
 
 _PROVIDER: TracerProvider | None = None
 
@@ -97,12 +97,15 @@ def init_tracing() -> TracerProvider:
 
     init_sentry()
 
-    # Same excluded paths as our own metrics middleware - without this,
-    # Docker's own healthcheck (config/urls.py's /readyz, hit every 10s)
-    # generates a new span/trace forever, and since Sentry mirrors spans
-    # off this same TracerProvider (config/observability/sentry.py), that
-    # noise reaches both Tempo and Sentry identically, not just one of them.
-    DjangoInstrumentor().instrument(excluded_urls=",".join(EXCLUDED_PATHS))
+    # EXCLUDED_URLS_PATTERN (django_middleware's own docstring) is the one
+    # definition of what's excluded, shared with our metrics middleware -
+    # without this, Docker's own healthcheck (config/urls.py's /readyz,
+    # hit every 10s) and every static asset request on a page load would
+    # each generate their own span/trace forever, and since Sentry mirrors
+    # spans off this same TracerProvider (config/observability/sentry.py),
+    # that noise reaches both Tempo and Sentry identically, not just one
+    # of them.
+    DjangoInstrumentor().instrument(excluded_urls=EXCLUDED_URLS_PATTERN)
     CeleryInstrumentor().instrument()
     RedisInstrumentor().instrument()
     Psycopg2Instrumentor().instrument()

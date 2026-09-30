@@ -162,6 +162,8 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
+MEDIA_URL = "/media/"
+
 WHITENOISE_USE_FINDERS = DEBUG
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
