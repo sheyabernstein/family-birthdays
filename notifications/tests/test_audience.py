@@ -387,6 +387,29 @@ def test_broadcast_audience_immediate_family_only_excludes_when_no_tied_person_q
     assert audience == []
 
 
+def test_broadcast_audience_whole_type_immediate_family_only_excludes_with_no_tied_people(
+    family, broadcast_event_type
+):
+    # No tied people means there's no subject to be "immediate family of"
+    # - this used to crash with AttributeError (union.person_a on a None
+    # union), since the docstring's claim that this state is unreachable
+    # for Broadcast was wrong: NotificationPreference.clean() only blocks
+    # a person/union-scoped Broadcast row, not this whole-type state.
+    # The account must resolve to a real viewer Person (not just any
+    # family member) to actually reach that code path - an account with
+    # no linked Person short-circuits earlier via the unrelated
+    # viewer-is-None fail-closed check.
+    viewer_person = Person.objects.create(family=family, first_name_en="Viewer", last_name_en="Person")
+    account = _member(family)
+    viewer_person.account = account
+    viewer_person.save(update_fields=["account"])
+    _preference(account, broadcast_event_type, NotificationPreference.State.IMMEDIATE_FAMILY_ONLY)
+
+    audience = resolve_broadcast_audience(event_type=broadcast_event_type, family=family, people=[])
+
+    assert audience == []
+
+
 def test_broadcast_audience_deduplicates_across_multiple_tied_people(family, broadcast_event_type):
     account = _member(family)
     person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Person")

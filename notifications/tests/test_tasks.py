@@ -1237,6 +1237,36 @@ def test_send_due_broadcasts_respects_a_whole_type_mute(family):
     assert Message.objects.count() == 0
 
 
+def test_send_due_broadcasts_does_not_crash_on_a_whole_type_immediate_family_only_preference_with_no_tied_people(
+    family,
+):
+    # Regression test: a whole-type IMMEDIATE_FAMILY_ONLY preference with
+    # no people tied to the broadcast used to crash send_due_broadcasts
+    # with an unhandled AttributeError (union.person_a on a None union),
+    # rolling back the claim and re-crashing on every retry indefinitely.
+    # creator isn't also a member (see test_send_due_broadcasts_respects_
+    # a_whole_type_mute's own comment) - it would otherwise still receive
+    # its own broadcast under the default state and mask this assertion.
+    account = _member(family, email="test@example.com")
+    creator = Account.objects.create_user(email="creator@example.com")
+    broadcast_event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BROADCAST)
+    NotificationPreference.objects.create(
+        account=account,
+        event_type=broadcast_event_type,
+        channel="email",
+        state=NotificationPreference.State.IMMEDIATE_FAMILY_ONLY,
+    )
+    viewer_person = Person.objects.create(family=family, first_name_en="Viewer", last_name_en="Person")
+    viewer_person.account = account
+    viewer_person.save(update_fields=["account"])
+    Broadcast.objects.create(family=family, text="Hi", created_by=creator, send_at=timezone.now())
+
+    send_due_broadcasts()
+
+    # No subject to be "immediate family of" - fails closed, excluded.
+    assert Message.objects.count() == 0
+
+
 def test_send_due_broadcasts_unions_audience_across_tied_people(family):
     account = _member(family, email="test@example.com")
     creator = _member(family, email="creator@example.com")

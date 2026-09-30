@@ -96,6 +96,11 @@ def viewer_family_ids_for_union(account_ids: list[int], union: Union) -> dict[in
 
 
 def _in_immediate_family(account: Account, *, person: Person | None, union: Union | None) -> bool:
+    if person is None and union is None:
+        # No subject at all (a Broadcast with no tied people) - there's
+        # nothing to be "immediate family of", so fail closed the same
+        # way a viewer who can't be placed in the tree does below.
+        return False
     viewer = viewer_person(account, person=person, union=union)
     if viewer is None:
         # Can't place this account in the family tree at all (e.g. an
@@ -108,6 +113,8 @@ def _in_immediate_family(account: Account, *, person: Person | None, union: Unio
 
 
 def _in_direct_family(account: Account, *, person: Person | None, union: Union | None) -> bool:
+    if person is None and union is None:
+        return False
     viewer = viewer_person(account, person=person, union=union)
     if viewer is None:
         return False
@@ -335,6 +342,10 @@ class PreferenceResolver:
         return frozenset((a.id, b.id)) in self._spouse_pairs
 
     def _in_immediate_family(self, account_id: int, *, person: Person | None, union: Union | None) -> bool:
+        if person is None and union is None:
+            # No subject at all (a Broadcast with no tied people) - see
+            # the module-level _in_immediate_family's own comment.
+            return False
         viewer = self._viewer_by_account.get(account_id)
         if viewer is None:
             return False
@@ -369,6 +380,8 @@ class PreferenceResolver:
         return spouses
 
     def _in_direct_family(self, account_id: int, *, person: Person | None, union: Union | None) -> bool:
+        if person is None and union is None:
+            return False
         viewer = self._viewer_by_account.get(account_id)
         if viewer is None:
             return False
@@ -477,11 +490,12 @@ def resolve_broadcast_audience(
     With no people tied to the broadcast, this is just channels_for_account
     with person=union=None - preference_status()'s "whole event type" and
     "default" branches only ever look at (account, event_type, channel)
-    anyway, so that's safe; a whole-type immediate_family_only row would
-    hit _in_immediate_family(person=None, union=None), which can't resolve
-    a subject to compare against - callers on the muting UI side keep this
-    state unreachable for the Broadcast event type in the first place (see
-    NotificationPreference.clean() and family.views.PersonDetailView).
+    anyway, so that's safe. A whole-type immediate_family_only row (a
+    real, reachable case - NotificationPreference.clean() only blocks a
+    person/union-scoped Broadcast row, not this whole-type state) has no
+    subject to compare against, so _in_immediate_family/_in_direct_family
+    both fail closed (excluded) when person and union are both None,
+    rather than guessing.
 
     With one or more people tied, an account is included if it's
     subscribed with respect to *any* of them - e.g. an immediate-family-
