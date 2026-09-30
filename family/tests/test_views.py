@@ -1000,6 +1000,27 @@ def test_untracked_person_has_no_notify_me_toggles(client, family):
     assert resp.context["event_rows"] == []
 
 
+def test_deceased_person_has_a_yahrzeit_toggle_but_not_a_birthday_one(client, family):
+    # Regression guard for person_event_type_applies (notifications.
+    # tasks) - shared with the nightly sweep/per-save recompute so this
+    # card's toggles never disagree with what's actually scheduled.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+    person = Person.objects.create(
+        family=family,
+        first_name_en="Test",
+        last_name_en="Person",
+        dob_gregorian=dt.date(1990, 1, 1),
+        dod_gregorian=dt.date(2020, 1, 1),
+    )
+
+    resp = client.get(f"/people/{person.uuid}/")
+
+    codes = {row["event_type"].code for row in resp.context["event_rows"]}
+    assert EventType.BuiltinCode.YAHRZEIT in codes
+    assert EventType.BuiltinCode.BIRTHDAY not in codes
+
+
 def test_untracked_persons_union_has_no_anniversary_toggles(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
     _login_as(client, owner, family)

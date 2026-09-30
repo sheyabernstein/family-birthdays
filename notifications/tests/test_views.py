@@ -712,6 +712,38 @@ def test_occurrence_preview_lists_who_is_currently_subscribed(client, family):
     assert b"editor@example.com" in resp.content
 
 
+def test_occurrence_preview_names_a_recipient_resolved_only_through_the_unions_other_family(
+    client, two_families
+):
+    # A cross-family union (see family/access.py's own docstring on the
+    # in-law marriage exception) has recipients on both sides - a
+    # recipient whose own Person record lives in person_b's family, not
+    # person_a's, used to fall back to their raw email/phone instead of
+    # their name, since _preview_recipients only ever looked up names in
+    # person_a's family. Mirrors notifications.tasks.send_due_
+    # notifications' own cross-family wedding test.
+    family_a, family_b, _account_a, account_b = two_families
+    person_a = Person.objects.create(family=family_a, first_name_en="Sprintse", last_name_en="Bernstein")
+    person_b = Person.objects.create(family=family_b, first_name_en="Yidi", last_name_en="Herzog")
+    Union.objects.create(person_a=person_a, person_b=person_b, status=Union.Status.MARRIED)
+    Person.objects.create(family=family_b, account=account_b, first_name_en="Viewer", last_name_en="B")
+    wedding = EventType.objects.get(family=None, code=EventType.BuiltinCode.WEDDING)
+    occurrence = Occurrence.objects.create(
+        union=Union.objects.get(person_a=person_a, person_b=person_b),
+        event_type=wedding,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate() + dt.timedelta(days=3),
+        send_date=timezone.localdate(),
+    )
+    _login_as(client, account_b, family_b)
+
+    resp = client.get(f"/occurrences/{occurrence.uuid}/preview/")
+
+    names = {r["name"] for r in resp.context["recipients"]}
+    assert "Viewer B" in names
+    assert account_b.email not in names
+
+
 def test_occurrence_preview_shows_nobody_subscribed_when_the_audience_is_empty(client, family):
     editor = _member(family, FamilyMembership.Role.EDITOR)
     _login_as(client, editor, family)
