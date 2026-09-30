@@ -178,6 +178,40 @@ def test_compute_occurrences_for_person_skips_event_type(family, dob_kwargs, dod
     assert Occurrence.objects.filter(person=person, event_type__code=event_code).count() == 0
 
 
+def test_compute_occurrences_includes_an_untracked_living_person_for_a_non_death_always_schedule_type(
+    family,
+):
+    # always_schedule exists to bypass the tracked-only requirement for
+    # *any* event type that sets it, not just the built-in Yahrzeit (a
+    # DEATH-anchored type, which already implies not is_living). The
+    # nightly sweep's own Person queryset assumed always_schedule only
+    # ever pairs with a DEATH anchor and pre-filtered out every
+    # untracked-but-living person before _person_event_type_applies'
+    # own always_schedule check ever got a chance to run - silently
+    # breaking a custom event type like this one.
+    reunion_type = EventType.objects.create(
+        family=family, code="reunion", name="Reunion", anchor="birth", always_schedule=True
+    )
+    person = Person.objects.create(
+        family=family,
+        first_name_en="Untracked",
+        last_name_en="Person",
+        notifications_enabled=False,
+        dob_hebrew_year=5751,
+        dob_hebrew_month=1,
+        dob_hebrew_day=3,
+    )
+    # Created correctly by the post_save signal's own compute_occurrences_
+    # for_person, which has no such DB-level exclusion - deleted here to
+    # isolate what the nightly sweep itself would independently find/
+    # self-heal, since that's the actual code path this test is about.
+    Occurrence.objects.filter(person=person, event_type=reunion_type).delete()
+
+    compute_occurrences()
+
+    assert Occurrence.objects.filter(person=person, event_type=reunion_type).exists()
+
+
 def test_compute_occurrences_for_person_removes_future_birthdays_once_deceased(family):
     person = Person.objects.create(
         family=family,
