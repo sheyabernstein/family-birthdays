@@ -1697,6 +1697,40 @@ def test_dashboard_query_count_does_not_scale_with_candidate_count(client, famil
     assert len(many.captured_queries) == len(few.captured_queries)
 
 
+def test_person_list_query_count_does_not_scale_with_restricted_visibility_candidates(client, family):
+    # PersonVisibility (family.access) caches a viewer's own ancestor/
+    # descendant chain, but not the live is_spouse() query
+    # is_immediate_family/is_direct_family fall back to for a candidate
+    # who isn't reachable by blood - each restricted-visibility person
+    # unrelated to the viewer by blood cost its own extra query here.
+    # Proven the same way as the sibling dashboard/preview query-count
+    # guards: same query count for a handful of candidates and for many
+    # more, not just an arbitrary cap.
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    Person.objects.create(family=family, account=member, first_name_en="Viewer", last_name_en="Person")
+
+    def _add_restricted(count):
+        for i in range(count):
+            Person.objects.create(
+                family=family,
+                first_name_en=f"Restricted{i}",
+                last_name_en="Person",
+                visibility=Person.Visibility.IMMEDIATE_FAMILY,
+            )
+
+    _login_as(client, member, family)
+
+    _add_restricted(2)
+    with CaptureQueriesContext(connection) as few:
+        client.get("/people/")
+
+    _add_restricted(15)
+    with CaptureQueriesContext(connection) as many:
+        client.get("/people/")
+
+    assert len(many.captured_queries) == len(few.captured_queries)
+
+
 # --- Cross-tenant access: every editor/owner-gated view that fetches a
 # specific record by UUID must 404 for a record outside the current
 # workspace, even for a role that could edit/delete that *kind* of

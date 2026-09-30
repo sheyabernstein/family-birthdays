@@ -347,12 +347,12 @@ def test_send_due_notifications_resolves_viewer_side_once_per_occurrence_not_per
     # Union.ordered_pair needs each recipient's own side of the union
     # (see notifications.audience.viewer_family_ids_for_union) - calling
     # that once per recipient instead of once for the whole occurrence
-    # used to cost one extra Person query per recipient. Message.objects.
-    # create (one INSERT per recipient, always) means a raw total query
-    # count still legitimately scales with recipient count here, unlike
-    # the sibling parents-per-occurrence test below (pinned at a single
-    # recipient throughout, so it never runs into this) - so this checks
-    # the call count on the batching function itself instead.
+    # used to cost one extra Person query per recipient. Checks the call
+    # count on the batching function itself, not a raw query-count
+    # comparison like the sibling tests below - simpler to reason about
+    # here regardless of whatever else's query cost happens to scale or
+    # not (Message.objects.bulk_create's own single INSERT doesn't, but
+    # this test isn't the place pinning that).
     calls = []
     real_viewer_family_ids_for_union = viewer_family_ids_for_union
 
@@ -579,16 +579,12 @@ def test_send_due_notifications_rolls_back_a_crash_partway_through_dispatch(
         send_date=timezone.localdate(),
     )
 
-    real_create = Message.objects.create
-    calls = []
+    real_bulk_create = Message.objects.bulk_create
 
-    def _create_that_crashes_on_the_second_recipient(**kwargs):
-        calls.append(kwargs)
-        if len(calls) == 2:
-            raise RuntimeError("worker died here")
-        return real_create(**kwargs)
+    def _bulk_create_that_crashes(objs, **kwargs):
+        raise RuntimeError("worker died here")
 
-    monkeypatch.setattr(Message.objects, "create", _create_that_crashes_on_the_second_recipient)
+    monkeypatch.setattr(Message.objects, "bulk_create", _bulk_create_that_crashes)
 
     with pytest.raises(RuntimeError):
         send_due_notifications()
@@ -599,12 +595,42 @@ def test_send_due_notifications_rolls_back_a_crash_partway_through_dispatch(
 
     # The real self-healing path - next day's cron picks the whole
     # occurrence up fresh, with no partial rows left to collide with.
-    monkeypatch.setattr(Message.objects, "create", real_create)
+    monkeypatch.setattr(Message.objects, "bulk_create", real_bulk_create)
     send_due_notifications()
 
     occurrence.refresh_from_db()
     assert occurrence.is_sent is True
     assert Message.objects.filter(occurrence=occurrence).count() == 2
+
+
+def test_send_due_notifications_creates_messages_in_one_bulk_insert(monkeypatch, family, birthday_event_type):
+    # Message.objects.create() once per recipient (always its own INSERT)
+    # used to extend how long the is_sent claim's own transaction stayed
+    # open in proportion to recipient count - switched to one
+    # bulk_create() call for the whole occurrence.
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    for i in range(5):
+        _member(family, email=f"member{i}@example.com")
+    Occurrence.objects.create(
+        person=person,
+        event_type=birthday_event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    real_bulk_create = Message.objects.bulk_create
+    call_sizes = []
+
+    def _spy(objs, **kwargs):
+        call_sizes.append(len(objs))
+        return real_bulk_create(objs, **kwargs)
+
+    monkeypatch.setattr(Message.objects, "bulk_create", _spy)
+
+    send_due_notifications()
+
+    assert call_sizes == [5]
 
 
 def test_send_due_notifications_sends_an_overdue_occurrence(family, birthday_event_type):
@@ -1199,6 +1225,27 @@ def test_person_has_passed_coming_of_age(family, gender, dob_kind, expected):
     assert person_has_passed_coming_of_age(person) is expected
 
 
+def test_person_has_passed_coming_of_age_is_leap_year_accurate_near_the_gregorian_boundary(family):
+    # Person.age's own naive (today - dob).days / 365 accumulates about
+    # one full day of drift every 4 years from leap days - by 13 years
+    # that can cross the >= threshold up to a few days before the
+    # person's real calendar birthday. dob chosen so 3 real leap days
+    # (2016, 2020, 2024) fall within the 13-year span, landing the naive
+    # calculation's own "13 years" mark on 2026-03-02, 3 days before the
+    # real 13th birthday on 2026-03-05.
+    person = Person.objects.create(
+        family=family,
+        first_name_en="Test",
+        last_name_en="Person",
+        gender=Person.Gender.MALE,
+        dob_gregorian=dt.date(2013, 3, 5),
+    )
+    with freeze_time("2026-03-02"):
+        assert person_has_passed_coming_of_age(person) is False
+    with freeze_time("2026-03-05"):
+        assert person_has_passed_coming_of_age(person) is True
+
+
 def test_send_due_broadcasts_sends_a_due_broadcast(family):
     account = _member(family, email="test@example.com")
     creator = _member(family, email="creator@example.com")
@@ -1301,6 +1348,28 @@ def test_send_due_broadcasts_does_not_crash_on_a_whole_type_immediate_family_onl
     assert Message.objects.count() == 0
 
 
+def test_send_due_broadcasts_creates_messages_in_one_bulk_insert(monkeypatch, family):
+    # Same change as send_due_notifications' own version of this test.
+    creator = _member(family, email="creator@example.com")
+    for i in range(5):
+        _member(family, email=f"member{i}@example.com")
+    Broadcast.objects.create(family=family, text="Hi everyone", created_by=creator, send_at=timezone.now())
+
+    real_bulk_create = Message.objects.bulk_create
+    call_sizes = []
+
+    def _spy(objs, **kwargs):
+        call_sizes.append(len(objs))
+        return real_bulk_create(objs, **kwargs)
+
+    monkeypatch.setattr(Message.objects, "bulk_create", _spy)
+
+    send_due_broadcasts()
+
+    # 5 members + the creator themselves (also part of the audience).
+    assert call_sizes == [6]
+
+
 def test_send_due_broadcasts_unions_audience_across_tied_people(family):
     account = _member(family, email="test@example.com")
     creator = _member(family, email="creator@example.com")
@@ -1356,16 +1425,12 @@ def test_send_due_broadcasts_rolls_back_a_crash_partway_through_dispatch(monkeyp
         family=family, text="Hello everyone", created_by=creator, send_at=timezone.now()
     )
 
-    real_create = Message.objects.create
-    calls = []
+    real_bulk_create = Message.objects.bulk_create
 
-    def _create_that_crashes_on_the_second_recipient(**kwargs):
-        calls.append(kwargs)
-        if len(calls) == 2:
-            raise RuntimeError("worker died here")
-        return real_create(**kwargs)
+    def _bulk_create_that_crashes(objs, **kwargs):
+        raise RuntimeError("worker died here")
 
-    monkeypatch.setattr(Message.objects, "create", _create_that_crashes_on_the_second_recipient)
+    monkeypatch.setattr(Message.objects, "bulk_create", _bulk_create_that_crashes)
 
     with pytest.raises(RuntimeError):
         send_due_broadcasts()
@@ -1374,7 +1439,7 @@ def test_send_due_broadcasts_rolls_back_a_crash_partway_through_dispatch(monkeyp
     assert broadcast.is_sent is False
     assert Message.objects.count() == 0
 
-    monkeypatch.setattr(Message.objects, "create", real_create)
+    monkeypatch.setattr(Message.objects, "bulk_create", real_bulk_create)
     send_due_broadcasts()
 
     broadcast.refresh_from_db()

@@ -422,10 +422,15 @@ class Person(models.Model):
         return name or None
 
     @property
-    def age(self) -> float | None:
+    def age(self) -> int | None:
         if not self.dob_gregorian:
             return None
-        return (timezone.localdate() - self.dob_gregorian).days / 365
+        today = timezone.localdate()
+        years = today.year - self.dob_gregorian.year
+        if (today.month, today.day) < (self.dob_gregorian.month, self.dob_gregorian.day):
+            # This year's birthday hasn't happened yet.
+            years -= 1
+        return years
 
     @property
     def has_default_visibility(self) -> bool:
