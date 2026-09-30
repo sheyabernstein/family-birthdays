@@ -45,6 +45,7 @@ FROM base AS app
 ARG BUILD_NAME=family-birthdays
 ARG BUILD_VERSION=dev
 ARG BUILD_SHA=dev
+ARG BUILD_IS_RELEASE=false
 
 COPY --from=build --chown=app:app /opt/venv /opt/venv
 COPY --from=static --chown=app:app /app/staticfiles /app/staticfiles
@@ -53,7 +54,8 @@ COPY --chown=app:app . .
 
 ENV BUILD_NAME="${BUILD_NAME}" \
     BUILD_VERSION="${BUILD_VERSION}" \
-    BUILD_SHA="${BUILD_SHA}"
+    BUILD_SHA="${BUILD_SHA}" \
+    BUILD_IS_RELEASE="${BUILD_IS_RELEASE}"
 
 USER app
 

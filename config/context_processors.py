@@ -2,4 +2,8 @@ from django.conf import settings
 
 
 def config(*args, **kwargs) -> dict:
-    return {"BUILD_VERSION": settings.BUILD_VERSION, "BUILD_SHA": settings.BUILD_SHA}
+    return {
+        "BUILD_VERSION": settings.BUILD_VERSION,
+        "BUILD_SHA": settings.BUILD_SHA,
+        "BUILD_IS_RELEASE": settings.BUILD_IS_RELEASE,
+    }

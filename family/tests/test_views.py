@@ -1844,15 +1844,15 @@ def test_help_shows_nothing_owner_related_with_no_current_family(client):
     assert "Reach out to" not in resp.content.decode()
 
 
-def test_help_links_to_source_by_the_full_sha_but_displays_the_readable_version(client, settings):
+def test_help_links_to_source_by_the_full_sha_for_a_non_release_build(client, settings):
     # BUILD_VERSION (a tag name on a tagged release, else a short sha) is
-    # what's shown - it reads far better than a bare sha - but the link
-    # itself always targets BUILD_SHA, the full commit sha, since a tag is
-    # a mutable ref that can be force-moved or deleted later and this link
-    # is meant to stay valid forever (see config/settings.py's own
-    # BUILD_SHA docstring).
-    settings.BUILD_VERSION = "v1.2.3"
+    # what's shown - it reads far better than a bare sha - but a build not
+    # triggered by a tag push has no release to link to, so the link falls
+    # back to BUILD_SHA, the full commit sha, since that's a stable ref
+    # that never moves (see config/settings.py's own BUILD_SHA docstring).
+    settings.BUILD_VERSION = "abc123d"
     settings.BUILD_SHA = "abc123def456"
+    settings.BUILD_IS_RELEASE = False
     account = Account.objects.create_user(email="floating@example.com")
     client.force_login(account)
 
@@ -1860,4 +1860,22 @@ def test_help_links_to_source_by_the_full_sha_but_displays_the_readable_version(
     content = resp.content.decode()
 
     assert 'href="https://github.com/sheyabernstein/family-birthdays/tree/abc123def456"' in content
-    assert ">v1.2.3<" in content
+
+
+def test_help_links_to_the_gh_release_for_a_tagged_release_build(client, settings):
+    # BUILD_IS_RELEASE is only ever True when CI built from a tag push -
+    # in this repo's own workflow a release is always created before its
+    # tag exists (gh release create makes the tag), so by the time a
+    # tag-triggered build runs, the release it should link to is
+    # guaranteed to already exist.
+    settings.BUILD_VERSION = "0.2.2"
+    settings.BUILD_SHA = "abc123def456"
+    settings.BUILD_IS_RELEASE = True
+    account = Account.objects.create_user(email="floating@example.com")
+    client.force_login(account)
+
+    resp = client.get("/help/")
+    content = resp.content.decode()
+
+    assert 'href="https://github.com/sheyabernstein/family-birthdays/releases/tag/0.2.2"' in content
+    assert "tree/abc123def456" not in content
