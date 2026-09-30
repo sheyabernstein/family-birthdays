@@ -23,11 +23,21 @@ BUILD_VERSION = os.getenv("BUILD_VERSION", "dev")
 # Always the full commit sha, unlike BUILD_VERSION above (a tag name on a
 # tagged release, else a short sha) - a tag is a mutable ref that can be
 # force-moved or deleted later, so it's the wrong thing to link straight
-# to source from (see family/templates/family/help.html) if the link is
-# meant to stay valid forever. BUILD_VERSION is still what's shown -
-# a tag reads far better than a bare sha in a Sentry release or a
-# Prometheus build_info label - this is only for the link's own target.
+# to source from (see family/templates/family/help.html) for a non-
+# release build, where the link needs to stay valid forever. BUILD_VERSION
+# is still what's shown - a tag reads far better than a bare sha in a
+# Sentry release or a Prometheus build_info label - this is only for the
+# link's own target.
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
+# True only when CI built this image from a tag push (see .github/
+# workflows/ci.yml's own "Determine build version" step) - lets the help
+# page link straight to the GitHub Release instead of BUILD_SHA in that
+# case. Safe to trust unconditionally: this repo's own release workflow
+# always creates the tag as part of creating the release (`gh release
+# create <new tag>`), never the other way around, so a tag-triggered
+# build's own release is guaranteed to already exist by the time this
+# runs.
+BUILD_IS_RELEASE = get_env_bool("BUILD_IS_RELEASE", False)
 
 # Imported after load_dotenv() so its module-level logging setup reads
 # LOG_LEVEL/etc from .env.
