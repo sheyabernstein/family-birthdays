@@ -34,7 +34,11 @@ from family.tree_chart import build_chart_data
 from notifications.audience import PreferenceResolver, available_channels
 from notifications.helpers import channel_rows
 from notifications.models import EventType, Occurrence
-from notifications.tasks import person_has_passed_coming_of_age, union_is_eligible_for_notifications
+from notifications.tasks import (
+    person_event_type_applies,
+    person_has_passed_coming_of_age,
+    union_is_eligible_for_notifications,
+)
 from tenants.mixins import (
     FamilyEditorRequiredMixin,
     FamilyOwnerRequiredMixin,
@@ -302,7 +306,7 @@ class PersonListView(FamilyRequiredMixin, ListView):
     context_object_name = "people"
 
     def _can_show_untracked(self) -> bool:
-        return self.request.family_role in FamilyMembership.EDITOR_ROLES
+        return self.request.family_permissions.can_edit
 
     def get_queryset(self) -> QuerySet[Person]:
         people = Person.objects.filter(family=self.request.family)
@@ -457,21 +461,13 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
         # owner/editor sees for the toggles that *are* still hidden.
         event_rows = []
         for event_type in available_event_types.filter(applies_to_union=False):
-            if not event_type.always_schedule and not person.notifications_enabled:
+            if not person_event_type_applies(person, event_type):
                 continue
             # Broadcast has no per-person override - see
             # NotificationPreference.clean() and AGENTS.md - so it
             # never gets a toggle here, only the whole-type mute on
             # My Notifications (notifications.views.SubscriptionsView).
             if event_type.code == EventType.BuiltinCode.BROADCAST:
-                continue
-            if event_type.anchor == EventType.Anchor.DEATH and person.is_living:
-                continue
-            # Symmetric to the DEATH-anchor check above: once someone has
-            # died there's no more birthday (or bar/bat mitzvah) to
-            # celebrate, only the yahrzeit - see notifications.tasks for
-            # the matching check in the actual scheduling logic.
-            if event_type.anchor == EventType.Anchor.BIRTH and not person.is_living:
                 continue
             # These only ever apply to one gender, and stop being relevant
             # once that birthday has already passed - no point offering a
@@ -533,7 +529,7 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
                 "has_any_channel": has_any_channel,
             }
         )
-        if request.family_role in FamilyMembership.EDITOR_ROLES:
+        if request.family_permissions.can_edit:
             context["history_events"] = person_history(person, unions=unions)
         return context
 
@@ -576,7 +572,7 @@ class FamilyTreeView(FamilyRequiredMixin, DetailView):
         context["chart_data"] = build_chart_data(
             people, main_person=self.object, editable_family_id=self.request.family.id
         )
-        context["can_edit_tree"] = self.request.family_role in FamilyMembership.EDITOR_ROLES
+        context["can_edit_tree"] = self.request.family_permissions.can_edit
         return context
 
 

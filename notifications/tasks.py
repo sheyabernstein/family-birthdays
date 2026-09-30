@@ -132,13 +132,19 @@ def _event_types_by_family() -> (
     return person_types, union_types
 
 
-def _person_event_type_applies(person: Person, event_type: EventType) -> bool:
+def person_event_type_applies(person: Person, event_type: EventType) -> bool:
     """Whether event_type's per-Person eligibility filters allow it for person.
 
     The always_schedule exception (see _subject_pairs' own docstring) and
     the BIRTH/DEATH-anchor-vs-is_living checks - shared by _subject_pairs
-    (nightly sweep, every Person) and _event_types_for_person (single-
-    Person recompute) so this logic lives in exactly one place.
+    (nightly sweep, every Person), _event_types_for_person (single-Person
+    recompute), and family.views.PersonDetailView's own "Notify me" card
+    (which toggle to even show is the same eligibility question as
+    whether the event gets scheduled at all) - so this logic lives in
+    exactly one place. Not underscore-prefixed, unlike its two siblings
+    above, since it's meant to be imported cross-app the same way
+    person_has_passed_coming_of_age/union_is_eligible_for_notifications
+    already are.
     """
     if not event_type.always_schedule and not person.notifications_enabled:
         return False
@@ -209,7 +215,7 @@ def _subject_pairs() -> Iterator[tuple[Person | Union, EventType]]:
     )
     for person in person_qs:
         for event_type in person_types[None] + person_types.get(person.family_id, []):
-            if _person_event_type_applies(person, event_type):
+            if person_event_type_applies(person, event_type):
                 yield person, event_type
 
     for union in Union.objects.filter(status=Union.Status.MARRIED).select_related("person_a", "person_b"):
@@ -253,7 +259,7 @@ def _event_types_for_person(person: Person) -> Iterator[EventType]:
         models.Q(family__isnull=True) | models.Q(family_id=person.family_id), applies_to_union=False
     ).exclude(code__in=NON_SCHEDULED_CODES)
     for event_type in event_types:
-        if _person_event_type_applies(person, event_type):
+        if person_event_type_applies(person, event_type):
             yield event_type
 
 

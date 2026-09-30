@@ -371,11 +371,18 @@ def _preview_recipients(occurrence: Occurrence) -> list[dict[str, Any]]:
     # Not str(account) (Account.display_name -> linked_person, an
     # un-batched query per account) - also more correct than
     # linked_person for a multi-family account, which it leaves blank.
-    family_id = occurrence.person.family_id if occurrence.person else occurrence.union.person_a.family_id
+    # Both families for a union-anchored occurrence, not just person_a's
+    # - a cross-family marriage's own recipients can be resolved through
+    # either side (see notifications.audience.resolve_audience).
+    family_ids = (
+        [occurrence.person.family_id]
+        if occurrence.person
+        else [occurrence.union.person_a.family_id, occurrence.union.person_b.family_id]
+    )
     account_ids = {account.id for account, _channel, _destination in audience}
     names_by_account_id = {
         person.account_id: person.display_name
-        for person in Person.objects.filter(account_id__in=account_ids, family_id=family_id)
+        for person in Person.objects.filter(account_id__in=account_ids, family_id__in=family_ids)
     }
 
     recipients: dict[int, dict[str, Any]] = {}
