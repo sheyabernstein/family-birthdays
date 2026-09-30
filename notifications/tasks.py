@@ -182,17 +182,32 @@ def _subject_pairs() -> Iterator[tuple[Person | Union, EventType]]:
     An untracked (notifications_enabled=False) Person is normally
     excluded entirely - a lineage-only stub, e.g. an in-law's own parent,
     has nothing to schedule. The one exception is an EventType with
-    always_schedule=True (Yahrzeit): a real ancestor entered only as a
-    stub can still die, and their yahrzeit should still be computable for
-    whoever actually wants it (see AGENTS.md) - excluding untracked people
-    from the query outright would make that impossible regardless of what
-    happens later in this function, so the DB filter below only excludes
-    a *living* untracked person (always_schedule only ever matters for a
-    DEATH-anchored type, which needs is_living=False anyway).
+    always_schedule=True (built-in Yahrzeit, or any family's own custom
+    type): a real ancestor entered only as a stub can still have an
+    always_schedule event computed for them regardless of tracked status
+    (see AGENTS.md) - excluding untracked people from the query outright
+    would make that impossible regardless of what happens later in this
+    function. always_schedule isn't restricted to a DEATH anchor at the
+    model level (nothing stops a family's own custom always_schedule type
+    from anchoring on birth/marriage/engagement instead), so the living/
+    untracked DB-level exclusion below only applies when no such
+    non-DEATH always_schedule type is in play - otherwise it would
+    silently exclude exactly the people that type exists to reach, ahead
+    of _person_event_type_applies' own always_schedule check ever running.
     """
     person_types, union_types = _event_types_by_family()
 
-    for person in Person.objects.filter(models.Q(notifications_enabled=True) | models.Q(is_living=False)):
+    all_person_event_types = [event_type for types in person_types.values() for event_type in types]
+    needs_every_person = any(
+        event_type.always_schedule and event_type.anchor != EventType.Anchor.DEATH
+        for event_type in all_person_event_types
+    )
+    person_qs = (
+        Person.objects.all()
+        if needs_every_person
+        else Person.objects.filter(models.Q(notifications_enabled=True) | models.Q(is_living=False))
+    )
+    for person in person_qs:
         for event_type in person_types[None] + person_types.get(person.family_id, []):
             if _person_event_type_applies(person, event_type):
                 yield person, event_type
