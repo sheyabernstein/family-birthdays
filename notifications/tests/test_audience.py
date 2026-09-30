@@ -5,6 +5,7 @@ from django.test.utils import CaptureQueriesContext
 from accounts.models import Account
 from family.models import Person, Union
 from notifications.audience import (
+    PreferenceResolver,
     channels_for_account,
     preference_status,
     resolve_audience,
@@ -397,6 +398,30 @@ def test_broadcast_audience_deduplicates_across_multiple_tied_people(family, bro
     )
 
     assert audience.count((account, "email", account.email)) == 1
+
+
+def test_preference_resolver_spouse_pairs_reaches_a_cross_family_marriage(two_families):
+    # A Union can legitimately span two Family tenants (the one deliberate
+    # crack in the tenant boundary - see family/access.py's own docstring
+    # and tenants/AGENTS.md's "in-law reachable through a marriage" rule).
+    # PreferenceResolver's own _spouse_pairs used to require BOTH sides of
+    # a marriage to fall inside its caller-supplied family_ids scope,
+    # silently treating a person as spouseless whenever their own family
+    # was in scope but their spouse's wasn't - even though "are these two
+    # people married" doesn't depend on which family_ids a particular
+    # caller happened to scope the resolver to.
+    family_a, family_b, _account_a, _account_b = two_families
+    person_in_a = Person.objects.create(family=family_a, first_name_en="A", last_name_en="Person")
+    spouse_in_b = Person.objects.create(family=family_b, first_name_en="B", last_name_en="Person")
+    Union.objects.create(person_a=person_in_a, person_b=spouse_in_b, status=Union.Status.MARRIED)
+
+    # Scoped to family_a only - the same shape resolve_audience uses for a
+    # person-anchored event, where family_ids never includes a spouse's
+    # own, separate family.
+    resolver = PreferenceResolver(account_ids=[], family_ids=[family_a.id])
+
+    assert resolver._cached_spouse_check(person_in_a, spouse_in_b) is True
+    assert spouse_in_b in resolver._cached_spouses_of(person_in_a)
 
 
 def test_resolve_audience_query_count_does_not_scale_with_account_count(family, birthday_event_type):

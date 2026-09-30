@@ -313,12 +313,18 @@ class PreferenceResolver:
                 account_id__in=account_ids, family_id__in=family_ids, role__in=FamilyMembership.EDITOR_ROLES
             ).values_list("account_id", flat=True)
         )
+        # Either side in scope, not both - a Union can legitimately span
+        # two Family tenants (the in-law marriage exception - see
+        # family/access.py's own docstring), and "are these two people
+        # married" doesn't depend on whether the *other* spouse's own
+        # family happens to also be in this resolver's family_ids.
+        # Requiring both sides used to silently treat a person as
+        # spouseless whenever their spouse's family wasn't in scope.
         self._spouse_pairs: set[frozenset[int]] = {
             frozenset((union.person_a_id, union.person_b_id))
             for union in Union.objects.filter(
+                models.Q(person_a__family_id__in=family_ids) | models.Q(person_b__family_id__in=family_ids),
                 status=Union.Status.MARRIED,
-                person_a__family_id__in=family_ids,
-                person_b__family_id__in=family_ids,
             )
         }
         # Lazily filled, not precomputed like the two sets above - an
