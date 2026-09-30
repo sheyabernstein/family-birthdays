@@ -75,16 +75,23 @@ def format_hebrew_date(date: HebrewDate, *, include_year: bool = True) -> str:
 def resolve_anniversary_month(anchor_month: Months, target_year: int, adar_observance: str) -> Months:
     """Map an anchor Hebrew month onto a specific target year.
 
-    Only matters when the anchor month was itself an Adar month: in a
-    leap target year it becomes Adar I or Adar II per `adar_observance`
-    ("adar_i" or "adar_ii"); in a non-leap target year it's just Adar.
+    `adar_observance` only ever disambiguates a genuinely ambiguous plain
+    Adar anchor (from an anchor event that happened in a non-leap year) -
+    it never overrides an anchor that was already Adar I or Adar II in
+    its own right (an anchor event that itself happened in a leap year is
+    unambiguous: there's no halachic dispute to apply adar_observance to).
+    A non-leap target year always collapses either half back to plain
+    Adar, since that year only has the one.
     """
     if anchor_month not in ADAR_MONTHS:
         return anchor_month
 
-    if is_leap_year(target_year):
-        return Months.ADAR_I if adar_observance == "adar_i" else Months.ADAR_II
-    return Months.ADAR
+    if not is_leap_year(target_year):
+        return Months.ADAR
+
+    if anchor_month in (Months.ADAR_I, Months.ADAR_II):
+        return anchor_month
+    return Months.ADAR_I if adar_observance == "adar_i" else Months.ADAR_II
 
 
 def resolve_hebrew_anniversary(

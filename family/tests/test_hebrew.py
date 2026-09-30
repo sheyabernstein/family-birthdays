@@ -49,11 +49,15 @@ def test_simple_anniversary_round_trips_across_years(year, expected_date):
         [Months.ADAR, "adar_ii", 5787, Months.ADAR_II],
         [Months.ADAR, "adar_i", 5787, Months.ADAR_I],
         [Months.ADAR_II, "adar_ii", 5788, Months.ADAR],
+        [Months.ADAR_I, "adar_ii", 5787, Months.ADAR_I],
+        [Months.ADAR_II, "adar_i", 5787, Months.ADAR_II],
     ],
     ids=[
         "adar defaults to adar ii in a leap year",
         "adar respects adar i when configured",
         "adar ii collapses to adar in a non-leap year",
+        "an unambiguous adar i anchor stays adar i in a leap year regardless of observance",
+        "an unambiguous adar ii anchor stays adar ii in a leap year regardless of observance",
     ],
 )
 def test_adar_yahrzeit_observance(anchor_month, adar_observance, target_year, expected_month):
