@@ -111,6 +111,17 @@ class PersonVisibility:
             self._spouses_cache[person.id] = spouses
         return spouses
 
+    def _cached_spouse_check(self, a: Person, b: Person) -> bool:
+        """Reuses _spouses_of's own cache - is_immediate_family only ever calls this as spouse_check(X, subject).
+
+        X is always the viewer or one of the viewer's own (small, already
+        cached) spouse list, never one of the many candidates subject
+        varies over - so this costs at most one query per distinct X
+        across an entire People list/tree, not one live is_spouse() query
+        per candidate the way an uncached fallback would.
+        """
+        return any(spouse.id == b.id for spouse in self._spouses_of(a))
+
     def can_see(self, person: Person, *, can_edit: bool) -> bool:
         """Whether this checker's own viewer may see `person` at all, per Person.visibility.
 
@@ -123,6 +134,7 @@ class PersonVisibility:
         return person_visible_to(
             self._viewer,
             person,
+            spouse_check=self._cached_spouse_check,
             ancestor_ids_fn=self._ancestor_ids,
             descendant_ids_fn=self._descendant_ids,
             spouses_of_fn=self._spouses_of,

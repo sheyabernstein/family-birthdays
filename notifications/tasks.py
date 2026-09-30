@@ -623,6 +623,7 @@ def send_due_notifications() -> None:
                 if occurrence.union
                 else {}
             )
+            pending_messages = []
             for account, channel, destination in audience:
                 viewer_family_id = viewer_family_ids.get(account.id)
                 cache_key = (channel, viewer_family_id)
@@ -632,16 +633,23 @@ def send_due_notifications() -> None:
                     )
                 subject, body, html_body = rendered[cache_key]
 
-                message = Message.objects.create(
-                    occurrence=occurrence,
-                    account=account,
-                    channel=channel,
-                    destination=destination,
-                    subject=subject,
-                    body=body,
-                    html_body=_personalize(html_body, destination=destination),
+                pending_messages.append(
+                    Message(
+                        occurrence=occurrence,
+                        account=account,
+                        channel=channel,
+                        destination=destination,
+                        subject=subject,
+                        body=body,
+                        html_body=_personalize(html_body, destination=destination),
+                    )
                 )
-                message_ids.append(message.pk)
+            # One INSERT for every recipient instead of one per recipient -
+            # this loop runs inside the same short-lived transaction as
+            # the is_sent claim above, so keeping it fast matters more
+            # than usual (see this task's own docstring on why the claim
+            # transaction is kept short).
+            message_ids = [message.pk for message in Message.objects.bulk_create(pending_messages)]
 
         for message_id in message_ids:
             send_message.delay(message_id)
@@ -936,21 +944,26 @@ def send_due_broadcasts() -> None:
             )
 
             rendered: dict[str, tuple[str, str, str]] = {}
+            pending_messages = []
             for account, channel, destination in audience:
                 if channel not in rendered:
                     rendered[channel] = _render_broadcast_message(broadcast, people, channel=channel)
                 subject, body, html_body = rendered[channel]
 
-                message = Message.objects.create(
-                    broadcast=broadcast,
-                    account=account,
-                    channel=channel,
-                    destination=destination,
-                    subject=subject,
-                    body=body,
-                    html_body=_personalize(html_body, destination=destination),
+                pending_messages.append(
+                    Message(
+                        broadcast=broadcast,
+                        account=account,
+                        channel=channel,
+                        destination=destination,
+                        subject=subject,
+                        body=body,
+                        html_body=_personalize(html_body, destination=destination),
+                    )
                 )
-                message_ids.append(message.pk)
+            # One INSERT for every recipient instead of one per recipient -
+            # see send_due_notifications' own comment on this same change.
+            message_ids = [message.pk for message in Message.objects.bulk_create(pending_messages)]
 
             sent += 1
 
