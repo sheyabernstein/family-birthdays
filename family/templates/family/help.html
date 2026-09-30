@@ -99,7 +99,7 @@
         <ul>
             <li><strong>Everyone</strong> in the family</li>
             <li>Only your <strong>immediate family</strong> (spouse, parents, children, and siblings - nobody further out)</li>
-            <li>Only your <strong>direct family</strong> (immediate family, plus your full ancestor and descendant line either way, and the same again through your own spouse - available for Yahrzeit)</li>
+            <li>Only your <strong>direct family</strong> (immediate family, plus your full ancestor and descendant line either way, and the same again through your own spouse - offered for birthdays, yahrzeits, and Bar/Bat Mitzvahs; it's Yahrzeit's own default)</li>
             <li><strong>Muted</strong> entirely</li>
             {% if request.family_permissions.can_edit %}
                 <li>For who can see someone: <strong>nobody</strong> but owners/editors</li>
@@ -111,9 +111,12 @@
         <p>
             The <a href="{% url 'family:person_list' %}">People</a> list only shows people who are actually part of this family's day-to-day
             notifications. Some records exist purely so the family tree renders correctly - for
-            example, an in-law's own parent, who isn't part of this family and doesn't need birthday or
-            yahrzeit reminders. Those records are hidden from the list by default; you can still reach
-            one by following the tree or a relation link from someone who is tracked.
+            example, an in-law's own parent, who isn't part of this family and doesn't need birthday
+            reminders. Those records are hidden from the list by default; you can still reach
+            one by following the tree or a relation link from someone who is tracked. One exception: if
+            one of them later passes away, a yahrzeit still goes out to whoever wants it - a real ancestor
+            entered only for the tree shouldn't lose their yahrzeit just because nobody was tracking their
+            birthday.
         </p>
     </div>
     <div class="card">
@@ -158,11 +161,13 @@
                 out fresh against the Hebrew calendar every year).
             </p>
             <p>
-                Two per-person settings handle calendar quirks that would otherwise make a date ambiguous
-                in some years: which Adar a birth/death/marriage in Adar is observed in in a Hebrew leap
-                year, and whether a date on the 30th of Cheshvan or Kislev moves to the 1st of the next
-                month or the last day of the (now 29-day) month, in a year where that month is short.
-                Defaults follow common custom; override them if a family's practice differs.
+                Two per-person settings handle calendar quirks that would otherwise make a birth or death
+                date ambiguous in some years: which Adar a birth or death in Adar is observed in in a
+                Hebrew leap year, and whether a date on the 30th of Cheshvan or Kislev moves to the 1st of
+                the next month or the last day of the (now 29-day) month, in a year where that month is
+                short. Defaults follow common custom; override them if a family's practice differs. A
+                marriage or engagement date in Adar always follows the same defaults (Adar II, 1st of the
+                next month) - there's no per-marriage override for these.
             </p>
         </div>
         <div class="card">
