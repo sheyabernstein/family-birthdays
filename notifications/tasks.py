@@ -648,7 +648,10 @@ def send_due_notifications() -> None:
             # this loop runs inside the same short-lived transaction as
             # the is_sent claim above, so keeping it fast matters more
             # than usual (see this task's own docstring on why the claim
-            # transaction is kept short).
+            # transaction is kept short). Safe only because Message has no
+            # save() override and nothing signal-listens for it (verified
+            # - the app's only post_save receivers are on Person/Union/
+            # EventType) - bulk_create() skips both, unlike .create().
             message_ids = [message.pk for message in Message.objects.bulk_create(pending_messages)]
 
         for message_id in message_ids:
