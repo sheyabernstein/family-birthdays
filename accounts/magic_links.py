@@ -10,9 +10,29 @@ connection rather than the generic django.core.cache API.
 import secrets
 
 from django.core.cache import cache
+from django.db import models
 from django_redis import get_redis_connection
 
 from config.helpers import increment_counter
+
+
+class CodeVerifyFailureReason(models.TextChoices):
+    """Why consume_code failed - for VerifyCodeView's own log line, never the user-facing response.
+
+    The response stays equally generic either way (see VerifyCodeView's
+    own docstring on not leaking which identifiers are registered) - this
+    is purely for diagnosing what actually happened server-side.
+    """
+
+    UNKNOWN_IDENTIFIER = "unknown_identifier", "No account matches the claimed identifier"
+    INACTIVE_ACCOUNT = "inactive_account", "Account matches but is inactive"
+    ACCOUNT_LOCKED = "account_locked", "Too many guesses for this account"
+    CODE_ATTEMPTS_EXCEEDED = "code_attempts_exceeded", "Too many guesses for this code"
+    UNKNOWN_CODE = "unknown_code", "Code not found or expired"
+    ACCOUNT_MISMATCH = "account_mismatch", "Code belongs to a different account"
+    TOKEN_EXPIRED = "token_expired", "Underlying token already gone"
+    TOKEN_ALREADY_SPENT = "token_already_spent", "Token consumed by a concurrent request"
+
 
 # consume_token needs a real atomic GETDEL, which the generic cache API
 # doesn't have - the raw connection is used for every op on _token_key
@@ -195,7 +215,7 @@ def is_code_guess_blocked(account_uuid: str) -> bool:
     return count > CODE_MAX_ATTEMPTS_PER_ACCOUNT
 
 
-def consume_code(*, account_uuid: str, code: str) -> dict | None:
+def consume_code(*, account_uuid: str, code: str) -> tuple[dict | None, CodeVerifyFailureReason | None]:
     """Same effect as consume_token, via the short code instead of the link - always case-insensitive.
 
     account_uuid is the account the caller *claims* this code belongs to
@@ -209,18 +229,22 @@ def consume_code(*, account_uuid: str, code: str) -> dict | None:
     attempt cap (CODE_MAX_ATTEMPTS_PER_CODE) - so a leaked/guessed-at
     single code can't be brute-forced even by someone spreading guesses
     across many different claimed accounts.
+
+    Returns a (payload, reason) pair - reason is only ever set alongside
+    a None payload, for VerifyCodeView's own log line (see
+    CodeVerifyFailureReason's own docstring - never the response itself).
     """
     code = code.strip().upper()
     if is_code_guess_blocked(account_uuid):
-        return None
+        return None, CodeVerifyFailureReason.ACCOUNT_LOCKED
 
     attempts = increment_counter(_code_attempts_key(code), window_seconds=TOKEN_TTL_SECONDS)
     if attempts > CODE_MAX_ATTEMPTS_PER_CODE:
-        return None
+        return None, CodeVerifyFailureReason.CODE_ATTEMPTS_EXCEEDED
 
     token = cache.get(_code_key(code))
     if token is None:
-        return None
+        return None, CodeVerifyFailureReason.UNKNOWN_CODE
 
     # Peeks at the payload (a plain get, not a fetch-and-invalidate) before
     # actually consuming anything - a wrong account_uuid claimed alongside a
@@ -230,7 +254,12 @@ def consume_code(*, account_uuid: str, code: str) -> dict | None:
     # after, so a wrong guess here could invalidate someone else's
     # perfectly legitimate pending sign-in.
     payload = _redis.get(_token_key(token))
-    if payload is None or payload.decode().split(":", 1)[0] != account_uuid:
-        return None
+    if payload is None:
+        return None, CodeVerifyFailureReason.TOKEN_EXPIRED
+    if payload.decode().split(":", 1)[0] != account_uuid:
+        return None, CodeVerifyFailureReason.ACCOUNT_MISMATCH
 
-    return consume_token(token)
+    consumed = consume_token(token)
+    if consumed is None:
+        return None, CodeVerifyFailureReason.TOKEN_ALREADY_SPENT
+    return consumed, None

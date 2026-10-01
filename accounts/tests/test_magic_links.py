@@ -40,10 +40,16 @@ def test_issued_code_can_be_consumed_once():
         account_uuid=account_uuid, channel="email", destination="a@example.com"
     )
 
-    payload = magic_links.consume_code(account_uuid=account_uuid, code=code)
+    payload, reason = magic_links.consume_code(account_uuid=account_uuid, code=code)
     assert payload == {"account_uuid": account_uuid, "channel": "email", "destination": "a@example.com"}
+    assert reason is None
 
-    assert magic_links.consume_code(account_uuid=account_uuid, code=code) is None
+    # The code's own cache entry outlives the token it points at - only
+    # consume_token's GETDEL removed that, so this second call still
+    # finds the code, just pointing at a now-gone token.
+    payload, reason = magic_links.consume_code(account_uuid=account_uuid, code=code)
+    assert payload is None
+    assert reason == magic_links.CodeVerifyFailureReason.TOKEN_EXPIRED
 
 
 def test_code_is_case_insensitive():
@@ -52,7 +58,7 @@ def test_code_is_case_insensitive():
         account_uuid=account_uuid, channel="email", destination="a@example.com"
     )
 
-    payload = magic_links.consume_code(account_uuid=account_uuid, code=code.lower())
+    payload, _reason = magic_links.consume_code(account_uuid=account_uuid, code=code.lower())
 
     assert payload is not None
 
@@ -78,7 +84,9 @@ def test_consuming_the_link_token_leaves_the_code_unable_to_sign_in_again():
 
     magic_links.consume_token(token)
 
-    assert magic_links.consume_code(account_uuid=account_uuid, code=code) is None
+    payload, reason = magic_links.consume_code(account_uuid=account_uuid, code=code)
+    assert payload is None
+    assert reason == magic_links.CodeVerifyFailureReason.TOKEN_EXPIRED
 
 
 def test_code_rejects_the_wrong_account():
@@ -90,31 +98,44 @@ def test_code_rejects_the_wrong_account():
         account_uuid=real_account_uuid, channel="email", destination="a@example.com"
     )
 
-    assert magic_links.consume_code(account_uuid=wrong_account_uuid, code=code) is None
+    payload, reason = magic_links.consume_code(account_uuid=wrong_account_uuid, code=code)
+    assert payload is None
+    assert reason == magic_links.CodeVerifyFailureReason.ACCOUNT_MISMATCH
     # And the real account can still redeem it - the mismatched attempt
     # above didn't burn it.
-    assert magic_links.consume_code(account_uuid=real_account_uuid, code=code) is not None
+    payload, _reason = magic_links.consume_code(account_uuid=real_account_uuid, code=code)
+    assert payload is not None
 
 
 def test_unknown_code_is_not_valid():
-    assert magic_links.consume_code(account_uuid=str(uuid.uuid4()), code="ZZZZZZ") is None
+    payload, reason = magic_links.consume_code(account_uuid=str(uuid.uuid4()), code="ZZZZZZ")
+    assert payload is None
+    assert reason == magic_links.CodeVerifyFailureReason.UNKNOWN_CODE
 
 
 def test_code_guessing_locks_out_after_too_many_wrong_attempts_on_one_code():
-    account_uuid = str(uuid.uuid4())
-    magic_links.issue_token(account_uuid=account_uuid, channel="email", destination="a@example.com")
-
+    # A separate account_uuid for this first loop - is_code_guess_blocked
+    # counts every call against the account regardless of which code was
+    # tried, so sharing one account across both loops would trip the
+    # account-wide lockout first and mask the per-code one this test is
+    # actually about.
+    warmup_account_uuid = str(uuid.uuid4())
+    magic_links.issue_token(account_uuid=warmup_account_uuid, channel="email", destination="a@example.com")
     for _ in range(magic_links.CODE_MAX_ATTEMPTS_PER_CODE):
-        assert magic_links.consume_code(account_uuid=account_uuid, code="WRONG1") is None
+        payload, _reason = magic_links.consume_code(account_uuid=warmup_account_uuid, code="WRONG1")
+        assert payload is None
 
     # The real code, tried right after - already locked out for this
     # specific wrong code, regardless of whether the real one would work.
+    account_uuid = str(uuid.uuid4())
     _token, code = magic_links.issue_token(
         account_uuid=account_uuid, channel="email", destination="a@example.com"
     )
     for _ in range(magic_links.CODE_MAX_ATTEMPTS_PER_CODE):
         magic_links.consume_code(account_uuid=account_uuid, code="WRONG2")
-    assert magic_links.consume_code(account_uuid=account_uuid, code="WRONG2") is None
+    payload, reason = magic_links.consume_code(account_uuid=account_uuid, code="WRONG2")
+    assert payload is None
+    assert reason == magic_links.CodeVerifyFailureReason.CODE_ATTEMPTS_EXCEEDED
 
 
 def test_issue_unique_code_retries_on_a_collision(monkeypatch):
@@ -154,4 +175,6 @@ def test_code_guessing_locks_out_the_whole_account_after_too_many_attempts():
     _token, code = magic_links.issue_token(
         account_uuid=account_uuid, channel="email", destination="a@example.com"
     )
-    assert magic_links.consume_code(account_uuid=account_uuid, code=code) is None
+    payload, reason = magic_links.consume_code(account_uuid=account_uuid, code=code)
+    assert payload is None
+    assert reason == magic_links.CodeVerifyFailureReason.ACCOUNT_LOCKED
