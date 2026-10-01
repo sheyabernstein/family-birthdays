@@ -23,7 +23,13 @@
                         <tr class="suggestion-row">
                             <td>{{ suggestion.submitted_by }}</td>
                             <td>{% suggestion_subject suggestion %}</td>
-                            <td><span title="{{ suggestion.created_at }}">{{ suggestion.created_at|naturaltime|capfirst }}</span></td>
+                            <td>
+                                <span class="natural-time"
+                                      title="{{ suggestion.created_at }}"
+                                      data-timestamp="{{ suggestion.created_at|date:'c' }}">
+                                    {{ suggestion.created_at|naturaltime|capfirst }}
+                                </span>
+                            </td>
                             <td>{% if suggestion.resulting_person_id %}Person added - link still needed{% else %}Pending{% endif %}</td>
                             <td>
                                 <button type="button"
@@ -108,7 +114,13 @@
                         <tr>
                             <td>{% suggestion_subject suggestion %}</td>
                             <td>{{ suggestion.get_status_display }}</td>
-                            <td><span title="{{ suggestion.created_at }}">{{ suggestion.created_at|naturaltime|capfirst }}</span></td>
+                            <td>
+                                <span class="natural-time"
+                                      title="{{ suggestion.created_at }}"
+                                      data-timestamp="{{ suggestion.created_at|date:'c' }}">
+                                    {{ suggestion.created_at|naturaltime|capfirst }}
+                                </span>
+                            </td>
                             <td>{{ suggestion.reviewer_note }}</td>
                             <td>
                                 {% if suggestion.status == "pending" and not suggestion.resulting_person_id %}
