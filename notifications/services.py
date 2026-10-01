@@ -131,8 +131,8 @@ def send_email(
             afterthought) - run through _inline_css first (see that
             function's own docstring for why).
         event_type: One of notifications.models.EventType.BuiltinCode's
-            values, "custom" (a family-defined event type), or
-            "magic_link" - labels the
+            values or a notifications.enums.NotificationEventTypeLabel -
+            labels the
             config.observability.metrics.notifications_emails_sent_total
             counter incremented below. Required, not defaulted, so a new
             call site can't silently go unlabeled.
@@ -190,12 +190,16 @@ def _clear_sms_backend_cache(*, setting: str, **kwargs) -> None:
 
 
 def _country_for_sms_metric(to: str) -> str:
-    """Best-effort ISO alpha-2 country code for `to`, for the notifications_sms_sent_total metric.
+    """Best-effort ISO alpha-2 country code for `to`, for the "sms sent" log line.
 
     `to` is always E.164 (see Account.phone's own docstring) - parsed with
     no default region since the leading "+" already carries the country.
     Falls back to "unknown" on anything unparseable rather than raising -
-    this is a metric label, not something worth blocking a real send over.
+    this is a log field, not something worth blocking a real send over.
+
+    Not a notifications_sms_sent_total label - country is open-ended, and
+    Prometheus has no way to pre-register an unbounded label. Logged
+    instead; Grafana's "SMS sent by country" panel reads it from Loki.
     """
     try:
         return phonenumbers.region_code_for_number(phonenumbers.parse(to, None)) or "unknown"
@@ -210,12 +214,12 @@ def send_sms(to: str, body: str, *, event_type: str, sender_id: str = "") -> dic
         to: Recipient phone number.
         body: Message text.
         event_type: One of notifications.models.EventType.BuiltinCode's
-            values, "custom" (a family-defined event type), or
-            "magic_link" - labels the
+            values or a notifications.enums.NotificationEventTypeLabel -
+            labels the
             config.observability.metrics.notifications_sms_sent_total
-            counter incremented below, alongside a country derived from
-            `to`. Required, not defaulted, so a new call site can't
-            silently go unlabeled.
+            counter incremented below, and the "sms sent" log line's own
+            event_type field. Required, not defaulted, so a new call
+            site can't silently go unlabeled.
         sender_id: A family's own alphanumeric sender ID
             (Family.sms_sender_id) - this app serves many families from
             what's normally one shared sending number/short code, so
@@ -230,13 +234,11 @@ def send_sms(to: str, body: str, *, event_type: str, sender_id: str = "") -> dic
         active SMS_BACKEND.
     """
     sender_id = sender_id or DEFAULT_SMS_SENDER_ID
-    country = _country_for_sms_metric(to)
     try:
         result = _sms_backend().send(to=to, body=body, sender_id=sender_id)
     except Exception:
-        metrics.notifications_sms_sent_total.labels(
-            status="failed", event_type=event_type, country=country
-        ).inc()
+        metrics.notifications_sms_sent_total.labels(status="failed", event_type=event_type).inc()
         raise
-    metrics.notifications_sms_sent_total.labels(status="sent", event_type=event_type, country=country).inc()
+    metrics.notifications_sms_sent_total.labels(status="sent", event_type=event_type).inc()
+    logger.info("sms sent", country=_country_for_sms_metric(to), event_type=event_type)
     return result

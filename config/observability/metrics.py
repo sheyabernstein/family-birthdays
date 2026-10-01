@@ -127,11 +127,9 @@ celery_tasks_in_progress = Gauge(
 # ---------------------------------------------------------------------------
 
 # event_type is always one of notifications.models.EventType.BuiltinCode's
-# values, "custom" (any family-defined event type), or "magic_link" (the
-# sign-in flow, which calls send_email/send_sms directly, bypassing Message
-# entirely) - never a raw, family-controlled EventType.code, which would
-# make this label's cardinality scale with every family's own custom event
-# types for a metric whose whole point is aggregate volume/cost tracking.
+# values or a notifications.enums.NotificationEventTypeLabel - never a raw,
+# family-controlled EventType.code, which would make this label's
+# cardinality scale with every family's own custom event types.
 notifications_emails_sent_total = Counter(
     name="notifications_emails_sent_total",
     documentation="Total emails sent, by outcome and event type.",
@@ -141,8 +139,8 @@ notifications_emails_sent_total = Counter(
 
 notifications_sms_sent_total = Counter(
     name="notifications_sms_sent_total",
-    documentation="Total SMS sent, by outcome, event type, and destination country.",
-    labelnames=("status", "event_type", "country"),
+    documentation="Total SMS sent, by outcome and event type.",
+    labelnames=("status", "event_type"),
     namespace=METRICS_NAMESPACE,
 )
 
@@ -179,3 +177,26 @@ build_info = Gauge(
 def set_build_info(version: str) -> None:
     """Records build info. Call once per process at startup."""
     build_info.labels(version=version).set(1)
+
+
+def preregister_notification_counters() -> None:
+    """Initializes notifications_emails_sent_total/notifications_sms_sent_total for every (status, event_type).
+
+    Otherwise a fresh worker's first send of a given event type is what
+    creates that series, so a post-deploy burst has no zero sample to
+    diff against until a second scrape. status/event_type are both
+    closed sets, so this is a fixed, small number of series. Called from
+    config/celery.py's worker_process_init, not AppConfig.ready() - that
+    fires for every manage.py invocation, including migrate before these
+    tables exist. country isn't pre-registered here - see
+    notifications.services._country_for_sms_metric for why.
+    """
+    from notifications.enums import NotificationEventTypeLabel
+    from notifications.models import EventType, Message
+
+    event_types = {*EventType.BuiltinCode.values, *NotificationEventTypeLabel.values}
+    statuses = (Message.Status.SENT, Message.Status.FAILED)
+    for status in statuses:
+        for event_type in event_types:
+            notifications_emails_sent_total.labels(status=status, event_type=event_type).inc(0)
+            notifications_sms_sent_total.labels(status=status, event_type=event_type).inc(0)

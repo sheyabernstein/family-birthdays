@@ -2,7 +2,7 @@ from celery import Task, shared_task
 
 from config.enums import TaskPriority
 from config.logging_config import logger
-from notifications.enums import ChannelEnum
+from notifications.enums import ChannelEnum, NotificationEventTypeLabel
 from notifications.services import send_email, send_sms
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 
@@ -56,7 +56,7 @@ def send_magic_link_message(
                 subject=subject,
                 body=body,
                 html=html or None,
-                event_type="magic_link",
+                event_type=NotificationEventTypeLabel.MAGIC_LINK,
                 from_name=from_name,
                 from_email=from_email,
                 reply_to=reply_to,
@@ -65,7 +65,7 @@ def send_magic_link_message(
             send_sms(
                 to=destination,
                 body=body,
-                event_type="magic_link",
+                event_type=NotificationEventTypeLabel.MAGIC_LINK,
                 sender_id=sms_sender_id,
             )
     except SmsUnrecoverableError as exc:

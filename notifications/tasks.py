@@ -22,7 +22,7 @@ from family.hebrew import (
 from family.models import Person, Union
 from family.templatetags.family_extras import weekday_naturalday
 from notifications.audience import resolve_audience, resolve_broadcast_audience, viewer_family_ids_for_union
-from notifications.enums import ChannelEnum
+from notifications.enums import ChannelEnum, NotificationEventTypeLabel
 from notifications.helpers import html_to_plain_text
 from notifications.models import Broadcast, EventType, Message, Occurrence
 from notifications.services import IDENTIFIER_PLACEHOLDER, send_email, send_sms
@@ -990,7 +990,7 @@ def _metric_event_type(message: Message) -> str:
     if message.occurrence is None:
         return EventType.BuiltinCode.BROADCAST
     code = message.occurrence.event_type.code
-    return code if code in EventType.BuiltinCode.values else "custom"
+    return code if code in EventType.BuiltinCode.values else NotificationEventTypeLabel.CUSTOM
 
 
 class MessageRecordingError(Exception):

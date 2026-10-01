@@ -2,7 +2,7 @@ import pytest
 
 from accounts.tasks import send_magic_link_message
 from config.enums import TaskPriority
-from notifications.enums import ChannelEnum
+from notifications.enums import ChannelEnum, NotificationEventTypeLabel
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 
 
@@ -41,7 +41,7 @@ def test_send_magic_link_message_sends_email(monkeypatch):
 
     assert len(calls) == 1
     assert calls[0]["to"] == "someone@example.com"
-    assert calls[0]["event_type"] == "magic_link"
+    assert calls[0]["event_type"] == NotificationEventTypeLabel.MAGIC_LINK
     assert calls[0]["html"] == "<p>html body</p>"
 
 
@@ -65,7 +65,7 @@ def test_send_magic_link_message_sends_sms(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["to"] == "+15551234567"
     assert calls[0]["sender_id"] == "RokachFam"
-    assert calls[0]["event_type"] == "magic_link"
+    assert calls[0]["event_type"] == NotificationEventTypeLabel.MAGIC_LINK
 
 
 def test_send_magic_link_message_does_not_retry_an_unrecoverable_error(monkeypatch):

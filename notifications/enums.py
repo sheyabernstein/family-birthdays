@@ -30,3 +30,16 @@ class ShiftReason(models.TextChoices):
 
     SHABBOS = "shabbos", "Shabbos"
     YOM_TOV = "yom_tov", "Yom Tov"
+
+
+class NotificationEventTypeLabel(models.TextChoices):
+    """Synthetic event_type labels for send_email/send_sms, not backed by any seeded EventType row.
+
+    Distinct from EventType.BuiltinCode (a real seeded row per value) -
+    see notifications.tasks._metric_event_type for how the two combine
+    into one label space for the notifications_*_sent_total metrics and
+    the "sms/email sent" log lines.
+    """
+
+    CUSTOM = "custom", "Custom event type"
+    MAGIC_LINK = "magic_link", "Magic link sign-in"
