@@ -14,6 +14,16 @@ def _reason(exc: Exception) -> str:
     return " ".join(str(exc).split())
 
 
+class RobotsTxtView(View):
+    """Disallows every crawler - this app has no public content; everything requires sign-in."""
+
+    http_method_names = ["get"]
+
+    @staticmethod
+    def get(*args, **kwargs) -> HttpResponse:
+        return HttpResponse("User-agent: *\nDisallow: /\n", content_type="text/plain")
+
+
 class HealthView(View):
     """Liveness probe: proves the WSGI worker responds.
 
