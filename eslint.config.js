@@ -32,6 +32,7 @@ module.exports = [
         console: "readonly",
         AbortController: "readonly",
         TomSelect: "readonly",
+        setInterval: "readonly",
       },
     },
     rules: {
