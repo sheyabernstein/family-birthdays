@@ -73,7 +73,7 @@ def _init_observability_per_worker(**_kwargs) -> None:
     up in the child, not inherited from the parent across fork(). See
     config/observability/tracing.py's own docstring for the full reasoning.
     """
-    from config.observability.metrics import set_build_info
+    from config.observability.metrics import preregister_notification_counters, set_build_info
     from config.observability.multiproc import init_multiprocess_dir, register_atexit_mark_dead
     from config.observability.tracing import init_tracing
 
@@ -89,6 +89,9 @@ def _init_observability_per_worker(**_kwargs) -> None:
     init_tracing()
     register_atexit_mark_dead()
     set_build_info(settings.BUILD_VERSION)
+    # Only a worker task ever sends an email/SMS, never a web request -
+    # so this is the only place these need pre-registering.
+    preregister_notification_counters()
 
 
 @setup_logging.connect
