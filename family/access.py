@@ -153,6 +153,28 @@ def person_is_visible_to(person: Person, *, viewer: Person | None, can_edit: boo
     return PersonVisibility(viewer).can_see(person, can_edit=can_edit)
 
 
+def visible_people_queryset_for_viewer(
+    family: Family | None, *, viewer: Person | None, can_edit: bool
+) -> QuerySet[Person]:
+    """visible_people_queryset, further narrowed to this one viewer's own Person.visibility reach.
+
+    visible_people_queryset alone is the cross-tenant rule only (same
+    family, or an in-law reachable through marriage) - it says nothing
+    about the *within*-family ceiling a plain member is still subject to
+    (see this module's own docstring). Used for suggestion pickers
+    (family.suggestions) where a member must only be offered someone
+    they could already see on their own, never a wider list that would
+    leak a NOBODY/IMMEDIATE_FAMILY-restricted person's existence via the
+    dropdown itself.
+    """
+    candidates = visible_people_queryset(family)
+    if can_edit:
+        return candidates
+    visibility = PersonVisibility(viewer)
+    visible_ids = [person.pk for person in candidates if visibility.can_see(person, can_edit=False)]
+    return candidates.filter(pk__in=visible_ids)
+
+
 def visible_people_for_tree(
     people: Iterable[Person], *, viewer: Person | None, can_edit: bool, keep_id: int
 ) -> list[Person]:

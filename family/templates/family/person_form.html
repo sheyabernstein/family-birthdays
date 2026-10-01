@@ -9,11 +9,19 @@
 {% else %}Add someone{% endif %}
     </h1>
     </div>
+    {% if applying_suggestion %}
+        <p class="muted">{% icon "triangle-alert" %}Prefilled from a suggestion by {{ applying_suggestion.submitted_by }} - change anything you like before saving.</p>
+    {% endif %}
     {% if form.non_field_errors %}
         <div class="form-errors">{{ form.non_field_errors }}</div>
     {% endif %}
     <p class="required-legend">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
     <form method="post">
+        {% if applying_suggestion %}
+            <input type="hidden"
+                   name="suggestion"
+                   value="{{ applying_suggestion.uuid }}">
+        {% endif %}
         {% csrf_token %}
         {% if link_as %}<input type="hidden" name="link_as" value="{{ link_as }}">{% endif %}
         {% if link_of %}<input type="hidden" name="link_of" value="{{ link_of.uuid }}">{% endif %}

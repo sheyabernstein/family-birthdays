@@ -1224,10 +1224,20 @@ label {
    own #family-chart-mount .card-add-relative placeholder, scaled down
    to this page's plain .tree-node sizing instead of the chart's fixed
    card dimensions. */
+
+/* .tree-generation is a grid, whose default align-items: stretch
+   already makes this node match its taller sibling's height (e.g. a
+   two-line Father card next to a one-line "Suggest a mother" link) -
+   but .tree-node's own display: block leaves that extra height sitting
+   below the text instead of around it. flex/centered only on this
+   variant re-centers the text within whatever height stretch gave it. */
 .tree-node.tree-node-add {
   background: transparent;
   border: 2px dashed var(--rule);
   color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
 }
 
@@ -1801,6 +1811,75 @@ trix-editor:focus {
   color: var(--ink-soft);
   font-size: 0.85rem;
   margin-bottom: 1rem;
+}
+
+/* --- Suggestions --- */
+
+/* The review queue is a real <table> (matching "My Suggestions" below)
+   rather than a stack of <details> - a <details> can't legally wrap
+   several <tr>s, and a plain table reads better with this many columns
+   anyway. Each suggestion is three rows: the summary row, an always-
+   visible actions row (right-aligned, its own row so the approve/
+   reject controls have the full row width rather than squeezing into
+   one narrow column), and a detail row (the proposed-changes table)
+   toggled by .suggestion-toggle's own JS in suggestions.html. */
+.suggestion-queue td {
+  vertical-align: middle;
+}
+
+/* No border between a suggestion's summary row and its own actions row -
+   only the actions row's (default .subscribe-table td) border separates
+   one suggestion from the next, so the pair reads as one entry. */
+.suggestion-row td {
+  border-bottom: none;
+}
+
+.suggestion-actions-row td {
+  padding-top: 0;
+}
+
+.suggestion-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+/* The reject form is itself a flex row too - without this, its input's
+   own global width: 100% (see the shared input[type="text"] rule above)
+   stretches to fill the form's block-level box, pushing the Reject
+   button onto its own line underneath instead of beside it. */
+.suggestion-actions form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.suggestion-actions input[type="text"] {
+  width: 10rem;
+}
+
+.suggestion-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  color: var(--ink-soft);
+}
+
+.suggestion-toggle .icon {
+  transition: transform 0.15s ease;
+  margin-right: 0;
+}
+
+.suggestion-toggle[aria-expanded="true"] .icon {
+  transform: rotate(180deg);
+}
+
+.suggestion-detail-row td {
+  padding: 0.5rem 0 1rem;
+  border-bottom: 1px solid var(--rule-soft);
 }
 
 @media (prefers-reduced-motion: reduce) {

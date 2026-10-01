@@ -19,11 +19,11 @@ from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
 
-from django.db.models import Model
+from django.db.models import Model, Q
 from reversion.models import Version
 
 from accounts.models import Account
-from family.models import Person, Union
+from family.models import Person, Suggestion, Union
 
 HISTORY_LIMIT = 20
 
@@ -52,6 +52,12 @@ class HistoryEvent:
     who: Account | None
     subject_label: str
     changes: list[HistoryEventChange]
+    # Set when this exact revision was produced by a reviewer applying a
+    # member's suggestion (family.suggestions.SuggestionApplyMixin) -
+    # `who` above is always the reviewer (ordinary reversion attribution,
+    # never overridden); this is the original submitter, read from the
+    # Suggestion row itself, not from reversion at all.
+    via_suggestion_from: Account | None = None
 
 
 def _field_label(model: type[Model], field_name: str) -> str:
@@ -130,8 +136,8 @@ def _events_for_object(obj: Model, *, subject_label: str) -> list[HistoryEvent]:
     # instead of one query per changed FK field per version (the actual
     # cost scaled with edit-history length before this change - see
     # AGENTS.md's note on this).
-    raw_created: list[tuple[dt.datetime, Account | None, dict[str, Any]]] = []
-    raw_changes: list[tuple[dt.datetime, Account | None, list[tuple[str, Any, Any]]]] = []
+    raw_created: list[tuple[dt.datetime, Account | None, int, dict[str, Any]]] = []
+    raw_changes: list[tuple[dt.datetime, Account | None, int, list[tuple[str, Any, Any]]]] = []
     needed: dict[type[Model], set[Any]] = defaultdict(set)
     previous_fields: dict[str, Any] | None = None
 
@@ -139,9 +145,10 @@ def _events_for_object(obj: Model, *, subject_label: str) -> list[HistoryEvent]:
         fields = version.field_dict
         who = version.revision.user
         when = version.revision.date_created
+        revision_id = version.revision_id
 
         if previous_fields is None:
-            raw_created.append((when, who, fields))
+            raw_created.append((when, who, revision_id, fields))
             previous_fields = fields
             continue
 
@@ -160,7 +167,7 @@ def _events_for_object(obj: Model, *, subject_label: str) -> list[HistoryEvent]:
                         needed[field.related_model].add(related_value)
 
         if diffs:
-            raw_changes.append((when, who, diffs))
+            raw_changes.append((when, who, revision_id, diffs))
         previous_fields = fields
 
     related_cache: dict[tuple[type[Model], Any], Model] = {
@@ -169,11 +176,25 @@ def _events_for_object(obj: Model, *, subject_label: str) -> list[HistoryEvent]:
         for related_obj in related_model.objects.filter(pk__in=pks)
     }
 
+    revision_ids = {version.revision_id for version in versions}
+    suggester_by_revision: dict[int, Account] = {}
+    for suggestion in Suggestion.objects.filter(
+        Q(applied_revision_id__in=revision_ids) | Q(link_applied_revision_id__in=revision_ids)
+    ).select_related("submitted_by"):
+        if suggestion.applied_revision_id in revision_ids:
+            suggester_by_revision[suggestion.applied_revision_id] = suggestion.submitted_by
+        if suggestion.link_applied_revision_id in revision_ids:
+            suggester_by_revision[suggestion.link_applied_revision_id] = suggestion.submitted_by
+
     events: list[HistoryEvent] = [
         HistoryEvent(
-            when=when, who=who, subject_label=subject_label, changes=[_created_change(model, fields, when)]
+            when=when,
+            who=who,
+            subject_label=subject_label,
+            changes=[_created_change(model, fields, when)],
+            via_suggestion_from=suggester_by_revision.get(revision_id),
         )
-        for when, who, fields in raw_created
+        for when, who, revision_id, fields in raw_created
     ]
     events.extend(
         HistoryEvent(
@@ -188,8 +209,9 @@ def _events_for_object(obj: Model, *, subject_label: str) -> list[HistoryEvent]:
                 )
                 for key, old_value, new_value in diffs
             ],
+            via_suggestion_from=suggester_by_revision.get(revision_id),
         )
-        for when, who, diffs in raw_changes
+        for when, who, revision_id, diffs in raw_changes
     )
     return events
 

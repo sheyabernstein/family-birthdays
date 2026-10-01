@@ -678,3 +678,228 @@ class Union(models.Model):
     def clean(self) -> None:
         if self.person_a_id == self.person_b_id:
             raise ValidationError("A person cannot be in a union with themselves.")
+
+
+# The suggestable field lists are defined here, not in forms.py, since
+# they describe what's in scope on the *model* - "biographical facts
+# only" (names/dates/relationships) - deliberately excluding notes,
+# notifications_enabled, visibility, and the yahrzeit observance flags,
+# which are administrative rather than biographical. forms.py's
+# PersonSuggestionForm/UnionSuggestionForm import these as their own
+# Meta.fields, so there's exactly one place that knows the boundary.
+SUGGESTABLE_PERSON_FIELDS = [
+    "first_name_en",
+    "last_name_en",
+    "first_name_he",
+    "last_name_he",
+    "nickname",
+    "gender",
+    "father",
+    "mother",
+    "dob_gregorian",
+    "dob_hebrew_year",
+    "dob_hebrew_month",
+    "dob_hebrew_day",
+    "dob_year_only",
+    "dod_gregorian",
+    "dod_hebrew_year",
+    "dod_hebrew_month",
+    "dod_hebrew_day",
+]
+
+SUGGESTABLE_UNION_FIELDS = [
+    "status",
+    "marriage_date_gregorian",
+    "marriage_hebrew_year",
+    "marriage_hebrew_month",
+    "marriage_hebrew_day",
+    "engagement_date_gregorian",
+    "engagement_hebrew_year",
+    "engagement_hebrew_month",
+    "engagement_hebrew_day",
+    "divorce_date_gregorian",
+]
+
+
+class Suggestion(models.Model):
+    """A member-proposed addition or edit to a Person/Union, pending owner/editor review.
+
+    Not @reversion.register()'d - its own status/reviewed_by/reviewed_at
+    already is a complete audit trail of this row's own lifecycle, and
+    there's no legitimate "edit history of a suggestion" (a pending one
+    is withdrawn and resubmitted, never edited in place - see
+    family/suggestions.py). The *target* Person/Union still gets a real
+    reversion Version on approval, same as any other save - see
+    SuggestionApproveView.
+    """
+
+    class TargetModel(models.TextChoices):
+        PERSON = "person", "Person"
+        UNION = "union", "Union"
+
+    class LinkKind(models.TextChoices):
+        """How a suggest-add Person also relates to an existing one - see link_with's own docstring."""
+
+        SPOUSE = "spouse", "Spouse of"
+        FATHER = "father", "Father of"
+        MOTHER = "mother", "Mother of"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    uuid = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+
+    family = models.ForeignKey(
+        "tenants.Family",
+        on_delete=models.CASCADE,
+        related_name="suggestions",
+        help_text="Denormalized from the target (or, for a suggest-add, the submitter's own family) "
+        "so a pending suggest-add has somewhere to be scoped from before its Person/Union exists.",
+    )
+    submitted_by = models.ForeignKey(
+        "accounts.Account", on_delete=models.CASCADE, related_name="suggestions_submitted"
+    )
+
+    target_model = models.CharField(max_length=10, choices=TargetModel.choices)
+    # Null for a suggest-add (there's no existing row yet).
+    target_person = models.ForeignKey(
+        Person, null=True, blank=True, on_delete=models.CASCADE, related_name="suggestions"
+    )
+    target_union = models.ForeignKey(
+        Union, null=True, blank=True, on_delete=models.CASCADE, related_name="suggestions"
+    )
+
+    # Suggest-add for a Union between two people who already exist -
+    # fixed at submission time, same as Union.person_a/person_b are
+    # fixed at creation (see UnionEditForm's own docstring). Null unless
+    # target_model=UNION and target_union is null.
+    proposed_person_a = models.ForeignKey(
+        Person, null=True, blank=True, on_delete=models.CASCADE, related_name="union_suggestions_as_a"
+    )
+    proposed_person_b = models.ForeignKey(
+        Person, null=True, blank=True, on_delete=models.CASCADE, related_name="union_suggestions_as_b"
+    )
+
+    # A suggest-add Person can *also* propose how they relate to an
+    # existing one (e.g. "my sister married someone new", or "this is
+    # our father") - mirrors UnionForm's own "create the spouse and the
+    # union in one step" convenience for editors, extended to father/
+    # mother too, just gated through approval instead of a direct save.
+    # Null unless target_model=PERSON, target_person is null, and the
+    # submitter attached a relationship. link_union_changes (the
+    # proposed union's own status/dates) is only ever populated
+    # alongside link_kind=SPOUSE - FATHER/MOTHER is a plain field
+    # assignment on link_with, nothing else to propose.
+    link_kind = models.CharField(max_length=10, choices=LinkKind.choices, blank=True)
+    link_with = models.ForeignKey(
+        Person, null=True, blank=True, on_delete=models.CASCADE, related_name="suggestion_links"
+    )
+    link_union_changes = models.JSONField(null=True, blank=True)
+
+    # {field_name: proposed_value} - keys always drawn from
+    # SUGGESTABLE_PERSON_FIELDS/SUGGESTABLE_UNION_FIELDS above, values
+    # JSON-safe primitives (a date as its isoformat() string, an FK as
+    # its target pk) - same flat-dict-of-primitives shape as
+    # Occurrence.shift_reasons. Used only as initial= data for the real
+    # PersonForm/UnionForm at review time (family.suggestions.
+    # SuggestionApplyMixin) - the reviewer can change anything before
+    # saving, so this is a starting point, never applied directly.
+    proposed_changes = models.JSONField()
+
+    # Set once the add-step of a combined Person+link suggestion has been
+    # applied (a real Person now exists) but before the link step (the
+    # new union, or the father/mother assignment on link_with) has - see
+    # SuggestionApplyMixin's own docstring for the full two-step flow.
+    # Lets the review queue resume into the link step with the already-
+    # created person, instead of re-running "Approve" and creating a
+    # second, duplicate person.
+    resulting_person = models.ForeignKey(
+        Person, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    reviewed_by = models.ForeignKey(
+        "accounts.Account",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="suggestions_reviewed",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewer_note = models.TextField(blank=True)
+
+    # The real reversion.Revision each actual save produced - set by
+    # SuggestionApplyMixin right after the real PersonForm/UnionForm
+    # save succeeds. applied_revision is the primary save (an edit, a
+    # plain add, or the person-leg of a combined suggestion);
+    # link_applied_revision is only ever set for a combined suggestion's
+    # second (link) leg. family.history uses these to annotate the
+    # normal reversion-based History card with "via a suggestion from
+    # {submitted_by}" - attribution lives here, on the Suggestion
+    # itself, never by overriding reversion's own revision.user (which
+    # stays the reviewer, same as any other edit).
+    applied_revision = models.ForeignKey(
+        "reversion.Revision", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    link_applied_revision = models.ForeignKey(
+        "reversion.Revision", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            # Plain "person"/"union" literals, not TargetModel.PERSON/
+            # UNION - a nested Meta class body has no access to names
+            # bound in the enclosing Suggestion class body (Python class
+            # scoping doesn't chain across nested classes the way
+            # function closures do), so referencing the enum members
+            # directly here would raise NameError at import time.
+            #
+            # Each branch enforces the "Null unless..." invariant its own
+            # field comments above already document, not just the bare
+            # minimum needed for the app code's own current behavior -
+            # person suggestions never touch the union-add fields, and a
+            # union suggestion is either an edit (target_union set, no
+            # proposed_person_a/b) xor a suggest-add (both proposed
+            # people set, no target_union), never some other combination.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        target_model="person",
+                        target_union__isnull=True,
+                        proposed_person_a__isnull=True,
+                        proposed_person_b__isnull=True,
+                    )
+                    | (
+                        models.Q(
+                            target_model="union",
+                            target_person__isnull=True,
+                            link_kind="",
+                            link_with__isnull=True,
+                            link_union_changes__isnull=True,
+                        )
+                        & (
+                            models.Q(
+                                target_union__isnull=False,
+                                proposed_person_a__isnull=True,
+                                proposed_person_b__isnull=True,
+                            )
+                            | models.Q(
+                                target_union__isnull=True,
+                                proposed_person_a__isnull=False,
+                                proposed_person_b__isnull=False,
+                            )
+                        )
+                    )
+                ),
+                name="suggestion_target_fields_match_target_model",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_target_model_display()} suggestion by {self.submitted_by} ({self.status})"

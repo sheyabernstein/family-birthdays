@@ -1,7 +1,7 @@
 from django.contrib import admin
 from reversion.admin import VersionAdmin
 
-from family.models import Person, Union
+from family.models import Person, Suggestion, Union
 
 
 @admin.register(Person)
@@ -30,3 +30,22 @@ class UnionAdmin(VersionAdmin):
         "person_b__last_name_en",
     )
     autocomplete_fields = ("person_a", "person_b")
+
+
+@admin.register(Suggestion)
+class SuggestionAdmin(admin.ModelAdmin):
+    """Plain ModelAdmin, not VersionAdmin - Suggestion itself isn't reversion-tracked (see its own docstring)."""
+
+    list_display = ("__str__", "family", "submitted_by", "status", "created_at")
+    list_filter = ("status", "target_model")
+    list_select_related = ("submitted_by",)
+    autocomplete_fields = (
+        "submitted_by",
+        "target_person",
+        "target_union",
+        "proposed_person_a",
+        "proposed_person_b",
+        "link_with",
+        "resulting_person",
+        "reviewed_by",
+    )

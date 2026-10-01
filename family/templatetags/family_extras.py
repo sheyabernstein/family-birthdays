@@ -2,13 +2,14 @@ import datetime as dt
 
 from django import template
 from django.templatetags.static import static
+from django.urls import reverse
 from django.utils import dateformat, formats, timezone
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 from django.utils.translation import gettext
 
 from family.hebrew import format_hebrew_date, gregorian_to_hebrew
-from family.models import Person, Union
+from family.models import Person, Suggestion, Union
 
 register = template.Library()
 
@@ -170,6 +171,60 @@ def display_name_with_marker(person: Person | None) -> SafeString:
     if not person.memorial_marker:
         return format_html("{}", person.display_name)
     return format_html('{}<span class="hebrew-suffix">{}</span>', person.display_name, person.memorial_marker)
+
+
+def _person_link(person: Person) -> SafeString:
+    return format_html(
+        '<a href="{}">{}</a>',
+        reverse("family:person_detail", args=[person.uuid]),
+        display_name_with_marker(person),
+    )
+
+
+@register.simple_tag
+def suggestion_subject(suggestion: Suggestion) -> SafeString:
+    """Renders what a Suggestion is about, linking to a real detail page wherever one exists.
+
+    Shared by the review queue and "My Suggestions" (family/suggestions.html)
+    so the two don't drift apart - a suggestion can target an existing
+    Person/Union, propose a brand-new Person (optionally as a spouse/
+    father/mother of someone existing), or propose a new Union between
+    two existing people. Each case links whichever side of it already
+    has a real detail page; a proposed person who doesn't exist yet (no
+    target_person, no resulting_person) falls back to their proposed
+    name as plain text.
+    """
+    if suggestion.target_model == Suggestion.TargetModel.PERSON:
+        if suggestion.target_person_id:
+            return format_html("Edit: {}", _person_link(suggestion.target_person))
+        new_name = (
+            suggestion.proposed_changes.get("first_name_he")
+            or suggestion.proposed_changes.get("first_name_en")
+            or "New person"
+        )
+        subject = _person_link(suggestion.resulting_person) if suggestion.resulting_person_id else new_name
+        if suggestion.link_kind:
+            return format_html(
+                "{} - {} {}",
+                subject,
+                suggestion.get_link_kind_display().lower(),
+                _person_link(suggestion.link_with),
+            )
+        return format_html("New person: {}", subject)
+
+    if suggestion.target_union_id:
+        return format_html(
+            "Union: {} &amp; {}",
+            _person_link(suggestion.target_union.person_a),
+            _person_link(suggestion.target_union.person_b),
+        )
+    if suggestion.proposed_person_a_id and suggestion.proposed_person_b_id:
+        return format_html(
+            "New union: {} &amp; {}",
+            _person_link(suggestion.proposed_person_a),
+            _person_link(suggestion.proposed_person_b),
+        )
+    return SafeString("New union")
 
 
 @register.filter

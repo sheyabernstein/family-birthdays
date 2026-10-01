@@ -27,6 +27,7 @@
             <li><a href="#family-reach">Immediate family vs. direct family</a></li>
             <li><a href="#tracked">Why some people don't show up in the list</a></li>
             <li><a href="#roles">Roles</a></li>
+            <li><a href="#suggestions">Suggesting a change</a></li>
         </ul>
         {% if request.family_permissions.can_edit %}
             <p class="muted" style="margin-bottom: 0.5rem; margin-top: 1rem;">For owners &amp; editors</p>
@@ -122,9 +123,10 @@
     <div class="card">
         <h2 id="roles">Roles</h2>
         <p>
-            <strong>Members</strong> can view the tree and manage their own notification
-            subscriptions. <strong>Editors</strong> can additionally add and edit people and
-            relationships. Only the <strong>owner</strong> can remove someone from the family or delete a
+            <strong>Members</strong> can view the tree, manage their own notification
+            subscriptions, and <a href="#suggestions">suggest changes</a> to anyone they can see.
+            <strong>Editors</strong> can additionally add and edit people and relationships directly, with
+            no review step. Only the <strong>owner</strong> can remove someone from the family or delete a
             marriage record - editors can't undo that.
         </p>
         {% if request.family_role %}
@@ -138,6 +140,30 @@
                 {% endfor %}
             </ul>
         {% endif %}
+    </div>
+    <div class="card">
+        <h2 id="suggestions">Suggesting a change</h2>
+        <p>
+            Anyone can suggest a correction or addition for anyone they can currently see - a new
+            name, date, parent, spouse, or child - from a "Suggest a change"
+            (or "Suggest a father, mother, child, or spouse").
+            Nothing is changed right away: an owner or editor reviews it first, and
+            can adjust anything before applying it or reject it outright.
+        </p>
+        {% if request.family_permissions.can_edit %}
+            <p>
+                Suggesting a brand-new father, mother, or spouse is a two-step process under the hood -
+                the new person is added first, then the relationship itself - but you only ever fill out
+                one form; the second step happens automatically for whoever reviews it.
+            </p>
+        {% endif %}
+        <p>
+            Track your own suggestions
+            {% if request.family_permissions.can_edit %}(and for owners/editors, review everyone else's){% endif %}
+            from <a href="{% url 'family:suggestions' %}">Suggestions</a> in the menu - it only
+            appears once you've submitted one or whenever there's something pending for you to
+            review. Rejected suggestions can include a short note explaining why.
+        </p>
     </div>
     {% if request.family_permissions.can_edit %}
         <div class="card">
