@@ -52,13 +52,20 @@
                            title="Remove {{ person.display_name }} from the family">Remove</a>
                     {% endif %}
                 {% endif %}
+                {% if not person.family_id == request.family.id or not request.family_permissions.can_edit %}
+                    {# Shown whenever the Edit button above isn't - including an owner/editor #}
+                    {# viewing a cross-family in-law, who has no direct edit path here either. #}
+                    <a class="btn btn-outline btn-sm"
+                       href="{% url 'family:suggestion_person_create' %}?person={{ person.uuid }}"
+                       title="Suggest a correction to {{ person.display_name }}'s details">Suggest a change</a>
+                {% endif %}
             </p>
         </div>
     </div>
     <div class="card">
         <h2>Family</h2>
         <div class="tree">
-            {% if father or mother or add_father_url or add_mother_url %}
+            {% if father or mother or add_father_url or add_mother_url or not can_add_relatives %}
                 <div>
                     <span class="tree-generation-label">Parents</span>
                     <div class="tree-generation">
@@ -70,6 +77,10 @@
                             <a class="tree-node tree-node-add"
                                href="{{ add_father_url }}"
                                title="Add {{ person.display_name }}'s father">+ Add father</a>
+                        {% else %}
+                            <a class="tree-node tree-node-add"
+                               href="{% url 'family:suggestion_person_create' %}?link_kind=father&link_with={{ person.uuid }}"
+                               title="Suggest {{ person.display_name }}'s father">Suggest a father</a>
                         {% endif %}
                         {% if mother %}
                             <a class="tree-node" href="{% url 'family:person_detail' mother.uuid %}">
@@ -79,6 +90,10 @@
                             <a class="tree-node tree-node-add"
                                href="{{ add_mother_url }}"
                                title="Add {{ person.display_name }}'s mother">+ Add mother</a>
+                        {% else %}
+                            <a class="tree-node tree-node-add"
+                               href="{% url 'family:suggestion_person_create' %}?link_kind=mother&link_with={{ person.uuid }}"
+                               title="Suggest {{ person.display_name }}'s mother">Suggest a mother</a>
                         {% endif %}
                     </div>
                 </div>
@@ -108,6 +123,12 @@
                                            title="Remove the marriage record with {{ union.other_person.display_name }}">Remove</a>
                                     {% endif %}
                                 </div>
+                            {% else %}
+                                <div>
+                                    <a class="btn btn-outline btn-sm"
+                                       href="{% url 'family:suggestion_union_create' %}?union={{ union.uuid }}"
+                                       title="Suggest a correction to the marriage details with {{ union.other_person.display_name }}">Suggest a change</a>
+                                </div>
                             {% endif %}
                         </div>
                     {% endfor %}
@@ -118,27 +139,37 @@
                        style="margin-top: 0.5rem;
                               display: inline-block"
                        title="Add a spouse for {{ person.display_name }}">+ Add spouse</a>
+                {% elif not can_add_relatives %}
+                    <a class="btn btn-outline btn-sm"
+                       href="{% url 'family:suggestion_union_create' %}?anchor={{ person.uuid }}"
+                       style="margin-top: 0.5rem;
+                              display: inline-block"
+                       title="Suggest a new spouse/union for {{ person.display_name }}">Suggest a union</a>
+                    <a class="btn btn-outline btn-sm"
+                       href="{% url 'family:suggestion_person_create' %}?link_kind=spouse&link_with={{ person.uuid }}"
+                       style="margin-top: 0.5rem;
+                              display: inline-block"
+                       title="Suggest a brand-new spouse for {{ person.display_name }}">Suggest a new spouse</a>
                 {% endif %}
             </div>
-            {% if children or can_add_relatives %}
-                <div>
-                    <span class="tree-generation-label">Children</span>
-                    <div class="tree-generation">
-                        {% for child in children %}
-                            <a class="tree-node"
-                               href="{% url 'family:person_detail' child.uuid %}">{{ child|display_name_with_marker }}</a>
-                        {% endfor %}
-                        {% if can_add_relatives %}
-                            <a class="tree-node tree-node-add"
-                               href="{{ add_child_url }}"
-                               title="Add a child for {{ person.display_name }}">+ Add child</a>
-                        {% endif %}
-                    </div>
+            <div>
+                <span class="tree-generation-label">Children</span>
+                <div class="tree-generation">
+                    {% for child in children %}
+                        <a class="tree-node"
+                           href="{% url 'family:person_detail' child.uuid %}">{{ child|display_name_with_marker }}</a>
+                    {% endfor %}
+                    {% if can_add_relatives %}
+                        <a class="tree-node tree-node-add"
+                           href="{{ add_child_url }}"
+                           title="Add a child for {{ person.display_name }}">+ Add child</a>
+                    {% else %}
+                        <a class="tree-node tree-node-add"
+                           href="{% url 'family:suggestion_person_create' %}?father={{ person.uuid }}"
+                           title="Suggest a child of {{ person.display_name }}">Suggest a child</a>
+                    {% endif %}
                 </div>
-            {% endif %}
-            {% if not father and not mother and not unions and not children and not can_add_relatives %}
-                <p class="muted">No relations to show.</p>
-            {% endif %}
+            </div>
         </div>
         <p style="margin-top: 1rem;">
             <a class="btn btn-outline btn-sm"
@@ -249,6 +280,9 @@
                                                     <span title="{{ event.who.email }}">{{ event.who.display_name }}</span>
                                                 {% else %}
                                                     {{ event.who.email }}
+                                                {% endif %}
+                                                {% if event.via_suggestion_from %}
+                                                    <div class="muted" style="font-size: 0.85em;">via a suggestion from {{ event.via_suggestion_from.display_name|default:event.via_suggestion_from.email }}</div>
                                                 {% endif %}
                                             </td>
                                             <td rowspan="{{ event.changes|length }}">{{ event.subject_label }}</td>

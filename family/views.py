@@ -30,6 +30,7 @@ from family.forms import PersonForm, UnionEditForm, UnionForm
 from family.hebrew import gregorian_to_hebrew, hebrew_to_gregorian
 from family.history import person_history
 from family.models import Person, Union
+from family.suggestions import SuggestionApplyMixin
 from family.tree_chart import build_chart_data
 from notifications.audience import PreferenceResolver, available_channels
 from notifications.helpers import channel_rows
@@ -576,7 +577,7 @@ class FamilyTreeView(FamilyRequiredMixin, DetailView):
         return context
 
 
-class PersonCreateView(FamilyEditorRequiredMixin, CreateView):
+class PersonCreateView(SuggestionApplyMixin, FamilyEditorRequiredMixin, CreateView):
     """Creates a person - also the landing point for the tree's "+ Add" placeholders.
 
     The family tree's "+ Add father/mother/child" placeholders (see
@@ -587,10 +588,16 @@ class PersonCreateView(FamilyEditorRequiredMixin, CreateView):
     father/mother" case, where the *new* person isn't the one that owns
     the relationship) by linking the existing anchor person's
     father/mother field to the newly created person after saving.
+
+    Also the landing point for approving a suggest-add Person suggestion
+    (?suggestion=<uuid>, from the review queue) - see
+    SuggestionApplyMixin's own docstring.
     """
 
     model = Person
     form_class = PersonForm
+    suggestion_target_model = "person"
+    suggestion_creates_new = True
     template_name = "family/person_form.html"
 
     def _link_as(self) -> str | None:
@@ -668,10 +675,12 @@ class PersonCreateView(FamilyEditorRequiredMixin, CreateView):
         return self.request.POST.get("next") or reverse("family:person_detail", args=[self.object.uuid])
 
 
-class PersonUpdateView(FamilyScopedMixin, FamilyEditorRequiredMixin, UpdateView):
+class PersonUpdateView(SuggestionApplyMixin, FamilyScopedMixin, FamilyEditorRequiredMixin, UpdateView):
     """Editing is narrower than viewing: only this family's own records.
 
     Not an in-law visible only through a Union - see FamilyScopedMixin.
+    Also the landing point for approving a suggested edit
+    (?suggestion=<uuid>) - see SuggestionApplyMixin.
     """
 
     model = Person
@@ -680,6 +689,23 @@ class PersonUpdateView(FamilyScopedMixin, FamilyEditorRequiredMixin, UpdateView)
     slug_field = "uuid"
     slug_url_kwarg = "uuid"
     family_lookup = "family"
+    suggestion_target_model = "person"
+
+    def get_object(self, queryset: QuerySet[Person] | None = None) -> Person:
+        if self.request.GET.get("suggestion") or self.request.POST.get("suggestion"):
+            # The link_with anchor of a father/mother suggestion can be a
+            # cross-family in-law - a member can suggest a relationship
+            # for anyone visible to them, not just their own family (same
+            # reasoning as UnionCreateView.dispatch's equivalent
+            # relaxation for the spouse-link case). can_edit is already
+            # guaranteed by FamilyEditorRequiredMixin; SuggestionApplyMixin's
+            # _suggestion_matches still 404s unless a pending suggestion
+            # actually names this specific person as its link_with.
+            person = get_object_or_404(Person, uuid=self.kwargs[self.slug_url_kwarg])
+            if not person_is_visible(person, self.request.family):
+                raise Http404
+            return person
+        return super().get_object(queryset)
 
     def get_form_kwargs(self) -> dict[str, Any]:
         kwargs = super().get_form_kwargs()
@@ -712,15 +738,31 @@ class PersonDeleteView(FamilyScopedMixin, FamilyOwnerRequiredMixin, DeleteView):
         return super().form_valid(form)
 
 
-class UnionCreateView(FamilyEditorRequiredMixin, CreateView):
+class UnionCreateView(SuggestionApplyMixin, FamilyEditorRequiredMixin, CreateView):
+    """Also the landing point for approving a suggest-add Union (?suggestion=<uuid>) - see SuggestionApplyMixin."""
+
     model = Union
     form_class = UnionForm
     template_name = "family/union_form.html"
+    suggestion_target_model = "union"
+    suggestion_creates_new = True
 
     def dispatch(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
-        # The anchor person must be in your own family - you can't
-        # unilaterally add a marriage onto someone else's ledger entry.
-        self.person_a = get_object_or_404(Person, uuid=kwargs["person_uuid"], family=request.family)
+        if request.GET.get("suggestion") or request.POST.get("suggestion"):
+            # A suggestion's anchor can be a cross-family in-law (a
+            # member can suggest a union for anyone visible to them,
+            # not just their own family) - can_edit is already
+            # guaranteed true here (FamilyEditorRequiredMixin), so the
+            # normal same-family-only restriction below is relaxed to
+            # the same cross-tenant visibility check suggestions were
+            # already validated against at submission time.
+            self.person_a = get_object_or_404(Person, uuid=kwargs["person_uuid"])
+            if not person_is_visible(self.person_a, request.family):
+                raise Http404
+        else:
+            # The anchor person must be in your own family - you can't
+            # unilaterally add a marriage onto someone else's ledger entry.
+            self.person_a = get_object_or_404(Person, uuid=kwargs["person_uuid"], family=request.family)
         return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self) -> dict[str, Any]:
@@ -775,15 +817,18 @@ class UnionCreateView(FamilyEditorRequiredMixin, CreateView):
         return self.request.POST.get("next") or reverse("family:person_detail", args=[self.person_a.uuid])
 
 
-class UnionUpdateView(FamilyScopedMixin, FamilyEditorRequiredMixin, UpdateView):
+class UnionUpdateView(SuggestionApplyMixin, FamilyScopedMixin, FamilyEditorRequiredMixin, UpdateView):
     """Either side's family can keep a shared marriage record accurate.
 
-    See FamilyScopedMixin's family_lookup list.
+    See FamilyScopedMixin's family_lookup list. Also the landing point
+    for approving a suggested union edit (?suggestion=<uuid>) - see
+    SuggestionApplyMixin.
     """
 
     model = Union
     form_class = UnionEditForm
     template_name = "family/union_form.html"
+    suggestion_target_model = "union"
     slug_field = "uuid"
     slug_url_kwarg = "uuid"
     family_lookup = ["person_a__family", "person_b__family"]

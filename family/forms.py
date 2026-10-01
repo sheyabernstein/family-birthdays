@@ -4,7 +4,15 @@ from django import forms
 from django.db.models import QuerySet
 
 from accounts.models import Account
-from family.models import Person, Union
+from family.access import visible_people_queryset_for_viewer
+from family.models import (
+    HEBREW_MONTH_CHOICES,
+    SUGGESTABLE_PERSON_FIELDS,
+    SUGGESTABLE_UNION_FIELDS,
+    Person,
+    Suggestion,
+    Union,
+)
 from family.widgets import (
     PersonPickerSelect,
     _parent_option_label,
@@ -369,3 +377,202 @@ class UnionEditForm(forms.ModelForm):
             "engagement_date_gregorian": forms.DateInput(attrs={"type": "date"}),
             "divorce_date_gregorian": forms.DateInput(attrs={"type": "date"}),
         }
+
+
+_LINK_UNION_FIELD_PREFIX = "link_union_"
+
+
+class PersonSuggestionForm(forms.ModelForm):
+    """A member-facing suggestion for a Person add/edit - narrower than PersonForm on purpose.
+
+    Deliberately not a PersonForm subclass: PersonForm's email/phone/
+    family_role pseudo-fields drive Account-linking/FamilyMembership
+    side effects that are entirely out of scope for a suggestion (see
+    family.models.Suggestion's own docstring). Meta.fields is
+    SUGGESTABLE_PERSON_FIELDS - the one place that boundary is defined.
+
+    The link_kind/link_with/link_union_* fields only appear for a
+    suggest-*add* (no self.instance.pk yet) - they let a member propose
+    a brand-new person together with how they relate to someone who
+    already exists, in one suggestion ("my sister married someone new",
+    or "this is our father"). Spouse mirrors UnionForm's own "create the
+    spouse and the union in one step" convenience for editors, extended
+    to father/mother too - see family.suggestions.SuggestionApplyMixin
+    for the two-step apply flow this drives. An edit to an existing
+    person has no such section - the suggestions.py view reads these
+    back out of cleaned_data itself; this form never saves them.
+    """
+
+    link_kind = forms.ChoiceField(
+        choices=[("", "---")] + Suggestion.LinkKind.choices,
+        required=False,
+        label="Relationship to an existing person",
+    )
+    link_with = forms.ModelChoiceField(
+        queryset=Person.objects.none(),
+        required=False,
+        label="Existing person",
+        help_text="Pick someone already in the family (or an in-law) - leave both fields blank if "
+        "this new person isn't related to anyone already on file.",
+    )
+
+    class Meta:
+        model = Person
+        fields = SUGGESTABLE_PERSON_FIELDS
+        widgets = {
+            "dob_gregorian": forms.DateInput(attrs={"type": "date"}),
+            "dod_gregorian": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def __init__(self, *args, family: Family, viewer: Person | None, can_edit: bool, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.family = family
+        if not self.instance.pk:
+            self.instance.family = family
+
+        # Same father/mother picker wiring as PersonForm.__init__ - still
+        # family-scoped only, never widened to "visible" people, since a
+        # person can only be recorded as their own family's father/mother
+        # (see PersonForm's own comment on this).
+        candidate_parents = prefetch_for_person_picker(Person.objects.filter(family=family))
+        if self.instance.pk:
+            excluded = self.instance.descendant_ids() | {self.instance.pk}
+            candidate_parents = candidate_parents.exclude(pk__in=excluded)
+        self.fields["father"].widget = PersonPickerSelect(expected_gender=Person.Gender.MALE)
+        self.fields["mother"].widget = PersonPickerSelect(expected_gender=Person.Gender.FEMALE)
+        self.fields["father"].queryset = _parent_queryset(
+            candidate_parents,
+            expected_gender=Person.Gender.MALE,
+            current_id=self.instance.father_id,
+            family=family,
+        )
+        self.fields["mother"].queryset = _parent_queryset(
+            candidate_parents,
+            expected_gender=Person.Gender.FEMALE,
+            current_id=self.instance.mother_id,
+            family=family,
+        )
+        self.fields["father"].required = False
+        self.fields["mother"].required = False
+        self.fields["father"].label_from_instance = _parent_option_label(Person.Gender.MALE)
+        self.fields["mother"].label_from_instance = _parent_option_label(Person.Gender.FEMALE)
+
+        if self.instance.pk:
+            # Editing an existing person - no relationship section at all.
+            del self.fields["link_kind"]
+            del self.fields["link_with"]
+        else:
+            # Visible to *this* submitter specifically, not just "in the
+            # family" - see family.access.visible_people_queryset_for_viewer's
+            # own docstring for why the plain cross-tenant queryset alone
+            # isn't the right boundary here.
+            candidates = prefetch_for_person_picker(
+                visible_people_queryset_for_viewer(family, viewer=viewer, can_edit=can_edit)
+            )
+            self.fields["link_with"].widget = PersonPickerSelect()
+            self.fields["link_with"].queryset = candidates
+            self.fields["link_with"].label_from_instance = _person_option_label
+            for name in SUGGESTABLE_UNION_FIELDS:
+                self.fields[_LINK_UNION_FIELD_PREFIX + name] = _union_field_for(name)
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        link_kind = cleaned_data.get("link_kind")
+        gender = cleaned_data.get("gender")
+        # A light data-quality cross-check, not a hard requirement - a
+        # blank gender is still allowed (plenty of real records have
+        # one), this just catches an obvious mismatch while it's cheap
+        # to catch (e.g. "father of" with gender=Female typed by mistake).
+        if link_kind == Suggestion.LinkKind.FATHER and gender and gender != Person.Gender.MALE:
+            self.add_error("gender", "A father should be recorded as male.")
+        elif link_kind == Suggestion.LinkKind.MOTHER and gender and gender != Person.Gender.FEMALE:
+            self.add_error("gender", "A mother should be recorded as female.")
+        return cleaned_data
+
+    def link_union_changes(self) -> dict[str, Any] | None:
+        """The linked-union fields' cleaned data, {field_name: value} - keyed like a real Union's own fields.
+
+        None unless link_kind is SPOUSE - FATHER/MOTHER has no union to
+        propose, just the plain field assignment SuggestionApplyMixin
+        applies directly to link_with.
+        """
+        if self.cleaned_data.get("link_kind") != Suggestion.LinkKind.SPOUSE:
+            return None
+        return {
+            name: self.cleaned_data.get(_LINK_UNION_FIELD_PREFIX + name)
+            for name in SUGGESTABLE_UNION_FIELDS
+            if (_LINK_UNION_FIELD_PREFIX + name) in self.cleaned_data
+        }
+
+
+def _union_field_for(field_name: str) -> forms.Field:
+    """Builds one plain (non-model-bound) form field mirroring a real Union field, for the link_union_* section.
+
+    Not ModelForm-generated, since these fields live outside
+    PersonSuggestionForm's own Meta.model (Person, not Union) - a plain
+    field per name is simpler than fighting modelform_factory to produce
+    fields for a different model and re-prefix them.
+    """
+    if field_name == "status":
+        return forms.ChoiceField(choices=Union.Status.choices, required=False, initial=Union.Status.MARRIED)
+    if field_name.endswith("_date_gregorian"):
+        return forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    if field_name.endswith("_hebrew_month"):
+        return forms.TypedChoiceField(
+            choices=[("", "---")] + HEBREW_MONTH_CHOICES, required=False, coerce=int
+        )
+    return forms.IntegerField(required=False)  # the _hebrew_year/_hebrew_day fields
+
+
+class UnionSuggestionForm(forms.ModelForm):
+    """A member-facing suggestion for a Union add (between two existing people) or edit.
+
+    Same field set as UnionEditForm (status + dates only - who the two
+    people are never changes once a Union exists). person_b only
+    appears for a suggest-add, exactly mirroring UnionForm's own
+    existing_spouse field in spirit, just narrower (no inline new-person
+    creation here - that path is PersonSuggestionForm's own
+    link_kind=SPOUSE instead, for exactly the "brand new spouse" case).
+    """
+
+    person_b = forms.ModelChoiceField(
+        queryset=Person.objects.none(), required=False, label="Who they're marrying"
+    )
+
+    class Meta:
+        model = Union
+        fields = SUGGESTABLE_UNION_FIELDS
+        widgets = {
+            "marriage_date_gregorian": forms.DateInput(attrs={"type": "date"}),
+            "engagement_date_gregorian": forms.DateInput(attrs={"type": "date"}),
+            "divorce_date_gregorian": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def __init__(
+        self, *args, person_a: Person, family: Family, viewer: Person | None, can_edit: bool, **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.person_a = person_a
+        self.family = family
+        self.instance.person_a = person_a
+
+        if self.instance.pk:
+            # Editing an existing union - who the two people are doesn't
+            # change here, same as UnionEditForm.
+            del self.fields["person_b"]
+        else:
+            candidates = prefetch_for_person_picker(
+                visible_people_queryset_for_viewer(family, viewer=viewer, can_edit=can_edit)
+            ).exclude(pk=person_a.pk)
+            if person_a.gender:
+                candidates = candidates.exclude(gender=person_a.gender)
+            self.fields["person_b"].widget = PersonPickerSelect()
+            self.fields["person_b"].queryset = candidates
+            self.fields["person_b"].label_from_instance = _person_option_label
+            self.fields["person_b"].required = True
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        if not self.instance.pk:
+            self.instance.person_b = cleaned_data.get("person_b")
+        return cleaned_data

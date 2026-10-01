@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% load static form_extras %}
+{% block title %}{% if target_union %}Suggest a change to {{ person_a.display_name }}'s marriage{% else %}Suggest a union for {{ person_a.display_name }}{% endif %} - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>{% if target_union %}Suggest a change to {{ person_a.display_name }}'s marriage{% else %}Suggest a union for {{ person_a.display_name }}{% endif %}</h1>
+        <p class="muted">An owner or editor will review this before it's applied - you'll see the outcome on <a href="{% url 'family:suggestions' %}">Suggestions</a>.</p>
+    </div>
+    {% if form.non_field_errors %}
+        <div class="form-errors">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <p class="required-legend">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
+    <form method="post">
+        {% csrf_token %}
+        {% if target_union %}<input type="hidden" name="union" value="{{ target_union.uuid }}">{% endif %}
+        {% if not target_union %}<input type="hidden" name="anchor" value="{{ person_a.uuid }}">{% endif %}
+        {% if form.person_b %}
+            <div class="card form-section">
+                <h2>Who</h2>
+                <div class="form-field">
+                    <label for="{{ form.person_b.id_for_label }}">
+                        <span class="required-marker" aria-hidden="true">*</span> {{ form.person_b.label }}
+                    </label>
+                    {{ form.person_b }}{{ form.person_b.errors }}
+                </div>
+            </div>
+        {% endif %}
+        <div class="card form-section">
+            <h2>Engagement</h2>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.engagement_date_gregorian %}{{ form.engagement_date_gregorian }}</div>
+            </div>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.engagement_hebrew_year %}{{ form.engagement_hebrew_year }}</div>
+                <div class="form-field">{% field_label form.engagement_hebrew_month %}{{ form.engagement_hebrew_month }}</div>
+                <div class="form-field">{% field_label form.engagement_hebrew_day %}{{ form.engagement_hebrew_day }}</div>
+            </div>
+        </div>
+        <div class="card form-section">
+            <h2>Marriage</h2>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.status %}{{ form.status }}</div>
+                <div class="form-field">{% field_label form.marriage_date_gregorian %}{{ form.marriage_date_gregorian }}</div>
+            </div>
+            <div class="form-row">
+                <div class="form-field">{% field_label form.marriage_hebrew_year %}{{ form.marriage_hebrew_year }}</div>
+                <div class="form-field">{% field_label form.marriage_hebrew_month %}{{ form.marriage_hebrew_month }}</div>
+                <div class="form-field">{% field_label form.marriage_hebrew_day %}{{ form.marriage_hebrew_day }}</div>
+            </div>
+            {% if target_union %}
+                <div class="form-row">
+                    <div class="form-field">{% field_label form.divorce_date_gregorian %}{{ form.divorce_date_gregorian }}</div>
+                </div>
+            {% endif %}
+        </div>
+        <button type="submit" class="btn" title="Submit this suggestion for review">Submit suggestion</button>
+        <a class="btn btn-outline"
+           href="{% url 'family:person_detail' person_a.uuid %}">Cancel</a>
+    </form>
+    {% if form.person_b %}
+        <link rel="stylesheet"
+              href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css">
+        <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+        <script src="{% static 'family/js/person_picker.js' %}"></script>
+        <script>initPersonPicker("#id_person_b");</script>
+    {% endif %}
+{% endblock %}

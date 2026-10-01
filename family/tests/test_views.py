@@ -763,7 +763,7 @@ def test_person_detail_hides_a_nobody_visibility_child_from_a_plain_member(clien
     resp = client.get(f"/people/{parent.uuid}/")
 
     assert resp.context["children"] == []
-    assert b"No relations to show" in resp.content
+    assert b"Private" not in resp.content
 
 
 def test_person_detail_hides_a_nobody_visibility_spouse_from_a_plain_member(client, family):

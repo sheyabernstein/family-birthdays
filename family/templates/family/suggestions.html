@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% load humanize family_extras %}
+{% block title %}Suggestions - {{ block.super }}{% endblock %}
+{% block content %}
+    <div class="page-header">
+        <h1>Suggestions</h1>
+    </div>
+    {% if review_queue %}
+        <div class="card">
+            <h2>Needs Your Review <span class="badge">{{ review_queue|length }}</span> </h2>
+            <table class="subscribe-table suggestion-queue">
+                <thead>
+                    <tr>
+                        <th>Who</th>
+                        <th>What</th>
+                        <th>Submitted</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for suggestion in review_queue %}
+                        <tr class="suggestion-row">
+                            <td>{{ suggestion.submitted_by }}</td>
+                            <td>{% suggestion_subject suggestion %}</td>
+                            <td><span title="{{ suggestion.created_at }}">{{ suggestion.created_at|naturaltime|capfirst }}</span></td>
+                            <td>{% if suggestion.resulting_person_id %}Person added - link still needed{% else %}Pending{% endif %}</td>
+                            <td>
+                                <button type="button"
+                                        class="suggestion-toggle"
+                                        aria-expanded="false"
+                                        title="Show the proposed changes">{% icon "chevron-down" %}</button>
+                            </td>
+                        </tr>
+                        <tr class="suggestion-actions-row">
+                            <td colspan="5">
+                                <div class="suggestion-actions">
+                                    <a class="btn btn-outline btn-sm"
+                                       href="{{ suggestion.apply_url }}"
+                                       title="Open the real edit form, prefilled from this suggestion - you can change anything before saving">{{ suggestion.apply_label }}</a>
+                                    {% if not suggestion.resulting_person_id %}
+                                        <form method="post"
+                                              action="{% url 'family:suggestion_reject' suggestion.uuid %}">
+                                            {% csrf_token %}
+                                            <input type="text" name="reviewer_note" placeholder="Optional note">
+                                            <button type="submit"
+                                                    class="btn btn-outline btn-sm"
+                                                    title="Reject this suggestion">Reject</button>
+                                        </form>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        <tr class="suggestion-detail-row" hidden>
+                            <td colspan="5">
+                                <div class="card" style="margin: 1rem;">
+                                    <table class="subscribe-table history-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Field</th>
+                                                <th>Proposed value</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for field, value in suggestion.proposed_changes.items %}
+                                                <tr>
+                                                    <td>{{ field }}</td>
+                                                    <td>{{ value|default:"(blank)" }}</td>
+                                                </tr>
+                                            {% endfor %}
+                                            {% if suggestion.link_kind %}
+                                                <tr>
+                                                    <td>{{ suggestion.get_link_kind_display }}</td>
+                                                    <td>{{ suggestion.link_with.display_name }}</td>
+                                                </tr>
+                                                {% for field, value in suggestion.link_union_changes.items %}
+                                                    <tr>
+                                                        <td>union.{{ field }}</td>
+                                                        <td>{{ value|default:"(blank)" }}</td>
+                                                    </tr>
+                                                {% endfor %}
+                                            {% endif %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+    <div class="card">
+        <h2>My Suggestions</h2>
+        {% if my_suggestions %}
+            <table class="subscribe-table">
+                <thead>
+                    <tr>
+                        <th>Target</th>
+                        <th>Status</th>
+                        <th>Submitted</th>
+                        <th>Reviewer note</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for suggestion in my_suggestions %}
+                        <tr>
+                            <td>{% suggestion_subject suggestion %}</td>
+                            <td>{{ suggestion.get_status_display }}</td>
+                            <td><span title="{{ suggestion.created_at }}">{{ suggestion.created_at|naturaltime|capfirst }}</span></td>
+                            <td>{{ suggestion.reviewer_note }}</td>
+                            <td>
+                                {% if suggestion.status == "pending" and not suggestion.resulting_person_id %}
+                                    <form method="post"
+                                          action="{% url 'family:suggestion_withdraw' suggestion.uuid %}">
+                                        {% csrf_token %}
+                                        <button type="submit"
+                                                class="btn btn-outline btn-sm"
+                                                title="Withdraw this suggestion">Withdraw</button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="muted">You haven't suggested any changes yet.</p>
+        {% endif %}
+    </div>
+    <script>
+    // Each review-queue entry is three <tr>s - the summary, its always-
+    // visible actions row, then its detail row - rather than a <details>
+    // wrapping multiple <tr>s, which isn't valid table markup. The
+    // toggle button shows/hides the detail row two siblings down.
+    document.querySelectorAll(".suggestion-toggle").forEach((button) => {
+      button.addEventListener("click", () => {
+        const detailRow = button.closest("tr").nextElementSibling.nextElementSibling;
+        const expanded = button.getAttribute("aria-expanded") === "true";
+        button.setAttribute("aria-expanded", String(!expanded));
+        detailRow.hidden = expanded;
+      });
+    });
+    </script>
+{% endblock %}

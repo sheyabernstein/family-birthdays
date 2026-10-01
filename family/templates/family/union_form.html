@@ -5,6 +5,9 @@
     <div class="page-header">
         <h1>{% if object %}Edit {{ person_a.display_name }} &amp; {{ object.person_b.display_name }}'s marriage{% else %}Add a spouse for {{ person_a.display_name }}{% endif %}</h1>
     </div>
+    {% if applying_suggestion %}
+        <p class="muted">{% icon "triangle-alert" %}Prefilled from a suggestion by {{ applying_suggestion.submitted_by }} - change anything you like before saving.</p>
+    {% endif %}
     {% if form.non_field_errors %}
         <div class="form-errors">{{ form.non_field_errors }}</div>
     {% endif %}
@@ -12,6 +15,11 @@
     <form method="post">
         {% csrf_token %}
         {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+        {% if applying_suggestion %}
+            <input type="hidden"
+                   name="suggestion"
+                   value="{{ applying_suggestion.uuid }}">
+        {% endif %}
         {% if existing_unions %}
             <div class="card form-section">
                 <h2>Existing marriage{{ existing_unions|length|pluralize }}</h2>

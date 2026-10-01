@@ -1,6 +1,6 @@
 from django.urls import path
 
-from family import views
+from family import suggestions, views
 
 app_name = "family"
 
@@ -19,4 +19,25 @@ urlpatterns = [
     path("people/<uuid:person_uuid>/spouse/new/", views.UnionCreateView.as_view(), name="union_create"),
     path("unions/<uuid:uuid>/edit/", views.UnionUpdateView.as_view(), name="union_update"),
     path("unions/<uuid:uuid>/delete/", views.UnionDeleteView.as_view(), name="union_delete"),
+    path(
+        "suggestions/person/new/",
+        suggestions.PersonSuggestionCreateView.as_view(),
+        name="suggestion_person_create",
+    ),
+    path(
+        "suggestions/union/new/",
+        suggestions.UnionSuggestionCreateView.as_view(),
+        name="suggestion_union_create",
+    ),
+    path("suggestions/", suggestions.SuggestionsView.as_view(), name="suggestions"),
+    path(
+        "suggestions/<uuid:uuid>/reject/",
+        suggestions.SuggestionRejectView.as_view(),
+        name="suggestion_reject",
+    ),
+    path(
+        "suggestions/<uuid:uuid>/withdraw/",
+        suggestions.SuggestionWithdrawView.as_view(),
+        name="suggestion_withdraw",
+    ),
 ]

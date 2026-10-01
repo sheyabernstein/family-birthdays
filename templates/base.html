@@ -48,6 +48,11 @@
                         {% if request.family_permissions.can_edit %}
                             <a href="{% url 'notifications:broadcast_list' %}">Broadcasts</a>
                         {% endif %}
+                        {% if show_suggestions_nav_link %}
+                            <a href="{% url 'family:suggestions' %}">
+                                Suggestions{% if pending_suggestion_count %} <span class="badge">{{ pending_suggestion_count }}</span>{% endif %}
+                            </a>
+                        {% endif %}
                         {% if request.family and request.family_permissions.can_edit %}
                             <a href="{% url 'tenants:family_settings' %}">Workspace Settings</a>
                         {% endif %}
