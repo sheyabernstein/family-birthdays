@@ -194,7 +194,7 @@ def preregister_notification_counters() -> None:
     from notifications.enums import NotificationEventTypeLabel
     from notifications.models import EventType, Message
 
-    event_types = (*EventType.BuiltinCode.values, *NotificationEventTypeLabel.values)
+    event_types = {*EventType.BuiltinCode.values, *NotificationEventTypeLabel.values}
     statuses = (Message.Status.SENT, Message.Status.FAILED)
     for status in statuses:
         for event_type in event_types:
