@@ -262,16 +262,21 @@ class VerifyCodeView(View):
         code = request.POST.get("code", "").strip()
         account = Account.find_by_identifier(identifier)
 
-        payload = None
-        if account and account.is_active:
-            payload = magic_links.consume_code(account_uuid=str(account.uuid), code=code)
+        payload, reason = None, None
+        if not account:
+            reason = magic_links.CodeVerifyFailureReason.UNKNOWN_IDENTIFIER
+        elif not account.is_active:
+            reason = magic_links.CodeVerifyFailureReason.INACTIVE_ACCOUNT
+        else:
+            payload, reason = magic_links.consume_code(account_uuid=str(account.uuid), code=code)
 
         if not payload:
             # One combined error covers a wrong code, an unknown
             # identifier, and a locked-out account alike - same
             # don't-leak-which-identifiers-are-registered reasoning as
-            # RequestMagicLinkView.post's own shared response.
-            logger.warning("magic code verify failed", identifier=identifier, via="code")
+            # RequestMagicLinkView.post's own shared response. reason is
+            # for this log line only, never the response below.
+            logger.warning("magic code verify failed", identifier=identifier, via="code", reason=reason)
             return render(
                 request,
                 "accounts/link_sent.html",
