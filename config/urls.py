@@ -1,9 +1,10 @@
 from django.contrib import admin
 from django.urls import include, path
 
-from config.views import HealthView, ReadyView
+from config.views import HealthView, ReadyView, RobotsTxtView
 
 urlpatterns = [
+    path("robots.txt", RobotsTxtView.as_view(), name="robots_txt"),
     path("healthz", HealthView.as_view(), name="healthz"),
     path("readyz", ReadyView.as_view(), name="readyz"),
     # Ahead of admin.site.urls so this staff-only page under /admin/ is
