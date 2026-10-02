@@ -18,8 +18,9 @@ from family.models import Person, Union
 from notifications.audience import available_channels, preference_status, resolve_audience
 from notifications.enums import ChannelEnum
 from notifications.forms import BroadcastForm
+from notifications.helpers import SMS_CHAR_BUDGET
 from notifications.models import Broadcast, EventType, NotificationPreference, Occurrence
-from notifications.tasks import SMS_CHAR_BUDGET, _personalize, _render_occurrence_message
+from notifications.tasks import _personalize, _render_occurrence_message
 from tenants.mixins import FamilyEditorRequiredMixin, FamilyRequiredMixin, FamilyScopedMixin
 from tenants.models import Family
 

@@ -12,7 +12,7 @@ from accounts.models import Account
 from family.models import Person, Union
 from family.templatetags.family_extras import hebrew_str
 from notifications.enums import ChannelEnum, ShiftReason
-from notifications.helpers import html_to_plain_text
+from notifications.helpers import SMS_CHAR_BUDGET, html_to_plain_text
 from notifications.models import Broadcast, EventType, Occurrence
 from notifications.services import (
     IDENTIFIER_PLACEHOLDER,
@@ -21,12 +21,7 @@ from notifications.services import (
     send_sms,
     static_absolute_url,
 )
-from notifications.tasks import (
-    SMS_CHAR_BUDGET,
-    _render_broadcast_message,
-    _render_occurrence_message,
-    _truncate_for_sms,
-)
+from notifications.tasks import _render_broadcast_message, _render_occurrence_message
 
 pytestmark = pytest.mark.django_db
 
@@ -800,25 +795,6 @@ def test_broadcast_sms_does_not_html_escape_the_authors_own_text(family):
 
     assert "John & Jane" in body
     assert "&amp;" not in body
-
-
-# --- _truncate_for_sms ---
-
-
-def test_truncate_for_sms_leaves_short_text_untouched():
-    assert _truncate_for_sms("short") == "short"
-
-
-def test_truncate_for_sms_truncates_long_text_with_an_ellipsis():
-    result = _truncate_for_sms("x" * 200)
-
-    assert len(result) == SMS_CHAR_BUDGET
-    assert result.endswith("…")
-
-
-def test_truncate_for_sms_exact_budget_is_not_truncated():
-    text = "x" * SMS_CHAR_BUDGET
-    assert _truncate_for_sms(text) == text
 
 
 def test_static_absolute_url_builds_a_full_url_to_a_static_asset():

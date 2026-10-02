@@ -50,7 +50,7 @@ def hebrew_str(date: dt.date | None, include_year: bool = True) -> str:
 
     include_year=False drops the year entirely (e.g. י״ד אדר) - used for
     the SMS body's own inline date, where every extra character costs
-    real budget (see notifications.tasks.SMS_CHAR_BUDGET) and the year
+    real budget (see notifications.helpers.SMS_CHAR_BUDGET) and the year
     is exactly the kind of thing this app already treats as noise (see
     format_hebrew_date's own docstring on why the thousands digit is
     dropped even when the year *is* shown).

@@ -23,16 +23,10 @@ from family.models import Person, Union
 from family.templatetags.family_extras import weekday_naturalday
 from notifications.audience import resolve_audience, resolve_broadcast_audience, viewer_family_ids_for_union
 from notifications.enums import ChannelEnum, NotificationEventTypeLabel
-from notifications.helpers import html_to_plain_text
+from notifications.helpers import html_to_plain_text, truncate_for_sms
 from notifications.models import Broadcast, EventType, Message, Occurrence
 from notifications.services import IDENTIFIER_PLACEHOLDER, send_email, send_sms
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
-
-# A single GSM-7 SMS segment - see AGENTS.md. Deliberately conservative
-# rather than budgeting for 2-segment messages: forces genuinely terse
-# copy and never risks a family member being charged for (or a flaky
-# carrier splitting) a multi-part text over what should be one line.
-SMS_CHAR_BUDGET = 160
 
 # How far ahead to keep Occurrence rows computed. Re-running the nightly
 # job is idempotent (update_or_create on the unique constraint), so this
@@ -669,12 +663,6 @@ def send_due_notifications() -> None:
     )
 
 
-def _truncate_for_sms(text: str, budget: int = SMS_CHAR_BUDGET) -> str:
-    if len(text) <= budget:
-        return text
-    return text[: budget - 1].rstrip() + "…"
-
-
 def _personalize(html_body: str, *, destination: str) -> str:
     """Swaps the "Manage notification settings" link's placeholder identifier for the real one.
 
@@ -832,7 +820,7 @@ def _render_occurrence_message(
     text = render_to_string(
         [f"notifications/sms/{occurrence.event_type.code}.txt", "notifications/sms/_default.txt"], context
     )
-    text = _truncate_for_sms(" ".join(text.split()))
+    text = truncate_for_sms(" ".join(text.split()))
     return "", text, ""
 
 
@@ -897,7 +885,7 @@ def _render_broadcast_message(
     # formatting the author actually wrote for no real technical reason.
     plain = html_to_plain_text(broadcast.text)
     text = render_to_string("notifications/sms/broadcast.txt", {"text": plain})
-    text = _truncate_for_sms(text.strip())
+    text = truncate_for_sms(text.strip())
     return "", text, ""
 
 
@@ -985,12 +973,16 @@ def _metric_event_type(message: Message) -> str:
     A raw EventType.code isn't safe to use directly - a family can set it
     to anything (see EventType.BuiltinCode's own docstring) - so this maps
     down to one of the 7 builtin codes, "custom" for any family-defined
-    event type, or "broadcast" for a Message with no Occurrence at all.
+    event type, "broadcast" for a Broadcast-anchored Message, or
+    "suggestions" for a direct_family-anchored one (currently the
+    only other case - see Message.direct_family's own docstring).
     """
-    if message.occurrence is None:
+    if message.occurrence_id:
+        code = message.occurrence.event_type.code
+        return code if code in EventType.BuiltinCode.values else NotificationEventTypeLabel.CUSTOM
+    if message.broadcast_id:
         return EventType.BuiltinCode.BROADCAST
-    code = message.occurrence.event_type.code
-    return code if code in EventType.BuiltinCode.values else NotificationEventTypeLabel.CUSTOM
+    return NotificationEventTypeLabel.SUGGESTIONS
 
 
 class MessageRecordingError(Exception):

@@ -1,6 +1,6 @@
 import pytest
 
-from notifications.helpers import html_to_plain_text
+from notifications.helpers import SMS_CHAR_BUDGET, html_to_plain_text, truncate_for_sms
 
 
 def test_strips_a_style_blocks_contents_not_just_its_tags():
@@ -104,3 +104,22 @@ def test_does_not_treat_an_intentionally_typed_escaped_tag_as_real_markup():
     html = "<p>Use &lt;b&gt; for bold</p>"
 
     assert html_to_plain_text(html) == "Use <b> for bold"
+
+
+# --- truncate_for_sms ---
+
+
+def test_truncate_for_sms_leaves_short_text_untouched():
+    assert truncate_for_sms("short") == "short"
+
+
+def test_truncate_for_sms_truncates_long_text_with_an_ellipsis():
+    result = truncate_for_sms("x" * 200)
+
+    assert len(result) == SMS_CHAR_BUDGET
+    assert result.endswith("…")
+
+
+def test_truncate_for_sms_exact_budget_is_not_truncated():
+    text = "x" * SMS_CHAR_BUDGET
+    assert truncate_for_sms(text) == text

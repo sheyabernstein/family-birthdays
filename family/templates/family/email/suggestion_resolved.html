@@ -1,0 +1,28 @@
+{% extends "email/_base.html" %}
+{% block title %}Your suggestions - {{ family_name }}{% endblock %}
+{% block icon_alt %}Suggestions{% endblock %}
+{% block body %}
+    <p style="margin: 0 0 16px;">Here's what happened with your recent suggestions:</p>
+    <ul style="margin: 0 0 20px; padding-left: 20px;">
+        {% for suggestion in suggestions %}
+            <li style="margin-bottom: 8px;">
+                {{ suggestion.subject_label }} — <strong>{{ suggestion.get_status_display }}</strong>
+                {% if suggestion.reviewer_note %}— “{{ suggestion.reviewer_note }}”{% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+    <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+            <td class="btn-email-bg" style="border-radius: 4px;">
+                <a href="{{ review_url }}"
+                   class="btn-email-text"
+                   style="display: inline-block;
+                          padding: 12px 28px;
+                          font-size: 16px;
+                          font-weight: 600;
+                          text-decoration: none">View suggestions</a>
+            </td>
+        </tr>
+    </table>
+{% endblock %}
+{% block footer %}Sent by {{ family_name|default:"Family Tree" }}.{% endblock %}

@@ -1,0 +1,1 @@
+{% autoescape off %}{{ count }} suggestion{{ count|pluralize }} to review: {{ review_url }}{% endautoescape %}

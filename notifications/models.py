@@ -533,6 +533,19 @@ class Message(models.Model):
     broadcast = models.ForeignKey(
         Broadcast, null=True, blank=True, on_delete=models.CASCADE, related_name="messages"
     )
+    # The third, fallback way to resolve .family below - for a message
+    # with no Occurrence/Broadcast anchor at all (currently just
+    # family.tasks' suggestion-review digests). Named for what it is
+    # ("the family, directly, with nothing to derive it from") rather
+    # than for today's one caller, since any future no-anchor message
+    # type can reuse it the same way. Unrelated to NotificationState.
+    # DIRECT_FAMILY_ONLY above (a subscription scope - "immediate family
+    # plus the whole ancestor/descendant line") despite the shared
+    # "direct family" wording - this field is just a plain pointer to
+    # one Family row, not that broader relationship concept.
+    direct_family = models.ForeignKey(
+        "tenants.Family", null=True, blank=True, on_delete=models.CASCADE, related_name="+"
+    )
     account = models.ForeignKey(Account, null=True, on_delete=models.SET_NULL, related_name="messages")
     channel = models.CharField(max_length=10, choices=ChannelEnum.choices)
     destination = models.CharField(max_length=255)
@@ -560,10 +573,11 @@ class Message(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    models.Q(occurrence__isnull=False, broadcast__isnull=True)
-                    | models.Q(occurrence__isnull=True, broadcast__isnull=False)
+                    models.Q(occurrence__isnull=False, broadcast__isnull=True, direct_family__isnull=True)
+                    | models.Q(occurrence__isnull=True, broadcast__isnull=False, direct_family__isnull=True)
+                    | models.Q(occurrence__isnull=True, broadcast__isnull=True, direct_family__isnull=False)
                 ),
-                name="message_exactly_one_of_occurrence_or_broadcast",
+                name="message_exactly_one_of_occurrence_broadcast_or_direct_family",
             ),
         ]
         ordering = ["-created_at", "pk"]
@@ -576,12 +590,15 @@ class Message(models.Model):
         """The family this message was sent on behalf of.
 
         occurrence.person.family, occurrence.union.person_a.family (same
-        either-side-works reasoning as elsewhere for a Union), or
-        broadcast.family for the exactly-one-of-the-two this model
-        enforces. Used to pick the right Family.sms_sender_id for an SMS
-        send - see notifications.tasks.send_message.
+        either-side-works reasoning as elsewhere for a Union),
+        broadcast.family, or direct_family - exactly one of the three is
+        ever set (see Meta.constraints above). Used to pick the right
+        Family.sms_sender_id for an SMS send - see notifications.tasks.
+        send_message.
         """
         if self.occurrence:
             person = self.occurrence.person
             return person.family if person else self.occurrence.union.person_a.family
-        return self.broadcast.family
+        if self.broadcast:
+            return self.broadcast.family
+        return self.direct_family
