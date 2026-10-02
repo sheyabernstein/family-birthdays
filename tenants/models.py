@@ -25,6 +25,40 @@ class Family(models.Model):
 
     name = models.CharField(max_length=255)
     slug = models.SlugField(unique=True, blank=True)
+    # Admin-only, same as the two sending toggles above - not on
+    # FamilySenderSettingsForm. Overrides settings.SITE_BASE_URL for
+    # every link this family's own emails/SMS generate (notifications.
+    # services.absolute_url/static_absolute_url) when set; blank (the
+    # default) falls back to the global setting, same blank-means-use-
+    # the-default shape as sms_sender_id above. This only controls what
+    # URL gets *written into* an outgoing message - it can't make a
+    # custom domain actually reach this app. That still needs real DNS,
+    # a reverse-proxy pointing it here, TLS, and the hostname added to
+    # ALLOWED_HOSTS/CSRF_TRUSTED_ORIGINS, all done separately in infra.
+    # Set this before that's in place and every link this family's
+    # messages generate silently breaks for its recipients.
+    base_url = models.URLField(
+        blank=True,
+        verbose_name="base URL",
+        help_text="Optional - overrides the site's default domain in links this family's own emails/texts generate. Leave blank to use the default.",
+    )
+    # Admin-only, same shape as base_url above, but a sharper risk: the
+    # global default (settings.EMAIL_SENDING_DOMAIN) is deliberately one
+    # domain verified once at the SES level, specifically so no family
+    # needs its own provider setup (see that setting's own comment in
+    # config/settings.py). Overriding this to a domain that isn't
+    # verified in SES with correct SPF/DKIM/DMARC doesn't just break a
+    # link the way base_url can - it fails the send outright (SES
+    # rejects it, or it lands as spam), for every email this family
+    # sends, immediately.
+    email_sending_domain = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="email sending domain",
+        help_text="Optional - overrides the domain this family's own emails send from (only safe once "
+        "that domain is verified in SES with correct SPF/DKIM/DMARC - otherwise every email this family "
+        "sends will fail or land as spam). Leave blank to use the shared default domain.",
+    )
     # Shown as the SMS "From" for every text sent on this family's behalf
     # (see notifications.services.send_sms) - this app serves many families
     # from what's normally one shared sending number, so without this, an
@@ -69,40 +103,6 @@ class Family(models.Model):
     # confirmed enabled).
     email_sending_enabled = models.BooleanField(default=False, verbose_name="email sending enabled")
     sms_sending_enabled = models.BooleanField(default=False, verbose_name="SMS sending enabled")
-    # Admin-only, same as the two sending toggles above - not on
-    # FamilySenderSettingsForm. Overrides settings.SITE_BASE_URL for
-    # every link this family's own emails/SMS generate (notifications.
-    # services.absolute_url/static_absolute_url) when set; blank (the
-    # default) falls back to the global setting, same blank-means-use-
-    # the-default shape as sms_sender_id above. This only controls what
-    # URL gets *written into* an outgoing message - it can't make a
-    # custom domain actually reach this app. That still needs real DNS,
-    # a reverse-proxy pointing it here, TLS, and the hostname added to
-    # ALLOWED_HOSTS/CSRF_TRUSTED_ORIGINS, all done separately in infra.
-    # Set this before that's in place and every link this family's
-    # messages generate silently breaks for its recipients.
-    base_url = models.URLField(
-        blank=True,
-        verbose_name="base URL",
-        help_text="Optional - overrides the site's default domain in links this family's own emails/texts generate. Leave blank to use the default.",
-    )
-    # Admin-only, same shape as base_url above, but a sharper risk: the
-    # global default (settings.EMAIL_SENDING_DOMAIN) is deliberately one
-    # domain verified once at the SES level, specifically so no family
-    # needs its own provider setup (see that setting's own comment in
-    # config/settings.py). Overriding this to a domain that isn't
-    # verified in SES with correct SPF/DKIM/DMARC doesn't just break a
-    # link the way base_url can - it fails the send outright (SES
-    # rejects it, or it lands as spam), for every email this family
-    # sends, immediately.
-    email_sending_domain = models.CharField(
-        max_length=255,
-        blank=True,
-        verbose_name="email sending domain",
-        help_text="Optional - overrides the domain this family's own emails send from (only safe once "
-        "that domain is verified in SES with correct SPF/DKIM/DMARC - otherwise every email this family "
-        "sends will fail or land as spam). Leave blank to use the shared default domain.",
-    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
