@@ -23,9 +23,10 @@ these are never mute-able via My Notifications.
 
 Email is preferred; SMS is a fallback for an account with no email on
 file (or that's disabled email entirely) - notifications.audience.
-available_channels(account) already returns (channel, destination) pairs
-ordered email-first and filtered down to "has a destination and hasn't
-switched that channel off", so taking its first entry gives exactly that
+available_channels(account, family=...) already returns (channel,
+destination) pairs ordered email-first and filtered down to "has a
+destination, hasn't switched that channel off, and the family hasn't
+disabled it tenant-wide", so taking its first entry gives exactly that
 preference order with no bespoke logic of its own. An SMS digest is a
 short count-and-link, never the full per-suggestion breakdown the email
 gets.
@@ -90,9 +91,9 @@ _SUGGESTION_SELECT_RELATED = (
 )
 
 
-def _preferred_channel(account: Account) -> tuple[str, str] | None:
+def _preferred_channel(account: Account, *, family: Family) -> tuple[str, str] | None:
     """The one (channel, destination) to notify this account on, email-first - or None if neither is viable."""
-    channels = available_channels(account)
+    channels = available_channels(account, family=family)
     return channels[0] if channels else None
 
 
@@ -187,7 +188,7 @@ def _send_pending_review_digests() -> None:
                 family_memberships__role__in=FamilyMembership.EDITOR_ROLES,
                 is_active=True,
             ).distinct()
-            if (channel_destination := _preferred_channel(account)) is not None
+            if (channel_destination := _preferred_channel(account, family=family)) is not None
         ]
         if not recipients:
             continue
@@ -243,7 +244,7 @@ def _send_resolved_digests() -> None:
         submitted_by = suggestions[0].submitted_by
         if not submitted_by.is_active:
             continue
-        channel_destination = _preferred_channel(submitted_by)
+        channel_destination = _preferred_channel(submitted_by, family=family)
         if channel_destination is None:
             continue
         channel, destination = channel_destination

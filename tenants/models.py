@@ -51,6 +51,24 @@ class Family(models.Model):
         verbose_name="Reply-To email",
         help_text="Optional - replies to this family's emails go here if set.",
     )
+    # A site-admin-only kill switch, not exposed on the self-service
+    # Workspace Settings form (tenants.forms.FamilySenderSettingsForm
+    # deliberately doesn't list these in Meta.fields) - an owner/editor
+    # can see whether sending is off (see family_settings.html) but only
+    # a site admin, via Django admin, can change it. Defaults to False
+    # for every family, including ones that already existed when this
+    # shipped - a brand-new or freshly-admin-onboarded family starts
+    # silent rather than accidentally live, same reasoning as there
+    # being no self-service family creation at all (see AGENTS.md).
+    # Checked as early as possible - notifications.audience.
+    # available_channels() requires this family to resolve a channel as
+    # a candidate at all, so a disabled channel is never even considered
+    # when computing an audience, not merely rejected later at send
+    # time (notifications.tasks.send_message needs no matching check,
+    # since by the time a Message row exists the channel was already
+    # confirmed enabled).
+    email_sending_enabled = models.BooleanField(default=False, verbose_name="email sending enabled")
+    sms_sending_enabled = models.BooleanField(default=False, verbose_name="SMS sending enabled")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -175,6 +175,40 @@ def test_family_settings_shows_the_editable_form_to_a_site_admin(client, family)
     assert b'name="sms_sender_id"' in resp.content
 
 
+def test_family_settings_warns_when_both_email_and_sms_sending_are_disabled(client, family):
+    family.email_sending_enabled = False
+    family.sms_sending_enabled = False
+    family.save(update_fields=["email_sending_enabled", "sms_sending_enabled"])
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    resp = client.get("/family/settings/")
+
+    assert b"Email and SMS sending are currently turned off" in resp.content
+
+
+def test_family_settings_warns_when_only_sms_sending_is_disabled(client, family):
+    family.sms_sending_enabled = False
+    family.save(update_fields=["sms_sending_enabled"])
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    resp = client.get("/family/settings/")
+
+    assert b"SMS sending is currently turned off" in resp.content
+    assert b"Email and SMS" not in resp.content
+
+
+def test_family_settings_shows_no_warning_when_sending_is_enabled(client, family):
+    # The `family` fixture defaults both to True - see its own comment.
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    resp = client.get("/family/settings/")
+
+    assert b"currently turned off" not in resp.content
+
+
 @pytest.mark.parametrize(
     ["role"], [[FamilyMembership.Role.OWNER], [FamilyMembership.Role.EDITOR]], ids=["owner", "editor"]
 )

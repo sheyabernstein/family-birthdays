@@ -6,6 +6,7 @@ from accounts.models import Account
 from family.models import Person, Union
 from notifications.audience import (
     PreferenceResolver,
+    available_channels,
     channels_for_account,
     preference_status,
     resolve_audience,
@@ -32,7 +33,9 @@ def test_default_is_subscribed_when_nothing_is_set(family, birthday_event_type):
 
     assert status.subscribed is True
     assert status.reason == "default"
-    assert channels_for_account(account, birthday_event_type, person=person) == [("email", account.email)]
+    assert channels_for_account(account, birthday_event_type, family=family, person=person) == [
+        ("email", account.email)
+    ]
 
 
 def test_default_follows_event_type_default_state(family):
@@ -467,3 +470,69 @@ def test_resolve_audience_query_count_does_not_scale_with_account_count(family, 
         resolve_audience(event_type=birthday_event_type, person=person)
 
     assert len(large.captured_queries) == len(small.captured_queries)
+
+
+# --- available_channels: family-level sending toggle ---
+
+
+def test_available_channels_excludes_email_when_the_family_has_it_disabled():
+    family = Family.objects.create(
+        name="Disabled Family", email_sending_enabled=False, sms_sending_enabled=True
+    )
+    account = Account.objects.create_user(email="a@example.com", phone="+15551234567")
+
+    assert available_channels(account, family=family) == [("sms", "+15551234567")]
+
+
+def test_available_channels_excludes_sms_when_the_family_has_it_disabled():
+    family = Family.objects.create(
+        name="Disabled Family", email_sending_enabled=True, sms_sending_enabled=False
+    )
+    account = Account.objects.create_user(email="a@example.com", phone="+15551234567")
+
+    assert available_channels(account, family=family) == [("email", "a@example.com")]
+
+
+def test_available_channels_excludes_both_when_the_family_has_neither_enabled():
+    # The real default for a brand-new (or not-yet-admin-approved)
+    # family - see Family.email_sending_enabled/sms_sending_enabled's
+    # own docstring.
+    family = Family.objects.create(name="Fresh Family")
+    account = Account.objects.create_user(email="a@example.com", phone="+15551234567")
+
+    assert available_channels(account, family=family) == []
+
+
+def test_available_channels_requires_both_the_account_and_the_family_to_allow_it():
+    family = Family.objects.create(
+        name="Enabled Family", email_sending_enabled=True, sms_sending_enabled=True
+    )
+    account = Account.objects.create_user(email="a@example.com")
+    account.email_notifications_enabled = False
+    account.save()
+
+    assert available_channels(account, family=family) == []
+
+
+def test_resolve_audience_excludes_everyone_when_the_familys_email_is_disabled(birthday_event_type):
+    family = Family.objects.create(
+        name="Disabled Family", email_sending_enabled=False, sms_sending_enabled=True
+    )
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    _member(family, email="member@example.com")
+
+    audience = resolve_audience(event_type=birthday_event_type, person=person)
+
+    assert audience == []
+
+
+def test_resolve_broadcast_audience_excludes_everyone_when_the_family_has_no_channel_enabled():
+    family = Family.objects.create(
+        name="Nothing Enabled Family", email_sending_enabled=False, sms_sending_enabled=False
+    )
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BROADCAST)
+    _member(family)
+
+    audience = resolve_broadcast_audience(event_type=event_type, family=family, people=[])
+
+    assert audience == []

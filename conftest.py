@@ -24,13 +24,25 @@ def _clear_cache():
 
 @pytest.fixture
 def family():
-    return Family.objects.create(name="Test Family")
+    # email_sending_enabled/sms_sending_enabled default to False (a
+    # site-admin-only kill switch, off until explicitly turned on - see
+    # Family's own docstring) - True here so the vast majority of tests,
+    # which are about notification *content*/*audience* logic rather
+    # than this tenant-wide switch itself, don't all have to opt back in
+    # individually. Tests that actually exercise the switch (see
+    # notifications/tests/test_audience.py) build their own Family with
+    # it explicitly left off instead of using this fixture.
+    return Family.objects.create(name="Test Family", email_sending_enabled=True, sms_sending_enabled=True)
 
 
 @pytest.fixture
 def two_families():
-    family_a = Family.objects.create(name="Rokach Family")
-    family_b = Family.objects.create(name="Bernstein Family")
+    family_a = Family.objects.create(
+        name="Rokach Family", email_sending_enabled=True, sms_sending_enabled=True
+    )
+    family_b = Family.objects.create(
+        name="Bernstein Family", email_sending_enabled=True, sms_sending_enabled=True
+    )
     account_a = Account.objects.create_user(email="a@example.com")
     account_b = Account.objects.create_user(email="b@example.com")
     FamilyMembership.objects.create(account=account_a, family=family_a, role=FamilyMembership.Role.OWNER)

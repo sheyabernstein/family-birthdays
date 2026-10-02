@@ -240,7 +240,9 @@ class DashboardView(FamilyRequiredMixin, TemplateView):
                 | models.Q(union__person_a__family=request.family)
                 | models.Q(union__person_b__family=request.family)
             )
-            .select_related("person", "union", "union__person_a", "union__person_b", "event_type")
+            .select_related(
+                "person__family", "union__person_a__family", "union__person_b__family", "event_type"
+            )
             .order_by("occurrence_date", "send_date", "event_type__name")[:100]
         )
 
@@ -262,8 +264,20 @@ class DashboardView(FamilyRequiredMixin, TemplateView):
 
         upcoming = []
         for occurrence in candidates:
+            # Matches notifications.models.Message.family's own
+            # resolution - person.family, or union.person_a.family for a
+            # union-anchored occurrence, not necessarily request.family.
+            sending_family = (
+                occurrence.person.family
+                if occurrence.person is not None
+                else occurrence.union.person_a.family
+            )
             if resolver.channels_for_account(
-                request.user, occurrence.event_type, person=occurrence.person, union=occurrence.union
+                request.user,
+                occurrence.event_type,
+                family=sending_family,
+                person=occurrence.person,
+                union=occurrence.union,
             ):
                 upcoming.append(occurrence)
             if len(upcoming) >= 20:
@@ -439,7 +453,12 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
                     add_child_params[spouse_field] = str(spouse.uuid)
             context["add_child_url"] = f"{reverse('family:person_create')}?{urlencode(add_child_params)}"
 
-        my_channels = available_channels(request.user)
+        # person's own family, not request.family - this page's subject
+        # can be an in-law viewed from the other side of a Union, and
+        # reused as-is below for union_rows too (same existing
+        # simplification as my_channels itself being computed once for
+        # the whole page rather than per union).
+        my_channels = available_channels(request.user, family=person.family)
 
         available_event_types = EventType.objects.filter(
             models.Q(family__isnull=True) | models.Q(family=request.family)
