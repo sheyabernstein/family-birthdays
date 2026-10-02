@@ -13,7 +13,7 @@ from django.utils.module_loading import import_string
 
 from config.logging_config import logger
 from config.observability import metrics
-from notifications.sms import SmsBackend
+from notifications.sms import SmsBackend, SmsRateLimitedError
 
 DEFAULT_EMAIL_SENDER_NAME = "Family Tree"
 DEFAULT_SMS_SENDER_ID = "FamilyTree"
@@ -217,9 +217,11 @@ def send_sms(to: str, body: str, *, event_type: str, sender_id: str = "") -> dic
             values or a notifications.enums.NotificationEventTypeLabel -
             labels the
             config.observability.metrics.notifications_sms_sent_total
-            counter incremented below, and the "sms sent" log line's own
-            event_type field. Required, not defaulted, so a new call
-            site can't silently go unlabeled.
+            counter incremented below (not incremented at all for a
+            SmsRateLimitedError - see that branch's own comment), and
+            the "sms sent" log line's own event_type field. Required,
+            not defaulted, so a new call site can't silently go
+            unlabeled.
         sender_id: A family's own alphanumeric sender ID
             (Family.sms_sender_id) - this app serves many families from
             what's normally one shared sending number/short code, so
@@ -236,6 +238,18 @@ def send_sms(to: str, body: str, *, event_type: str, sender_id: str = "") -> dic
     sender_id = sender_id or DEFAULT_SMS_SENDER_ID
     try:
         result = _sms_backend().send(to=to, body=body, sender_id=sender_id)
+    except SmsRateLimitedError:
+        # Not a "failed" send for metrics purposes - see this exception's
+        # own docstring: it's transient by construction (the global SNS
+        # budget frees up every second), and notifications.tasks.
+        # send_message already treats a non-final hit as a quiet,
+        # expected retry rather than a real failure. Counting it here
+        # too would flood notifications_sms_sent_total{status="failed"}
+        # with blips that resolve to a real send moments later on any
+        # send of more than a handful of SMS at once (e.g. a family-wide
+        # digest), well before the shared SNS_PUBLISH_RATE_LIMIT_PER_
+        # SECOND budget could possibly keep up.
+        raise
     except Exception:
         metrics.notifications_sms_sent_total.labels(status="failed", event_type=event_type).inc()
         raise

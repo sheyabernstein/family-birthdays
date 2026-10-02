@@ -1,4 +1,5 @@
 import datetime as dt
+from unittest.mock import MagicMock
 
 import css_inline
 import pytest
@@ -21,6 +22,7 @@ from notifications.services import (
     send_sms,
     static_absolute_url,
 )
+from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 from notifications.tasks import _render_broadcast_message, _render_occurrence_message
 
 pytestmark = pytest.mark.django_db
@@ -920,3 +922,54 @@ def test_send_sms_uses_the_given_sender_id():
     result = send_sms(to="+15551234567", body="Hi", sender_id="RokachFam", event_type="broadcast")
 
     assert result["sender_id"] == "RokachFam"
+
+
+def test_send_sms_increments_the_sent_metric_on_success():
+    from config.observability import metrics
+
+    before = metrics.notifications_sms_sent_total.labels(status="sent", event_type="broadcast")._value.get()
+
+    send_sms(to="+15551234567", body="Hi", event_type="broadcast")
+
+    after = metrics.notifications_sms_sent_total.labels(status="sent", event_type="broadcast")._value.get()
+    assert after == before + 1
+
+
+def test_send_sms_increments_the_failed_metric_on_an_unrecoverable_error(monkeypatch):
+    from config.observability import metrics
+
+    def _raise(**kwargs):
+        raise SmsUnrecoverableError("bad number")
+
+    monkeypatch.setattr("notifications.services._sms_backend", lambda: MagicMock(send=_raise))
+    before = metrics.notifications_sms_sent_total.labels(status="failed", event_type="broadcast")._value.get()
+
+    with pytest.raises(SmsUnrecoverableError):
+        send_sms(to="+15551234567", body="Hi", event_type="broadcast")
+
+    after = metrics.notifications_sms_sent_total.labels(status="failed", event_type="broadcast")._value.get()
+    assert after == before + 1
+
+
+def test_send_sms_does_not_count_a_rate_limit_hit_as_a_failed_send(monkeypatch):
+    """SmsRateLimitedError is transient by construction (see its own docstring) - send_message already
+
+    treats a non-final hit as a quiet, expected retry rather than a real
+    failure, so the metric shouldn't disagree and count it as one -
+    otherwise a send of more than a handful of SMS at once (e.g. a
+    family-wide digest) floods notifications_sms_sent_total{status=
+    "failed"} with blips that resolve to a real send moments later.
+    """
+    from config.observability import metrics
+
+    def _raise(**kwargs):
+        raise SmsRateLimitedError("10 publishes attempted, limit is 8/s")
+
+    monkeypatch.setattr("notifications.services._sms_backend", lambda: MagicMock(send=_raise))
+    before = metrics.notifications_sms_sent_total.labels(status="failed", event_type="broadcast")._value.get()
+
+    with pytest.raises(SmsRateLimitedError):
+        send_sms(to="+15551234567", body="Hi", event_type="broadcast")
+
+    after = metrics.notifications_sms_sent_total.labels(status="failed", event_type="broadcast")._value.get()
+    assert after == before
