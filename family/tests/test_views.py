@@ -841,6 +841,31 @@ def test_anniversary_toggle_hides_once_a_spouse_has_died(client, family):
     assert resp.context["union_rows"] == []
 
 
+def test_union_rows_use_the_unions_own_sending_family_not_the_viewed_persons(client, two_families):
+    """A union-anchored message always sends under union.person_a's family (see resolve_audience) -
+
+    reusing the page's own subject's channels for union_rows would let a
+    channel the subject's own family allows, but the union's actual
+    sending family disables, render as a toggleable control that could
+    never deliver anything, with no indication to the user.
+    """
+    family_a, family_b, _account_a, account_b = two_families
+    family_a.email_sending_enabled = False
+    family_a.save(update_fields=["email_sending_enabled"])
+    person_a = Person.objects.create(family=family_a, first_name_en="Mine", last_name_en="Family")
+    person_b = Person.objects.create(family=family_b, first_name_en="Married", last_name_en="In")
+    Union.objects.create(
+        person_a=person_a,
+        person_b=person_b,
+        marriage_date_gregorian=timezone.localdate() - dt.timedelta(days=30),
+    )
+    _login_as(client, account_b, family_b)
+
+    resp = client.get(f"/people/{person_b.uuid}/")
+
+    assert resp.context["union_rows"] == []
+
+
 def test_recording_a_death_clears_the_persons_future_anniversary_occurrences(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
     person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")

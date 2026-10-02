@@ -454,10 +454,10 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
             context["add_child_url"] = f"{reverse('family:person_create')}?{urlencode(add_child_params)}"
 
         # person's own family, not request.family - this page's subject
-        # can be an in-law viewed from the other side of a Union, and
-        # reused as-is below for union_rows too (same existing
-        # simplification as my_channels itself being computed once for
-        # the whole page rather than per union).
+        # can be an in-law viewed from the other side of a Union. Only
+        # for the person-anchored rows below - union_rows resolves its
+        # own per-union channels separately, since a union's real
+        # sending family (union.person_a's) isn't always this same one.
         my_channels = available_channels(request.user, family=person.family)
 
         available_event_types = EventType.objects.filter(
@@ -515,6 +515,23 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
             # so a toggle here would be a dead control either way.
             if not union_is_eligible_for_notifications(union):
                 continue
+            # Matches resolve_audience's own resolution for a union-
+            # anchored message - always union.person_a's family, not
+            # necessarily this page's own subject (person can be
+            # person_b of a cross-family marriage). Reusing my_channels
+            # here was safe back when available_channels was purely
+            # account-level, but once it started also gating on a
+            # family's own sending toggle, a channel the subject's own
+            # family allows but this union's real sending family
+            # disables would render as a toggleable control that could
+            # never actually deliver anything, with no indication to the
+            # user. Skipping the union entirely when it has none - not
+            # rendering it with empty toggles - matches this same
+            # function's existing "don't offer a dead control" handling
+            # for an untracked person/inapplicable event type above.
+            union_channels = available_channels(request.user, family=union.person_a.family)
+            if not union_channels:
+                continue
             for event_type in union_event_types:
                 # Wedding is only relevant before the wedding itself has
                 # happened; Anniversary is the reverse - there's nothing
@@ -533,7 +550,7 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
                     continue
                 if event_type.code == EventType.BuiltinCode.ENGAGEMENT and not union.is_upcoming:
                     continue
-                channels = channel_rows(request.user, event_type, my_channels, union=union)
+                channels = channel_rows(request.user, event_type, union_channels, union=union)
                 union_rows.append({"union": union, "event_type": event_type, "channels": channels})
 
         has_any_channel = bool(my_channels)
