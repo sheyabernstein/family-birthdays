@@ -24,6 +24,13 @@ def test_sender_email_does_not_change_when_the_family_is_renamed():
     assert family.sender_email == original_sender_email
 
 
+@override_settings(EMAIL_SENDING_DOMAIN="family-tree.example")
+def test_sender_email_uses_the_familys_own_domain_override_when_set():
+    family = Family.objects.create(name="Rokach Family", email_sending_domain="rokach.example")
+
+    assert family.sender_email == f"noreply-{family.slug}@rokach.example"
+
+
 @pytest.mark.parametrize(
     ["sms_sender_id", "is_valid"],
     [
@@ -49,3 +56,22 @@ def test_sms_sender_id_validation(sms_sender_id, is_valid):
     else:
         with pytest.raises(ValidationError):
             family.full_clean(exclude=["slug"])
+
+
+@override_settings(SITE_BASE_URL="https://default.example.com")
+def test_resolved_base_url_falls_back_to_the_global_setting_when_blank():
+    family = Family.objects.create(name="Test Family")
+
+    assert family.resolved_base_url == "https://default.example.com"
+
+
+def test_resolved_base_url_uses_the_familys_own_override_when_set():
+    family = Family.objects.create(name="Test Family", base_url="https://family.example.com")
+
+    assert family.resolved_base_url == "https://family.example.com"
+
+
+def test_resolved_base_url_strips_a_trailing_slash():
+    family = Family.objects.create(name="Test Family", base_url="https://family.example.com/")
+
+    assert family.resolved_base_url == "https://family.example.com"

@@ -724,6 +724,7 @@ def _occurrence_template_context(
     return {
         "occurrence": occurrence,
         "family_name": family.name,
+        "base_url": family.resolved_base_url,
         "is_late": occurrence.occurrence_date < today,
         "today": today,
         "first_person": first_person,
@@ -869,7 +870,12 @@ def _render_broadcast_message(
     if channel == ChannelEnum.EMAIL:
         html = render_to_string(
             "notifications/email/broadcast.html",
-            {"broadcast": broadcast, "people": people, "family_name": broadcast.family.name},
+            {
+                "broadcast": broadcast,
+                "people": people,
+                "family_name": broadcast.family.name,
+                "base_url": broadcast.family.resolved_base_url,
+            },
         )
         body = html_to_plain_text(html)
         return _broadcast_subject(broadcast, people), body, html

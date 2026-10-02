@@ -6,14 +6,14 @@ from tenants.models import Family
 class FamilySenderSettingsForm(forms.ModelForm):
     """Requires the tenants.change_family permission - see tenants.views.FamilySettingsView.
 
-    Both fields are optional (sms_sender_id falls back to notifications.
-    services.DEFAULT_SMS_SENDER_ID when blank; reply_to_email blank just
-    omits the Reply-To header entirely), so there's nothing else to
-    validate here beyond what the model fields already enforce
-    (sms_sender_id's own alphanumeric/length constraints, reply_to_email's
-    own EmailField format check).
+    Optional (blank just omits the Reply-To header entirely), so there's
+    nothing else to validate here beyond reply_to_email's own EmailField
+    format check. sms_sender_id/base_url used to live here too, but both
+    are admin-only now (see their own docstrings on Family) - this form
+    only ever lists what a site-admin-permission-holding owner/editor is
+    actually allowed to self-service.
     """
 
     class Meta:
         model = Family
-        fields = ["sms_sender_id", "reply_to_email"]
+        fields = ["reply_to_email"]

@@ -52,6 +52,19 @@ def test_owner_gets_a_digest_of_newly_pending_suggestions(family):
     assert suggestion.pending_message.destination == "owner@example.com"
 
 
+def test_pending_digest_uses_the_familys_own_base_url_when_set(family):
+    family.base_url = "https://family.example.com"
+    family.save(update_fields=["base_url"])
+    _member(family, FamilyMembership.Role.OWNER, email="owner@example.com")
+    submitter = _member(family, FamilyMembership.Role.MEMBER)
+    _pending_suggestion(family, submitter)
+
+    send_suggestion_digests()
+
+    html, _ = mail.outbox[0].alternatives[0]
+    assert "https://family.example.com/suggestions/" in html
+
+
 def test_pending_digest_batches_several_suggestions_into_one_email_per_owner(family):
     _member(family, FamilyMembership.Role.EDITOR, email="editor@example.com")
     submitter = _member(family, FamilyMembership.Role.MEMBER)

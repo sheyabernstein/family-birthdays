@@ -30,7 +30,7 @@ DEFAULT_SMS_SENDER_ID = "FamilyTree"
 IDENTIFIER_PLACEHOLDER = "__RECIPIENT_IDENTIFIER__"
 
 
-def static_absolute_url(path: str) -> str:
+def static_absolute_url(path: str, *, base_url: str | None = None) -> str:
     """Builds an absolute, stable URL to a static asset, for embedding in email HTML.
 
     Used for the event-type icons (see
@@ -39,10 +39,22 @@ def static_absolute_url(path: str) -> str:
     and its apps) never renders a data URI image at all, while a hosted
     one just falls under Gmail's completely normal "images are blocked
     until you click Display images below" gate, the same as any other
-    email with images. Uses `settings.SITE_BASE_URL`, the same source
-    `absolute_url()` below uses - never `EMAIL_SENDING_DOMAIN`, which is
-    only about the `From:` address and has nothing to do with where a
-    static asset is actually served from (see AGENTS.md).
+    email with images. Defaults to `settings.SITE_BASE_URL`, the same
+    source `absolute_url()` below uses - never `EMAIL_SENDING_DOMAIN`,
+    which is only about the `From:` address and has nothing to do with
+    where a static asset is actually served from (see AGENTS.md).
+
+    Args:
+        path: The static asset path to resolve, as passed to Django's
+            own `static()`.
+        base_url: A family's own `Family.resolved_base_url`, when the
+            caller has one in scope - overrides `settings.SITE_BASE_URL`
+            for this one call. Callers resolve this themselves (this
+            module has no reason to import `tenants.models.Family`
+            directly) rather than this function reaching for a global
+            fallback silently - see `Family.base_url`'s own docstring
+            for what setting it actually requires (real DNS/proxy/TLS
+            routing, not just this field) before it's safe to use.
 
     Relies on `static()` resolving through the "staticfiles" storage's
     own `url()` - `config.storage.StableStaticFilesStorage` deliberately
@@ -51,10 +63,10 @@ def static_absolute_url(path: str) -> str:
     later `collectstatic` run reassigned the hash, since `Message.
     html_body` is rendered once and persisted, not re-rendered on read.
     """
-    return f"{settings.SITE_BASE_URL}{static(path)}"
+    return f"{base_url or settings.SITE_BASE_URL}{static(path)}"
 
 
-def absolute_url(view_name: str, *args, **kwargs) -> str:
+def absolute_url(view_name: str, *args, base_url: str | None = None, **kwargs) -> str:
     """Builds an absolute URL to a page on this site.
 
     E.g. My Notifications, linked from the email footer, or the sign-in
@@ -63,8 +75,12 @@ def absolute_url(view_name: str, *args, **kwargs) -> str:
     scheme that has to reflect settings.SITE_BASE_URL rather than
     whatever request.is_secure() would say - this app always terminates
     TLS upstream, so that's never a reliable signal, see AGENTS.md).
+
+    base_url overrides settings.SITE_BASE_URL for this one call - see
+    static_absolute_url's own docstring for what it means and why this
+    function doesn't resolve it from a Family itself.
     """
-    return f"{settings.SITE_BASE_URL}{reverse(view_name, args=args, kwargs=kwargs)}"
+    return f"{base_url or settings.SITE_BASE_URL}{reverse(view_name, args=args, kwargs=kwargs)}"
 
 
 def _inline_css(html: str) -> str:

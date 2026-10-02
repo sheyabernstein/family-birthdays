@@ -27,10 +27,6 @@
             <form method="post">
                 {% csrf_token %}
                 <div class="form-field">
-                    {% field_label sender_form.sms_sender_id %}{{ sender_form.sms_sender_id }}{{ sender_form.sms_sender_id.errors }}
-                    <p class="help-text">{{ sender_form.sms_sender_id.help_text }}</p>
-                </div>
-                <div class="form-field">
                     {% field_label sender_form.reply_to_email %}{{ sender_form.reply_to_email }}{{ sender_form.reply_to_email.errors }}
                     <p class="help-text">{{ sender_form.reply_to_email.help_text }}</p>
                 </div>
@@ -38,10 +34,6 @@
             </form>
         {% else %}
             <dl class="field-list">
-                <dt>SMS sender</dt>
-                <dd>
-                    {{ request.family.sms_sender_id|default:"FamilyTree (default)" }}
-                </dd>
                 <dt>Reply-to email</dt>
                 <dd>
                     {{ request.family.reply_to_email|default:"Not set" }}

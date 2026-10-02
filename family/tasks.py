@@ -177,10 +177,10 @@ def _send_pending_review_digests() -> None:
         .select_related(*_SUGGESTION_SELECT_RELATED)
         .order_by("family_id")
     )
-    review_url = absolute_url("family:suggestions")
     for _family_id, group in groupby(pending, key=lambda suggestion: suggestion.family_id):
         suggestions = list(group)
         family: Family = suggestions[0].family
+        review_url = absolute_url("family:suggestions", base_url=family.resolved_base_url)
         recipients = [
             (account, *channel_destination)
             for account in Account.objects.filter(
@@ -203,6 +203,7 @@ def _send_pending_review_digests() -> None:
                 "review_url": review_url,
                 "count": count,
                 "family_name": family.name,
+                "base_url": family.resolved_base_url,
             },
         )
 
@@ -235,7 +236,6 @@ def _send_resolved_digests() -> None:
         .select_related(*_SUGGESTION_SELECT_RELATED)
         .order_by("family_id", "submitted_by_id")
     )
-    review_url = absolute_url("family:suggestions")
     for (_family_id, _submitted_by_id), group in groupby(
         resolved, key=lambda suggestion: (suggestion.family_id, suggestion.submitted_by_id)
     ):
@@ -256,9 +256,10 @@ def _send_resolved_digests() -> None:
             sms_template="family/sms/suggestion_resolved.txt",
             context={
                 "suggestions": suggestions,
-                "review_url": review_url,
+                "review_url": absolute_url("family:suggestions", base_url=family.resolved_base_url),
                 "count": count,
                 "family_name": family.name,
+                "base_url": family.resolved_base_url,
             },
         )
 

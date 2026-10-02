@@ -97,7 +97,8 @@ class RequestMagicLinkView(View):
                 # instead, the same source of truth every other
                 # request-less absolute URL in this app already uses (see
                 # notifications.services._site_base_url).
-                url = absolute_url("accounts:verify", token)
+                base_url = family.resolved_base_url if family else None
+                url = absolute_url("accounts:verify", token, base_url=base_url)
 
                 if channel == ChannelEnum.EMAIL:
                     html = render_to_string(
@@ -107,6 +108,7 @@ class RequestMagicLinkView(View):
                             "code": code,
                             "ttl_minutes": ttl_minutes,
                             "family_name": family.name if family else None,
+                            "base_url": base_url,
                         },
                     )
                     subject, body = "Your sign-in link", html_to_plain_text(html)

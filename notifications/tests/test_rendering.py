@@ -103,6 +103,18 @@ def test_occurrence_email_renders_the_persons_own_template_with_an_icon(family, 
     assert f'href="{settings.SITE_BASE_URL}/notifications/?identifier={IDENTIFIER_PLACEHOLDER}"' in html
 
 
+def test_occurrence_email_uses_the_familys_own_base_url_when_set(family):
+    family.base_url = "https://family.example.com"
+    family.save(update_fields=["base_url"])
+    occurrence = _occurrence_for(family, EventType.BuiltinCode.BIRTHDAY)
+
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "https://family.example.com/static/notifications/img/event-icons/" in html
+    assert f'href="https://family.example.com/notifications/?identifier={IDENTIFIER_PLACEHOLDER}"' in html
+    assert settings.SITE_BASE_URL not in html
+
+
 @pytest.mark.parametrize(
     ["code"],
     [
@@ -721,6 +733,18 @@ def test_broadcast_email_includes_sanitized_text_and_tied_people(family):
     assert "Sari Rokach" in subject
 
 
+def test_broadcast_email_uses_the_familys_own_base_url_when_set(family):
+    family.base_url = "https://family.example.com"
+    family.save(update_fields=["base_url"])
+    owner = Account.objects.create_user(email="owner@example.com")
+    broadcast = Broadcast.objects.create(family=family, text="News", created_by=owner)
+
+    _subject, _body, html = _render_broadcast_message(broadcast, [], channel=ChannelEnum.EMAIL)
+
+    assert "https://family.example.com/static/notifications/img/event-icons/" in html
+    assert settings.SITE_BASE_URL not in html
+
+
 def test_broadcast_email_marks_a_deceased_tied_person(family):
     # A tagged person isn't this message's own subject the way an
     # occurrence's person/union is - it's a passing mention - so their
@@ -810,6 +834,20 @@ def test_absolute_url_builds_a_full_url_to_a_named_view():
 
     assert url.startswith(("http://", "https://"))
     assert url.endswith("/notifications/")
+
+
+def test_absolute_url_honors_a_given_base_url_override():
+    url = absolute_url("notifications:subscriptions", base_url="https://family.example.com")
+
+    assert url == "https://family.example.com/notifications/"
+
+
+def test_static_absolute_url_honors_a_given_base_url_override():
+    url = static_absolute_url(
+        "notifications/img/event-icons/birth.png", base_url="https://family.example.com"
+    )
+
+    assert url == "https://family.example.com/static/notifications/img/event-icons/birth.png"
 
 
 # --- send_email ---

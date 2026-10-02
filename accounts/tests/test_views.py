@@ -210,6 +210,19 @@ def test_request_magic_link_email_is_branded_when_the_account_has_exactly_one_fa
     assert f"Sent by {family.name}." in html
 
 
+def test_request_magic_link_email_uses_the_familys_own_base_url_when_set(client, family):
+    family.base_url = "https://family.example.com"
+    family.save(update_fields=["base_url"])
+    owner = _member(family, FamilyMembership.Role.OWNER)
+
+    client.post(reverse("accounts:request_link"), {"identifier": owner.email})
+
+    sent = mail.outbox[-1]
+    html, _ = sent.alternatives[0]
+    assert 'href="https://family.example.com/accounts/login/' in html
+    assert settings.SITE_BASE_URL not in html
+
+
 def test_request_magic_link_email_falls_back_to_the_default_brand_for_a_multi_family_account(client):
     account = Account.objects.create_user(email="multi@example.com")
     for name in ["Rokach Family", "Bernstein Family"]:
