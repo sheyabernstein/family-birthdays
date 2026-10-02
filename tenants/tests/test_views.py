@@ -119,7 +119,7 @@ def test_switch_family_rejects_a_family_you_are_not_a_member_of(client):
     assert client.session.get("family_id") != other_family.id
 
 
-def test_creating_a_family_saves_sender_branding(client):
+def test_creating_a_family_saves_reply_to_email(client):
     account = Account.objects.create_user(email="founder@example.com")
     account.user_permissions.add(
         Permission.objects.get(codename="add_family", content_type__app_label="tenants")
@@ -128,25 +128,11 @@ def test_creating_a_family_saves_sender_branding(client):
 
     client.post(
         "/family/create/",
-        {"name": "Branded Family", "sms_sender_id": "BrandFam", "reply_to_email": "reply@example.com"},
+        {"name": "Branded Family", "reply_to_email": "reply@example.com"},
     )
 
     family = Family.objects.get(name="Branded Family")
-    assert family.sms_sender_id == "BrandFam"
     assert family.reply_to_email == "reply@example.com"
-
-
-def test_creating_a_family_rejects_a_non_alphanumeric_sender_id(client):
-    account = Account.objects.create_user(email="founder@example.com")
-    account.user_permissions.add(
-        Permission.objects.get(codename="add_family", content_type__app_label="tenants")
-    )
-    client.force_login(account)
-
-    resp = client.post("/family/create/", {"name": "Bad Sender Family", "sms_sender_id": "Bad Sender!"})
-
-    assert resp.status_code == 200
-    assert not Family.objects.filter(name="Bad Sender Family").exists()
 
 
 def _member(family, role):
@@ -172,7 +158,7 @@ def test_family_settings_shows_the_editable_form_to_a_site_admin(client, family)
     resp = client.get("/family/settings/")
 
     assert resp.status_code == 200
-    assert b'name="sms_sender_id"' in resp.content
+    assert b'name="reply_to_email"' in resp.content
 
 
 def test_family_settings_warns_when_both_email_and_sms_sending_are_disabled(client, family):
@@ -213,16 +199,16 @@ def test_family_settings_shows_no_warning_when_sending_is_enabled(client, family
     ["role"], [[FamilyMembership.Role.OWNER], [FamilyMembership.Role.EDITOR]], ids=["owner", "editor"]
 )
 def test_family_settings_shows_read_only_values_without_the_change_family_permission(role, client, family):
-    family.sms_sender_id = "RokachFam"
-    family.save(update_fields=["sms_sender_id"])
+    family.reply_to_email = "reply@example.com"
+    family.save(update_fields=["reply_to_email"])
     member = _member(family, role)
     _login_as(client, member, family)
 
     resp = client.get("/family/settings/")
 
     assert resp.status_code == 200
-    assert b'name="sms_sender_id"' not in resp.content
-    assert b"RokachFam" in resp.content
+    assert b'name="reply_to_email"' not in resp.content
+    assert b"reply@example.com" in resp.content
 
 
 def test_family_settings_rejects_viewing_from_a_plain_member(client, family):
@@ -241,13 +227,10 @@ def test_family_settings_lets_a_site_admin_update_sender_branding(client, family
     )
     _login_as(client, owner, family)
 
-    resp = client.post(
-        "/family/settings/", {"sms_sender_id": "NewSender", "reply_to_email": "reply@example.com"}
-    )
+    resp = client.post("/family/settings/", {"reply_to_email": "reply@example.com"})
 
     assert resp.status_code == 302
     family.refresh_from_db()
-    assert family.sms_sender_id == "NewSender"
     assert family.reply_to_email == "reply@example.com"
 
 
@@ -389,8 +372,8 @@ def test_family_settings_rejects_updates_without_the_change_family_permission(ro
     member = _member(family=family, role=role)
     _login_as(client, member, family)
 
-    resp = client.post("/family/settings/", {"sms_sender_id": "Hijacked"})
+    resp = client.post("/family/settings/", {"reply_to_email": "hijacked@example.com"})
 
     assert resp.status_code == 403
     family.refresh_from_db()
-    assert family.sms_sender_id == ""
+    assert family.reply_to_email == ""

@@ -20,10 +20,6 @@
                        value="{{ name|default:'' }}"
                        placeholder="The Rokach Family">
                 <div class="form-field">
-                    {% field_label form.sms_sender_id %}{{ form.sms_sender_id }}{{ form.sms_sender_id.errors }}
-                    <p class="help-text">{{ form.sms_sender_id.help_text }}</p>
-                </div>
-                <div class="form-field">
                     {% field_label form.reply_to_email %}{{ form.reply_to_email }}{{ form.reply_to_email.errors }}
                     <p class="help-text">{{ form.reply_to_email.help_text }}</p>
                 </div>

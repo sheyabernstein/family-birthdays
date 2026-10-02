@@ -69,6 +69,40 @@ class Family(models.Model):
     # confirmed enabled).
     email_sending_enabled = models.BooleanField(default=False, verbose_name="email sending enabled")
     sms_sending_enabled = models.BooleanField(default=False, verbose_name="SMS sending enabled")
+    # Admin-only, same as the two sending toggles above - not on
+    # FamilySenderSettingsForm. Overrides settings.SITE_BASE_URL for
+    # every link this family's own emails/SMS generate (notifications.
+    # services.absolute_url/static_absolute_url) when set; blank (the
+    # default) falls back to the global setting, same blank-means-use-
+    # the-default shape as sms_sender_id above. This only controls what
+    # URL gets *written into* an outgoing message - it can't make a
+    # custom domain actually reach this app. That still needs real DNS,
+    # a reverse-proxy pointing it here, TLS, and the hostname added to
+    # ALLOWED_HOSTS/CSRF_TRUSTED_ORIGINS, all done separately in infra.
+    # Set this before that's in place and every link this family's
+    # messages generate silently breaks for its recipients.
+    base_url = models.URLField(
+        blank=True,
+        verbose_name="base URL",
+        help_text="Optional - overrides the site's default domain in links this family's own emails/texts generate. Leave blank to use the default.",
+    )
+    # Admin-only, same shape as base_url above, but a sharper risk: the
+    # global default (settings.EMAIL_SENDING_DOMAIN) is deliberately one
+    # domain verified once at the SES level, specifically so no family
+    # needs its own provider setup (see that setting's own comment in
+    # config/settings.py). Overriding this to a domain that isn't
+    # verified in SES with correct SPF/DKIM/DMARC doesn't just break a
+    # link the way base_url can - it fails the send outright (SES
+    # rejects it, or it lands as spam), for every email this family
+    # sends, immediately.
+    email_sending_domain = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="email sending domain",
+        help_text="Optional - overrides the domain this family's own emails send from (only safe once "
+        "that domain is verified in SES with correct SPF/DKIM/DMARC - otherwise every email this family "
+        "sends will fail or land as spam). Leave blank to use the shared default domain.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -91,17 +125,32 @@ class Family(models.Model):
 
     @property
     def sender_email(self) -> str:
-        """This family's own "From" address for email - noreply-{slug}@settings.EMAIL_SENDING_DOMAIN.
+        """This family's own "From" address for email - noreply-{slug}@ its own sending domain.
 
         Derived from slug, not a stored field, so it can't drift out of
         sync if the family gets renamed (slug is set once, at creation -
-        see save() above). One shared
-        sending domain across every family (verified at the domain level
-        with SES, not per-address), only the local-part varies - see
+        see save() above). The domain is settings.EMAIL_SENDING_DOMAIN
+        (one shared domain verified once across every family) unless
+        email_sending_domain overrides it - see that field's own
+        docstring for why doing so is riskier than it looks. Only the
+        local-part is family-specific by default; see
         notifications.services.send_email for where the display name
         (just Family.name - see AGENTS.md) gets paired with this.
         """
-        return f"noreply-{self.slug}@{settings.EMAIL_SENDING_DOMAIN}"
+        domain = self.email_sending_domain or settings.EMAIL_SENDING_DOMAIN
+        return f"noreply-{self.slug}@{domain}"
+
+    @property
+    def resolved_base_url(self) -> str:
+        """base_url with its trailing slash stripped, or settings.SITE_BASE_URL if blank.
+
+        Same trailing-slash normalization SITE_BASE_URL itself gets at
+        settings-load time (config/settings.py) - a URLField doesn't
+        reject a trailing slash the way SITE_BASE_URL's own env var
+        parsing would never produce one, so this strips it here instead
+        of validating it away at save time.
+        """
+        return self.base_url.rstrip("/") or settings.SITE_BASE_URL
 
 
 @reversion.register()
