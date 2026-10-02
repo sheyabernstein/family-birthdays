@@ -38,7 +38,10 @@ class SuggestionAdmin(admin.ModelAdmin):
 
     list_display = ("__str__", "family", "submitted_by", "status", "created_at")
     list_filter = ("status", "target_model")
-    list_select_related = ("submitted_by",)
+    list_select_related = (
+        "family",
+        "submitted_by",
+    )
     autocomplete_fields = (
         "submitted_by",
         "target_person",
@@ -48,4 +51,10 @@ class SuggestionAdmin(admin.ModelAdmin):
         "link_with",
         "resulting_person",
         "reviewed_by",
+    )
+    raw_id_fields = (
+        "pending_message",
+        "resolved_message",
+        "applied_revision",
+        "link_applied_revision",
     )

@@ -16,6 +16,26 @@ from notifications.audience import preference_status
 from notifications.enums import ChannelEnum
 from notifications.models import EventType
 
+# A single GSM-7 SMS segment - see AGENTS.md. Deliberately conservative
+# rather than budgeting for 2-segment messages: forces genuinely terse
+# copy and never risks a family member being charged for (or a flaky
+# carrier splitting) a multi-part text over what should be one line.
+SMS_CHAR_BUDGET = 160
+
+
+def truncate_for_sms(text: str, budget: int = SMS_CHAR_BUDGET) -> str:
+    """Hard-truncates `text` to `budget` characters, with a trailing ellipsis if it had to cut.
+
+    Shared by every SMS body this app renders (occurrence/broadcast
+    templates in notifications.tasks, suggestion-digest templates in
+    family.tasks) - moved here once a second, independent app needed the
+    exact same budget-truncation, not kept as a notifications.tasks
+    private helper (see AGENTS.md's helpers.py note).
+    """
+    if len(text) <= budget:
+        return text
+    return text[: budget - 1].rstrip() + "…"
+
 
 def html_to_plain_text(html_content: str) -> str:
     """Collapses rendered HTML down to a readable plain-text fallback.

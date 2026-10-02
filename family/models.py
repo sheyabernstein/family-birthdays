@@ -830,6 +830,38 @@ class Suggestion(models.Model):
     reviewed_at = models.DateTimeField(null=True, blank=True)
     reviewer_note = models.TextField(blank=True)
 
+    # Set once this row has been claimed into a batched digest - see
+    # family.tasks.send_suggestion_digests. Two separate FKs, not one,
+    # since they mark two different lifecycle events for two different
+    # audiences (owners/editors get told about a still-PENDING row;
+    # submitted_by gets told once it's resolved) - a suggestion is
+    # claimed into pending_message first, then independently into
+    # resolved_message later. The FK itself is the claim marker (non-null
+    # = already claimed, checked by family.tasks' own sweep) - and, as a
+    # bonus, a real message to click through to and inspect (status,
+    # provider_response, rendered body) rather than a bare timestamp.
+    # Points at one representative Message, not every copy actually sent:
+    # a pending-review digest fans out to every owner/editor in the
+    # family as its own separate Message row (same content, different
+    # destination - mirrors how Broadcast already fans out), and this FK
+    # can only reference one of those. A resolved-digest's own Message is
+    # always exactly one recipient (submitted_by), so that FK is a
+    # complete, lossless trace; pending_message is a representative
+    # sample for debugging, not a full per-recipient audit trail.
+    #
+    # on_delete=SET_NULL, not CASCADE: deleting the Message this points
+    # at un-claims this row (the next sweep would re-notify about it),
+    # same trade-off a plain boolean/timestamp claim marker wouldn't
+    # have - accepted since nothing in this app deletes a Message today,
+    # but worth knowing before adding one (a retention job, an admin
+    # bulk-delete action) that could touch a row one of these points at.
+    pending_message = models.ForeignKey(
+        "notifications.Message", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    resolved_message = models.ForeignKey(
+        "notifications.Message", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
     # The real reversion.Revision each actual save produced - set by
     # SuggestionApplyMixin right after the real PersonForm/UnionForm
     # save succeeds. applied_revision is the primary save (an edit, a
@@ -903,3 +935,34 @@ class Suggestion(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_target_model_display()} suggestion by {self.submitted_by} ({self.status})"
+
+    @property
+    def subject_label(self) -> str:
+        """Plain-text "what is this about" - the review-digest emails' own sibling of suggestion_subject.
+
+        family.templatetags.family_extras.suggestion_subject renders the
+        same information for the in-app review queue, but as HTML with
+        reverse()-built links - those are relative paths, useless in an
+        email with no request to resolve them against (see
+        notifications.services.absolute_url's own docstring). This
+        duplicates that branching rather than sharing it, since the two
+        render fundamentally different output (plain text vs. linked
+        HTML) for two different contexts.
+        """
+        if self.target_model == self.TargetModel.PERSON:
+            if self.target_person_id:
+                return f"Edit: {self.target_person.display_name}"
+            new_name = (
+                self.proposed_changes.get("first_name_he")
+                or self.proposed_changes.get("first_name_en")
+                or "New person"
+            )
+            subject = self.resulting_person.display_name if self.resulting_person_id else new_name
+            if self.link_kind:
+                return f"{subject} - {self.get_link_kind_display().lower()} {self.link_with.display_name}"
+            return f"New person: {subject}"
+        if self.target_union_id:
+            return f"Union: {self.target_union.person_a.display_name} & {self.target_union.person_b.display_name}"
+        if self.proposed_person_a_id and self.proposed_person_b_id:
+            return f"New union: {self.proposed_person_a.display_name} & {self.proposed_person_b.display_name}"
+        return "New union"

@@ -392,6 +392,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "notifications.tasks.send_due_broadcasts",
         "schedule": crontab(minute="*/5"),
     },
+    "send-suggestion-digests": {
+        "task": "family.tasks.send_suggestion_digests",
+        "schedule": crontab(minute="*/30"),
+    },
 }
 
 # --- Observability ---

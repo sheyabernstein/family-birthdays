@@ -43,3 +43,4 @@ class NotificationEventTypeLabel(models.TextChoices):
 
     CUSTOM = "custom", "Custom event type"
     MAGIC_LINK = "magic_link", "Magic link sign-in"
+    SUGGESTIONS = "suggestions", "Suggestions"

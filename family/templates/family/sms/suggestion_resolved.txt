@@ -1,0 +1,1 @@
+{% autoescape off %}Your suggestion{{ count|pluralize }} {{ count|pluralize:"was,were" }} reviewed: {{ review_url }}{% endautoescape %}
