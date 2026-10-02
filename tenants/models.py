@@ -25,12 +25,12 @@ class Family(models.Model):
 
     name = models.CharField(max_length=255)
     slug = models.SlugField(unique=True, blank=True)
-    # Admin-only, same as the two sending toggles above - not on
+    # Admin-only, same as the two sending toggles below - not on
     # FamilySenderSettingsForm. Overrides settings.SITE_BASE_URL for
     # every link this family's own emails/SMS generate (notifications.
     # services.absolute_url/static_absolute_url) when set; blank (the
     # default) falls back to the global setting, same blank-means-use-
-    # the-default shape as sms_sender_id above. This only controls what
+    # the-default shape as sms_sender_id below. This only controls what
     # URL gets *written into* an outgoing message - it can't make a
     # custom domain actually reach this app. That still needs real DNS,
     # a reverse-proxy pointing it here, TLS, and the hostname added to
