@@ -40,20 +40,40 @@ from notifications.models import EventType, NotificationPreference
 from tenants.models import Family, FamilyMembership
 
 _CHANNEL_SPECS = [
-    (ChannelEnum.EMAIL, "email_notifications_enabled", lambda account: account.email),
-    (ChannelEnum.SMS, "sms_notifications_enabled", lambda account: account.phone),
+    (
+        ChannelEnum.EMAIL,
+        "email_notifications_enabled",
+        "email_sending_enabled",
+        lambda account: account.email,
+    ),
+    (ChannelEnum.SMS, "sms_notifications_enabled", "sms_sending_enabled", lambda account: account.phone),
 ]
 
 
-def available_channels(account: Account) -> list[tuple[str, str]]:
-    """(channel, destination) pairs the account could ever be notified on at all.
+def available_channels(account: Account, *, family: Family) -> list[tuple[str, str]]:
+    """(channel, destination) pairs the account could ever be notified on at all, for this family.
 
-    Has a destination on file and isn't switched off globally. Ignores
+    Has a destination on file, isn't switched off globally for the
+    account, and isn't switched off tenant-wide for `family`
+    (Family.email_sending_enabled/sms_sending_enabled - a site-admin-only
+    kill switch, off by default - see that field's own docstring).
+    `family` is required, not optional, so a new call site can't
+    silently skip the tenant-wide check: every real caller already knows
+    which family a send would be branded under (the same one
+    notifications.models.Message.family resolves to - person.family, or
+    union.person_a.family for a union-anchored event - not necessarily
+    the viewer's own currently-active session family, since a recipient
+    can be an in-law viewing something in their spouse's family).
+    Checked this early - not merely at send time - so a disabled channel
+    is never even considered a candidate when computing an audience, and
+    no Message row is ever created for it at all. Ignores per-account
     preferences; use preference_status() for that.
     """
     result: list[tuple[str, str]] = []
-    for channel, enabled_attr, destination_fn in _CHANNEL_SPECS:
-        if not getattr(account, enabled_attr):
+    for channel, account_enabled_attr, family_enabled_attr, destination_fn in _CHANNEL_SPECS:
+        if not getattr(account, account_enabled_attr):
+            continue
+        if not getattr(family, family_enabled_attr):
             continue
         destination = destination_fn(account)
         if destination:
@@ -266,15 +286,22 @@ def preference_status(
 
 
 def channels_for_account(
-    account: Account, event_type: EventType, *, person: Person | None = None, union: Union | None = None
+    account: Account,
+    event_type: EventType,
+    *,
+    family: Family,
+    person: Person | None = None,
+    union: Union | None = None,
 ) -> list[tuple[str, str]]:
     """(channel, destination) pairs this account would actually be notified on for this event.
 
-    Applies the full preference resolution above.
+    Applies the full preference resolution above. family is passed
+    straight through to available_channels() - see that function's own
+    docstring for what it means and why it's required.
     """
     return [
         (channel, destination)
-        for channel, destination in available_channels(account)
+        for channel, destination in available_channels(account, family=family)
         if preference_status(account, event_type, person=person, union=union, channel=channel).subscribed
     ]
 
@@ -449,12 +476,13 @@ class PreferenceResolver:
         account: Account,
         event_type: EventType,
         *,
+        family: Family,
         person: Person | None = None,
         union: Union | None = None,
     ) -> list[tuple[str, str]]:
         return [
             (channel, destination)
-            for channel, destination in available_channels(account)
+            for channel, destination in available_channels(account, family=family)
             if self.preference_status(
                 account, event_type, person=person, union=union, channel=channel
             ).subscribed
@@ -467,8 +495,13 @@ def resolve_audience(
     """(account, channel, destination) for everyone who should be notified about this event."""
     if person is not None:
         family_ids = [person.family_id]
+        sending_family = person.family
     else:
         family_ids = [union.person_a.family_id, union.person_b.family_id]
+        # Matches notifications.models.Message.family's own resolution
+        # for a union-anchored message - always person_a's side, not the
+        # in-law's, regardless of which side a given recipient is on.
+        sending_family = union.person_a.family
 
     accounts = list(
         Account.objects.filter(family_memberships__family_id__in=family_ids, is_active=True).distinct()
@@ -478,7 +511,7 @@ def resolve_audience(
     audience = []
     for account in accounts:
         for channel, destination in resolver.channels_for_account(
-            account, event_type, person=person, union=union
+            account, event_type, family=sending_family, person=person, union=union
         ):
             audience.append((account, channel, destination))
     return audience
@@ -518,9 +551,11 @@ def resolve_broadcast_audience(
         if people:
             channels: set[tuple[str, str]] = set()
             for person in people:
-                channels.update(resolver.channels_for_account(account, event_type, person=person))
+                channels.update(
+                    resolver.channels_for_account(account, event_type, family=family, person=person)
+                )
         else:
-            channels = set(resolver.channels_for_account(account, event_type))
+            channels = set(resolver.channels_for_account(account, event_type, family=family))
 
         for channel, destination in channels:
             key = (account.id, channel, destination)

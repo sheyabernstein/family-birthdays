@@ -240,7 +240,9 @@ class DashboardView(FamilyRequiredMixin, TemplateView):
                 | models.Q(union__person_a__family=request.family)
                 | models.Q(union__person_b__family=request.family)
             )
-            .select_related("person", "union", "union__person_a", "union__person_b", "event_type")
+            .select_related(
+                "person__family", "union__person_a__family", "union__person_b__family", "event_type"
+            )
             .order_by("occurrence_date", "send_date", "event_type__name")[:100]
         )
 
@@ -262,8 +264,20 @@ class DashboardView(FamilyRequiredMixin, TemplateView):
 
         upcoming = []
         for occurrence in candidates:
+            # Matches notifications.models.Message.family's own
+            # resolution - person.family, or union.person_a.family for a
+            # union-anchored occurrence, not necessarily request.family.
+            sending_family = (
+                occurrence.person.family
+                if occurrence.person is not None
+                else occurrence.union.person_a.family
+            )
             if resolver.channels_for_account(
-                request.user, occurrence.event_type, person=occurrence.person, union=occurrence.union
+                request.user,
+                occurrence.event_type,
+                family=sending_family,
+                person=occurrence.person,
+                union=occurrence.union,
             ):
                 upcoming.append(occurrence)
             if len(upcoming) >= 20:
@@ -439,7 +453,12 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
                     add_child_params[spouse_field] = str(spouse.uuid)
             context["add_child_url"] = f"{reverse('family:person_create')}?{urlencode(add_child_params)}"
 
-        my_channels = available_channels(request.user)
+        # person's own family, not request.family - this page's subject
+        # can be an in-law viewed from the other side of a Union. Only
+        # for the person-anchored rows below - union_rows resolves its
+        # own per-union channels separately, since a union's real
+        # sending family (union.person_a's) isn't always this same one.
+        my_channels = available_channels(request.user, family=person.family)
 
         available_event_types = EventType.objects.filter(
             models.Q(family__isnull=True) | models.Q(family=request.family)
@@ -496,6 +515,23 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
             # so a toggle here would be a dead control either way.
             if not union_is_eligible_for_notifications(union):
                 continue
+            # Matches resolve_audience's own resolution for a union-
+            # anchored message - always union.person_a's family, not
+            # necessarily this page's own subject (person can be
+            # person_b of a cross-family marriage). Reusing my_channels
+            # here was safe back when available_channels was purely
+            # account-level, but once it started also gating on a
+            # family's own sending toggle, a channel the subject's own
+            # family allows but this union's real sending family
+            # disables would render as a toggleable control that could
+            # never actually deliver anything, with no indication to the
+            # user. Skipping the union entirely when it has none - not
+            # rendering it with empty toggles - matches this same
+            # function's existing "don't offer a dead control" handling
+            # for an untracked person/inapplicable event type above.
+            union_channels = available_channels(request.user, family=union.person_a.family)
+            if not union_channels:
+                continue
             for event_type in union_event_types:
                 # Wedding is only relevant before the wedding itself has
                 # happened; Anniversary is the reverse - there's nothing
@@ -514,7 +550,7 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
                     continue
                 if event_type.code == EventType.BuiltinCode.ENGAGEMENT and not union.is_upcoming:
                     continue
-                channels = channel_rows(request.user, event_type, my_channels, union=union)
+                channels = channel_rows(request.user, event_type, union_channels, union=union)
                 union_rows.append({"union": union, "event_type": event_type, "channels": channels})
 
         has_any_channel = bool(my_channels)

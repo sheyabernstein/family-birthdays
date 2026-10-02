@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load form_extras humanize %}
+{% load form_extras family_extras humanize %}
 {% block title %}{{ request.family.name }} settings - Family Tree{% endblock %}
 {% block content %}
     <div class="page-header">
@@ -8,6 +8,21 @@
     <div class="card">
         <h2>Notification branding</h2>
         <p class="muted">How this family's texts and emails identify themselves to recipients.</p>
+        {% if not request.family.email_sending_enabled or not request.family.sms_sending_enabled %}
+            <p class="help-text">
+                {% icon "triangle-alert" %}
+                {% if not request.family.email_sending_enabled and not request.family.sms_sending_enabled %}
+                    Email and SMS sending are currently turned off for this family - contact a site admin
+                    to enable them.
+                {% elif not request.family.email_sending_enabled %}
+                    Email sending is currently turned off for this family - contact a site admin to enable
+                    it.
+                {% else %}
+                    SMS sending is currently turned off for this family - contact a site admin to enable
+                    it.
+                {% endif %}
+            </p>
+        {% endif %}
         {% if perms.tenants.change_family %}
             <form method="post">
                 {% csrf_token %}

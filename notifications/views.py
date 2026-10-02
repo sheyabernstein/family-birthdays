@@ -69,7 +69,7 @@ class SubscriptionsView(FamilyRequiredMixin, TemplateView):
         account = self.request.user
         context["account"] = account
 
-        my_channels = [code for code, _destination in available_channels(account)]
+        my_channels = [code for code, _destination in available_channels(account, family=self.request.family)]
         event_types = EventType.objects.filter(
             models.Q(family__isnull=True) | models.Q(family=self.request.family)
         )
