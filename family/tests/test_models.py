@@ -297,6 +297,49 @@ def test_patronymic_label_is_none_without_a_recorded_father(family):
     assert person.patronymic_label is None
 
 
+@pytest.mark.parametrize(
+    ["first_name_he", "expected"],
+    [
+        ["ילד", True],
+        ["ילדה", True],
+        ["יעקב", False],
+    ],
+    ids=["unnamed male placeholder", "unnamed female placeholder", "a real name"],
+)
+def test_is_unnamed_checks_the_placeholder_constants(family, first_name_he, expected):
+    person = Person.objects.create(family=family, first_name_he=first_name_he)
+
+    assert person.is_unnamed is expected
+
+
+@pytest.mark.parametrize(
+    ["gender", "expected"],
+    [
+        [Person.Gender.MALE, "boy"],
+        [Person.Gender.FEMALE, "girl"],
+        ["", ""],
+    ],
+    ids=["male", "female", "gender not recorded"],
+)
+def test_gender_noun_en_is_blank_rather_than_a_generic_noun(family, gender, expected):
+    person = Person.objects.create(family=family, first_name_he="ילד", gender=gender)
+
+    assert person.gender_noun_en == expected
+
+
+def test_is_newborn_for_hebrew_year_matches_the_birth_year(family):
+    person = Person.objects.create(family=family, first_name_he="ילד", dob_hebrew_year=5786)
+
+    assert person.is_newborn_for_hebrew_year(5786) is True
+    assert person.is_newborn_for_hebrew_year(5787) is False
+
+
+def test_is_newborn_for_hebrew_year_is_false_without_a_recorded_hebrew_birth_year(family):
+    person = Person.objects.create(family=family, first_name_he="ילד")
+
+    assert person.is_newborn_for_hebrew_year(5786) is False
+
+
 def test_display_name_prefers_nickname(family):
     person = Person(family=family, first_name_en="Robert", last_name_en="Smith", nickname="Bobby")
     assert person.display_name == "Bobby"

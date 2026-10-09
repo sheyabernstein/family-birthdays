@@ -1,17 +1,23 @@
 {% extends "email/_base.html" %}
 {% load family_extras notifications_extras %}
-{% block title %}{{ occurrence.person.display_name }}'s birthday{% endblock %}
+{% block title %}{% if is_newborn %}New baby!{% else %}{{ occurrence.person.display_name }}'s birthday{% endif %}{% endblock %}
 {% block icon %}
     {% event_icon_url "notifications/img/event-icons/birth.png" %}
 {% endblock %}
 {% block icon_alt %}Birthday{% endblock %}
 {% block body %}
-    {% if is_late %}
+    {% if is_newborn %}
+        {% with parents=occurrence.person.living_tracked_parent_names %}
+            <p><strong>Mazel tov!</strong> {% if parents %}{{ parents|join:" & " }} had{% else %}There's{% endif %} a new baby{% with noun=occurrence.person.gender_noun_en %}{% if noun %} {{ noun }}{% endif %}{% endwith %}{% if not occurrence.person.is_unnamed %}, <strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}{% endif %}{% if is_late %} {{ occurrence.occurrence_date|weekday_naturalday:today }}{% endif %}!</p>
+        {% endwith %}
+    {% elif is_late %}
         <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s birthday was {{ occurrence.occurrence_date|weekday_naturalday:today }}.</p>
     {% else %}
         <p><strong>{{ occurrence.person.display_name }}</strong>{{ occurrence.person|with_hebrew_first_name }}'s birthday is {{ occurrence.occurrence_date|weekday_naturalday:today }}!</p>
     {% endif %}
-    {% include "notifications/email/_parents.html" with person=occurrence.person %}
+    {% if not is_newborn %}
+        {% include "notifications/email/_parents.html" with person=occurrence.person %}
+    {% endif %}
     <p class="muted" style="font-size: 14px;">
         {{ occurrence.occurrence_date|hebrew_str }} · {{ occurrence.occurrence_date|date:"l, F j, Y" }}
     </p>

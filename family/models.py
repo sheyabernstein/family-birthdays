@@ -13,6 +13,14 @@ from family.hebrew import format_hebrew_date, hebrew_to_gregorian
 
 HEBREW_MONTH_CHOICES = [(m.value, m.name.replace("_", " ").title()) for m in Months]
 
+# A newborn isn't named yet - Jewish custom names a girl on the first
+# Shabbos after birth, a boy at his bris (8 days) - but first_name_he is
+# required, so these are the placeholder values the Hebrew-name help text
+# points editors at. Person.is_unnamed is the one place that compares
+# against them; nothing else needs to know the literal strings.
+UNNAMED_MALE_HE = "ילד"
+UNNAMED_FEMALE_HE = "ילדה"
+
 # Hebrew Unicode block (U+0590-U+05FF - includes Hebrew punctuation like
 # the ״ in ע״ה, not just the letters) - used by
 # Person.display_name_is_hebrew to detect the actual script of the
@@ -90,7 +98,14 @@ class Person(models.Model):
 
     first_name_en = models.CharField(max_length=100, blank=True, verbose_name="first name (English)")
     last_name_en = models.CharField(max_length=100, blank=True, verbose_name="last name (English)")
-    first_name_he = models.CharField(max_length=100, verbose_name="first name (Hebrew)")
+    first_name_he = models.CharField(
+        max_length=100,
+        verbose_name="first name (Hebrew)",
+        help_text=(
+            f'Not yet named? Use "{UNNAMED_MALE_HE}"/"{UNNAMED_FEMALE_HE}" until the naming - the '
+            "birthday notification recognizes those and announces a new baby instead."
+        ),
+    )
     last_name_he = models.CharField(max_length=100, blank=True, verbose_name="last name (Hebrew)")
     nickname = models.CharField(max_length=100, blank=True)
     gender = models.CharField(max_length=1, choices=Gender.choices, blank=True)
@@ -312,6 +327,28 @@ class Person(models.Model):
         return "" if self.is_living else " ע״ה"
 
     @property
+    def living_tracked_parent_names(self) -> list[str]:
+        """First names (or nicknames) of this person's living, tracked parents - the shared half of parents_label.
+
+        Only *living*, *tracked* parents are used - an untracked parent
+        (`notifications_enabled=False`, e.g. an in-law's own parent,
+        entered only so the tree renders - see that field's own
+        docstring) is a lineage-only stub outside the family's actual
+        active sphere, and naming one in an otherwise personal
+        notification would read as confusing ("who's that?") rather
+        than helpful. Pulled out of parents_label so the newborn-
+        announcement copy in notifications/templates/notifications/
+        {email,sms}/birthday.* can build its own sentence ("Kivi &
+        Malki had a new baby boy!") from the same filtering rather than
+        duplicating it.
+        """
+        return [
+            p.nickname or p.first_name_en or p.first_name_he
+            for p in (self.father, self.mother)
+            if p is not None and p.is_living and p.notifications_enabled
+        ]
+
+    @property
     def parents_label(self) -> str | None:
         """A short "Parent & Parent's FirstName" label - the way people actually get told apart.
 
@@ -328,27 +365,60 @@ class Person(models.Model):
         in this app's own data) - but there's no reason to withhold it
         the rest of the time.
 
-        Only *living*, *tracked* parents are used - an untracked parent
-        (`notifications_enabled=False`, e.g. an in-law's own parent,
-        entered only so the tree renders - see that field's own
-        docstring) is a lineage-only stub outside the family's actual
-        active sphere, and naming one in an otherwise personal
-        notification would read as confusing ("who's that?") rather
-        than helpful. First names (or nicknames) only, for both the
-        parents and this person - the surname is already given in full
-        wherever this label is shown, so repeating it three times in
-        one short phrase ("Shloime Rokach & Bruchele Rokach's Blimi
-        Rokach") would be the opposite of concise.
+        First names (or nicknames) only, for both the parents and this
+        person - the surname is already given in full wherever this
+        label is shown, so repeating it three times in one short phrase
+        ("Shloime Rokach & Bruchele Rokach's Blimi Rokach") would be the
+        opposite of concise.
         """
-        living_parent_names = [
-            p.nickname or p.first_name_en or p.first_name_he
-            for p in (self.father, self.mother)
-            if p is not None and p.is_living and p.notifications_enabled
-        ]
+        living_parent_names = self.living_tracked_parent_names
         if not living_parent_names:
             return None
         parents = " & ".join(living_parent_names)
         return f"{parents}'s {self.nickname or self.first_name_en or self.first_name_he}"
+
+    @property
+    def is_unnamed(self) -> bool:
+        """Whether first_name_he is still one of the UNNAMED_MALE_HE/UNNAMED_FEMALE_HE placeholders.
+
+        The one place that compares against those literal constants -
+        notifications/templates/notifications/{email,sms}/birthday.*
+        use this to decide whether to actually say the baby's name or
+        to leave it out entirely (see those templates' own newborn
+        branch), never the constants themselves.
+        """
+        return self.first_name_he in {UNNAMED_MALE_HE, UNNAMED_FEMALE_HE}
+
+    @property
+    def gender_noun_en(self) -> str:
+        """English boy/girl noun for a newborn announcement, or "" when gender isn't recorded.
+
+        gender is an optional field (unlike first_name_he), so a blank
+        value is a real case to handle here, not an edge case to assume
+        away. Returns "", not a gender-neutral noun like "baby" - the
+        birthday templates already say "a new baby" on their own, and
+        appending this only when it's non-empty (see those templates'
+        own newborn branch) is simpler than this property returning
+        "baby" and the caller having to notice and drop the duplicate.
+        """
+        if self.gender == Person.Gender.MALE:
+            return "boy"
+        if self.gender == Person.Gender.FEMALE:
+            return "girl"
+        return ""
+
+    def is_newborn_for_hebrew_year(self, hebrew_year: int) -> bool:
+        """Whether `hebrew_year` is this person's own Hebrew birth year - i.e., their Birthday occurrence that year is the day of birth itself, not a real birthday yet.
+
+        Takes the occurrence's own hebrew_year rather than comparing
+        against today's Hebrew year, for the same reason
+        person_has_passed_coming_of_age prefers dob_hebrew_year over the
+        Gregorian-only Person.age: a late-rendered catch-up send (see
+        notifications/AGENTS.md's send_date-in-the-past bullet) should
+        still get this right even if "today" has since crossed into the
+        next Hebrew year.
+        """
+        return self.dob_hebrew_year is not None and hebrew_year == self.dob_hebrew_year
 
     @property
     def patronymic_label(self) -> str | None:

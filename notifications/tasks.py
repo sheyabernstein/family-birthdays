@@ -721,11 +721,23 @@ def _occurrence_template_context(
     # own send_date instead of whenever the preview happens to be
     # requested - see OccurrencePreviewView and weekday_naturalday's own
     # docstring for why that's an explicit as_of, not a mocked clock.
+    # is_newborn: whether this occurrence is the Hebrew year of the
+    # person's own birth - i.e. the day of birth itself, not a real
+    # birthday yet. Birthday.html/.txt branch on it to announce a new
+    # baby instead of "happy birthday" (see Person.is_newborn_for_hebrew_
+    # year's own docstring for why occurrence.hebrew_year, not "today").
+    # Always False for a union-anchored occurrence or any non-Birthday
+    # event type - harmless to compute unconditionally since nothing
+    # else reads it.
+    is_newborn = occurrence.person is not None and occurrence.person.is_newborn_for_hebrew_year(
+        occurrence.hebrew_year
+    )
     return {
         "occurrence": occurrence,
         "family_name": family.name,
         "base_url": family.resolved_base_url,
         "is_late": occurrence.occurrence_date < today,
+        "is_newborn": is_newborn,
         "today": today,
         "first_person": first_person,
         "second_person": second_person,
@@ -736,19 +748,20 @@ def _occurrence_subject(
     occurrence: Occurrence,
     *,
     is_late: bool,
+    is_newborn: bool,
     today: dt.date,
     first_person: Person | None,
     second_person: Person | None,
 ) -> str:
     """Builds the email subject line for one occurrence.
 
-    Mirrors the body templates' own on-time/late/coming-up wording (see
-    _occurrence_template_context's is_late, and its weekday_naturalday
-    use) so the subject line never disagrees with the body it's paired
-    with - a subject claiming "today" over a body that says "was on
-    <date>" (a late catch-up send) or "coming up" (Wedding, sent
-    notify_days_before ahead of the day itself) would be a confusing
-    mismatch for whoever's just glancing at their inbox.
+    Mirrors the body templates' own on-time/late/coming-up/newborn
+    wording (see _occurrence_template_context's is_late/is_newborn, and
+    its weekday_naturalday use) so the subject line never disagrees with
+    the body it's paired with - a subject claiming "today" over a body
+    that says "was on <date>" (a late catch-up send) or "coming up"
+    (Wedding, sent notify_days_before ahead of the day itself) would be a
+    confusing mismatch for whoever's just glancing at their inbox.
 
     first_person/second_person (already resolved by
     _occurrence_template_context, per-recipient - see Union.ordered_pair)
@@ -760,6 +773,13 @@ def _occurrence_subject(
     else:
         name = f"{first_person.display_name} & {second_person.display_name}"
     event_name = occurrence.event_type.name
+    if is_newborn:
+        # The person's own display_name is still the UNNAMED_MALE_HE/
+        # UNNAMED_FEMALE_HE placeholder at this point as often as not -
+        # "ילד - new baby boy" reads as a mistake, not an announcement.
+        noun = occurrence.person.gender_noun_en
+        label = f"new baby {noun}" if noun else "new baby"
+        return label if occurrence.person.is_unnamed else f"{name} - {label}"
     if is_late:
         return f"{name} - {event_name} was {weekday_naturalday(occurrence.occurrence_date, today)}"
     if occurrence.event_type.code == EventType.BuiltinCode.WEDDING:
@@ -812,6 +832,7 @@ def _render_occurrence_message(
         subject = _occurrence_subject(
             occurrence,
             is_late=context["is_late"],
+            is_newborn=context["is_newborn"],
             today=context["today"],
             first_person=context["first_person"],
             second_person=context["second_person"],

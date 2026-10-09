@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from accounts.models import Account
 from family.models import Person, Union
-from family.templatetags.family_extras import hebrew_str
+from family.templatetags.family_extras import hebrew_str, weekday_naturalday
 from notifications.enums import ChannelEnum, ShiftReason
 from notifications.helpers import SMS_CHAR_BUDGET, html_to_plain_text
 from notifications.models import Broadcast, EventType, Occurrence
@@ -713,6 +713,126 @@ def test_wedding_subject_says_was_on_when_late(family):
 
     assert "was" in subject
     assert "coming up" not in subject
+
+
+# --- Newborn wording for Birthday ---
+
+
+def _newborn_occurrence_for(family, *, first_name_he="ילד", gender="", father=None, mother=None, days_ago=0):
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
+    today = timezone.localdate()
+    dob = today - dt.timedelta(days=days_ago)
+    person = Person.objects.create(
+        family=family,
+        first_name_he=first_name_he,
+        gender=gender,
+        father=father,
+        mother=mother,
+        dob_gregorian=dob,
+        dob_hebrew_year=5786,
+    )
+    return Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5786,
+        occurrence_date=dob,
+        send_date=dob,
+    )
+
+
+def test_newborn_birthday_announces_a_baby_instead_of_a_birthday(family):
+    father = Person.objects.create(family=family, first_name_en="Kivi", last_name_en="Rokach")
+    mother = Person.objects.create(family=family, first_name_en="Malki", last_name_en="Rokach")
+    occurrence = _newborn_occurrence_for(family, gender=Person.Gender.MALE, father=father, mother=mother)
+
+    subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "Kivi & Malki had a new baby boy!" in html
+    assert "Kivi & Malki had a new baby boy!" in body
+    assert "new baby boy" in subject
+    assert "birthday is" not in html and "birthday was" not in html
+
+
+def test_newborn_birthday_omits_the_placeholder_name(family):
+    # Showing "ילד" as if it were the baby's real name would read as a
+    # mistake, not an announcement - the whole point of is_unnamed.
+    occurrence = _newborn_occurrence_for(family, first_name_he="ילד", gender=Person.Gender.MALE)
+
+    _subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "ילד" not in html
+    assert "ילד" not in body
+
+
+def test_newborn_birthday_names_the_baby_once_actually_named(family):
+    occurrence = _newborn_occurrence_for(family, first_name_he="יוסף", gender=Person.Gender.MALE)
+    occurrence.person.first_name_en = "Yossi"
+    occurrence.person.save()
+
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "new baby boy, <strong>Yossi</strong>" in html
+
+
+def test_newborn_birthday_falls_back_to_gender_neutral_wording_without_a_recorded_gender(family):
+    occurrence = _newborn_occurrence_for(family, gender="")
+
+    _subject, body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "a new baby!" in html
+    assert "a new baby!" in body
+
+
+def test_newborn_birthday_falls_back_without_a_living_tracked_parent(family):
+    occurrence = _newborn_occurrence_for(family, gender=Person.Gender.FEMALE)
+
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "There's a new baby girl!" in html
+
+
+def test_newborn_birthday_says_when_it_was_a_late_catchup_send(family):
+    # Entering a newborn today can still only send on the next tick -
+    # see notifications/AGENTS.md's send_date-in-the-past bullet - and if
+    # that's delayed further, is_late kicks in exactly as it does for an
+    # ordinary birthday.
+    occurrence = _newborn_occurrence_for(family, gender=Person.Gender.MALE, days_ago=3)
+
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "new baby boy" in html
+    assert weekday_naturalday(occurrence.occurrence_date, timezone.localdate()) in html
+
+
+def test_newborn_birthday_is_only_true_in_the_persons_own_birth_year(family):
+    # A real first birthday (hebrew_year one past dob_hebrew_year) is an
+    # ordinary birthday again, not a newborn announcement.
+    person = Person.objects.create(
+        family=family, first_name_he="יוסף", first_name_en="Yossi", dob_hebrew_year=5786
+    )
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.BIRTHDAY)
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5787,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    _subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "birthday is today" in html
+    assert "new baby" not in html
+
+
+def test_newborn_birthday_sms_omits_the_placeholder_name_and_stays_in_budget(family):
+    occurrence = _newborn_occurrence_for(family, first_name_he="ילדה", gender=Person.Gender.FEMALE)
+
+    _subject, body, _html = _render_occurrence_message(occurrence, channel=ChannelEnum.SMS)
+
+    assert "ילדה" not in body
+    assert "new baby girl" in body
+    assert len(body) <= SMS_CHAR_BUDGET
 
 
 # --- Broadcast rendering ---
