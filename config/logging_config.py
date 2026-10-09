@@ -17,6 +17,7 @@ after `load_dotenv()` so `.env` is already in `os.environ`;
 """
 
 import json
+import logging
 import logging.config
 import os
 import sys
@@ -62,6 +63,44 @@ def add_trace_context(logger: WrappedLogger, name: str, event_dict: dict[str, An
     if span_context.is_valid:
         event_dict["trace_id"] = format(span_context.trace_id, "032x")
         event_dict["span_id"] = format(span_context.span_id, "016x")
+    return event_dict
+
+
+_CALLSITE_PARAMS = structlog.processors.CallsiteParameterAdder(
+    {
+        structlog.processors.CallsiteParameter.PATHNAME,
+        structlog.processors.CallsiteParameter.LINENO,
+        structlog.processors.CallsiteParameter.FUNC_NAME,
+    },
+    # Also skip our own frame below, or the stack walk stops here instead
+    # of at the actual logger.warning()/logger.error() call site.
+    additional_ignores=[__name__],
+)
+
+
+def add_source_location(logger: WrappedLogger, name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+    """Stamps the file/line/function of the log *call site* onto WARNING+ records.
+
+    Distinct from `render_exception`'s `exception.file`/`line`, which is
+    the exception's raise-site - those can differ when an exception is
+    caught in one place and only logged later (see that function's own
+    docstring). Gated to WARNING+ so routine INFO/DEBUG lines don't carry
+    the extra fields; relies on `structlog.stdlib.add_log_level` having
+    already run earlier in the chain. Works for both structlog-native
+    calls (walks the stack) and foreign stdlib records routed through
+    `foreign_pre_chain` (reads the LogRecord's own pathname/lineno/funcName
+    instead), since `CallsiteParameterAdder` handles both.
+    """
+    level = logging._nameToLevel.get(event_dict.get("level", "").upper(), 0)
+    if level < logging.WARNING:
+        return event_dict
+
+    event_dict = _CALLSITE_PARAMS(logger, name, event_dict)
+    event_dict["source"] = {
+        "file": event_dict.pop("pathname", None),
+        "line": event_dict.pop("lineno", None),
+        "function": event_dict.pop("func_name", None),
+    }
     return event_dict
 
 
@@ -129,6 +168,7 @@ LOGGING_DICT_CONFIG: dict[str, Any] = {
                 structlog.processors.TimeStamper(fmt="iso", utc=True),
                 structlog.processors.StackInfoRenderer(),
                 add_trace_context,
+                add_source_location,
                 render_exception,
             ],
         },
@@ -171,6 +211,7 @@ structlog.configure(
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
         add_trace_context,
+        add_source_location,
         render_exception,
         structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
     ],
