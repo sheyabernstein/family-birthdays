@@ -1,4 +1,5 @@
 import datetime as dt
+import random
 import time
 from collections import defaultdict
 from collections.abc import Iterator
@@ -1061,10 +1062,14 @@ def _seconds_until_next_rate_limit_window() -> float:
     exponential-with-jitter-from-zero, which can schedule a retry with
     ~0s delay right back into the same already-saturated second it was
     just rejected from. This instead waits for the window to actually
-    roll over (plus a small buffer so the retry doesn't race the
-    rollover itself).
+    roll over, plus a randomized buffer: the floor (0.15s) guards
+    against Redis ETA/worker-pickup latency eating a too-thin fixed
+    margin, and the spread up to 0.4s keeps a whole cohort rejected in
+    the same window from retrying in exact lock-step - still guaranteed
+    to land in the next window, just spread across part of it instead
+    of all at the same instant.
     """
-    return 1.0 - (time.time() % 1.0) + 0.05
+    return 1.0 - (time.time() % 1.0) + random.uniform(0.15, 0.4)
 
 
 @shared_task(

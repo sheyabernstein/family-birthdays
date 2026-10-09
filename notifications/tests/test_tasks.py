@@ -1624,26 +1624,52 @@ def test_send_message_retries_an_sms_rate_limit_error_with_a_window_aligned_coun
         send_message(message.pk)
 
     assert len(retry_calls) == 1
-    assert 0 < retry_calls[0]["countdown"] <= 1.05
+    assert 0 < retry_calls[0]["countdown"] <= 1.4
     assert retry_calls[0]["max_retries"] == SMS_RATE_LIMIT_MAX_RETRIES
 
 
 @pytest.mark.parametrize(
-    ["frozen_time", "expected_countdown"],
+    ["frozen_time", "fixed_jitter", "expected_countdown"],
     [
-        ["2026-01-01 00:00:00.700000", 0.35],
-        ["2026-01-01 00:00:00.050000", 1.0],
-        ["2026-01-01 00:00:00.950000", 0.1],
+        ["2026-01-01 00:00:00.700000", 0.15, 0.45],
+        ["2026-01-01 00:00:00.050000", 0.4, 1.35],
+        ["2026-01-01 00:00:00.950000", 0.15, 0.2],
     ],
     ids=[
-        "mid-second waits for the remainder plus the buffer",
-        "just after a boundary waits almost a full second",
+        "mid-second waits for the remainder plus the floor jitter",
+        "just after a boundary waits almost a full second plus the ceiling jitter",
         "just before a boundary still waits past it, not into it",
     ],
 )
-def test_seconds_until_next_rate_limit_window_waits_for_the_boundary(frozen_time, expected_countdown):
+def test_seconds_until_next_rate_limit_window_waits_for_the_boundary(
+    monkeypatch, frozen_time, fixed_jitter, expected_countdown
+):
+    """random.uniform is patched to a fixed value so the exact countdown
+    can be asserted precisely instead of only checking it falls in
+    range - see the jitter-bounds test below for the actual random
+    range contract itself."""
+    monkeypatch.setattr("notifications.tasks.random.uniform", lambda floor, ceiling: fixed_jitter)
     with freeze_time(frozen_time):
-        assert _seconds_until_next_rate_limit_window() == pytest.approx(expected_countdown, abs=0.01)
+        assert _seconds_until_next_rate_limit_window() == pytest.approx(expected_countdown, abs=0.001)
+
+
+def test_seconds_until_next_rate_limit_window_jitters_between_the_floor_and_ceiling(monkeypatch):
+    """Regression guard for the jitter bounds themselves (0.15s floor,
+    0.4s ceiling) - the parametrized test above patches the jittered
+    value away entirely, so a future edit that silently narrowed or
+    widened these bounds wouldn't be caught there."""
+    captured = {}
+
+    def _capture_uniform(floor, ceiling):
+        captured["floor"] = floor
+        captured["ceiling"] = ceiling
+        return floor
+
+    monkeypatch.setattr("notifications.tasks.random.uniform", _capture_uniform)
+    with freeze_time("2026-01-01 00:00:00.000000"):
+        _seconds_until_next_rate_limit_window()
+
+    assert captured == {"floor": 0.15, "ceiling": 0.4}
 
 
 def test_send_message_does_not_resend_when_recording_success_fails(monkeypatch, family):
