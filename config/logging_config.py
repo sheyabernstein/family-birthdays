@@ -91,7 +91,7 @@ def add_source_location(logger: WrappedLogger, name: str, event_dict: dict[str, 
     `foreign_pre_chain` (reads the LogRecord's own pathname/lineno/funcName
     instead), since `CallsiteParameterAdder` handles both.
     """
-    level = logging._nameToLevel.get(event_dict.get("level", "").upper(), 0)
+    level = logging.getLevelNamesMapping().get(event_dict.get("level", "").upper(), 0)
     if level < logging.WARNING:
         return event_dict
 
