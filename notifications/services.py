@@ -263,8 +263,8 @@ def send_sms(to: str, body: str, *, event_type: str, sender_id: str = "") -> dic
         # too would flood notifications_sms_sent_total{status="failed"}
         # with blips that resolve to a real send moments later on any
         # send of more than a handful of SMS at once (e.g. a family-wide
-        # digest), well before the shared SNS_PUBLISH_RATE_LIMIT_PER_
-        # SECOND budget could possibly keep up.
+        # digest), well before the shared SNS_PUBLISH_RATE_LIMIT_PER_SECOND
+        # budget could possibly keep up.
         raise
     except Exception:
         metrics.notifications_sms_sent_total.labels(status="failed", event_type=event_type).inc()

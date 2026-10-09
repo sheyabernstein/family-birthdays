@@ -1,4 +1,5 @@
 import datetime as dt
+import random
 import time
 from collections import defaultdict
 from collections.abc import Iterator
@@ -1046,11 +1047,36 @@ def _save_sent_message(message: Message, *, update_fields: list[str], attempts: 
             time.sleep(0.2 * (attempt + 1))
 
 
+# Decoupled from send_message's own max_retries=3 (that's sized for a
+# real provider failure) - retrying this one is free, so it gets a much
+# larger budget. See notifications/AGENTS.md's "Task scheduling,
+# retries, and rate limiting" section for why.
+SMS_RATE_LIMIT_MAX_RETRIES = 100
+
+
+def _seconds_until_next_rate_limit_window() -> float:
+    """How long until notifications.sms's per-second SNS budget resets.
+
+    Used as send_message's retry countdown for SmsRateLimitedError
+    instead of the task's own retry_backoff/retry_jitter - those are
+    exponential-with-jitter-from-zero, which can schedule a retry with
+    ~0s delay right back into the same already-saturated second it was
+    just rejected from. This instead waits for the window to actually
+    roll over, plus a randomized buffer: the floor (0.15s) guards
+    against Redis ETA/worker-pickup latency eating a too-thin fixed
+    margin, and the spread up to 0.4s keeps a whole cohort rejected in
+    the same window from retrying in exact lock-step - still guaranteed
+    to land in the next window, just spread across part of it instead
+    of all at the same instant.
+    """
+    return 1.0 - (time.time() % 1.0) + random.uniform(0.15, 0.4)
+
+
 @shared_task(
     bind=True,
     queue=TaskPriority.NORMAL,
     autoretry_for=(Exception,),
-    dont_autoretry_for=(SmsUnrecoverableError, MessageRecordingError),
+    dont_autoretry_for=(SmsUnrecoverableError, MessageRecordingError, SmsRateLimitedError),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
@@ -1061,13 +1087,15 @@ def _save_sent_message(message: Message, *, update_fields: list[str], attempts: 
 def send_message(self: Task, message_id: int) -> None:
     """Sends one already-rendered Message, retrying transient failures with backoff.
 
-    autoretry_for=(Exception,) covers both a generic provider failure and
-    SmsRateLimitedError (notifications.sms) - the SNS global rate limit
-    freeing up is exactly the kind of transient condition an exponential
-    backoff is for, not a real failure. dont_autoretry_for excludes
-    SmsUnrecoverableError, which retrying can never fix, and
+    autoretry_for=(Exception,) covers a generic provider failure with
+    exponential backoff - the right shape for "something's actually
+    wrong, back off and give up after a few tries." dont_autoretry_for
+    excludes SmsUnrecoverableError, which retrying can never fix;
     MessageRecordingError, which retrying would only make worse (see
-    that class's own docstring).
+    that class's own docstring); and SmsRateLimitedError, which gets its
+    own explicit self.retry() below instead - see
+    SMS_RATE_LIMIT_MAX_RETRIES's own comment for why that needs a much
+    larger, decoupled budget than max_retries=3.
 
     acks_late/reject_on_worker_lost trade a possible duplicate send for
     the alternative being worse here: without them, a worker crash
@@ -1119,11 +1147,12 @@ def send_message(self: Task, message_id: int) -> None:
         )
         raise
     except SmsRateLimitedError as exc:
-        # Quiet unless this is the last attempt: autoretry_for's wrapper
-        # gives up outside this function, so a burst that outlasts the
-        # whole retry window would otherwise leave the Message stuck at
-        # QUEUED forever with no record of why (see AGENTS.md).
-        if self.request.retries >= self.max_retries:
+        # Quiet unless this is the last attempt: self.retry() below gives
+        # up on its own once SMS_RATE_LIMIT_MAX_RETRIES is exceeded, so a
+        # burst that outlasts that whole (generous) retry window would
+        # otherwise leave the Message stuck at QUEUED forever with no
+        # record of why (see AGENTS.md).
+        if self.request.retries >= SMS_RATE_LIMIT_MAX_RETRIES:
             message.status = Message.Status.FAILED
             message.error = str(exc)
             message.tries += 1
@@ -1142,7 +1171,11 @@ def send_message(self: Task, message_id: int) -> None:
             attempt=self.request.retries + 1,
             exc_info=exc,
         )
-        raise
+        raise self.retry(
+            exc=exc,
+            countdown=_seconds_until_next_rate_limit_window(),
+            max_retries=SMS_RATE_LIMIT_MAX_RETRIES,
+        ) from exc
     except Exception as exc:
         message.status = Message.Status.FAILED
         message.error = str(exc)

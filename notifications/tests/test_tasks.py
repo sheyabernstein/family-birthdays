@@ -1,6 +1,7 @@
 import datetime as dt
 
 import pytest
+from celery.exceptions import Retry
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -18,7 +19,9 @@ from notifications.models import Broadcast, EventType, Message, NotificationPref
 from notifications.sms import SmsRateLimitedError, SmsUnrecoverableError
 from notifications.tasks import (
     MAX_CATCHUP_DAYS_LATE,
+    SMS_RATE_LIMIT_MAX_RETRIES,
     MessageRecordingError,
+    _seconds_until_next_rate_limit_window,
     compute_occurrences,
     compute_occurrences_for_person,
     compute_occurrences_for_union,
@@ -64,7 +67,11 @@ def test_send_message_has_bounded_retries_with_exponential_backoff():
     retry_backoff or widen max_retries without any behavioral test
     noticing at eager-mode speed."""
     assert send_message.autoretry_for == (Exception,)
-    assert send_message.dont_autoretry_for == (SmsUnrecoverableError, MessageRecordingError)
+    assert send_message.dont_autoretry_for == (
+        SmsUnrecoverableError,
+        MessageRecordingError,
+        SmsRateLimitedError,
+    )
     assert send_message.retry_backoff is True
     assert send_message.retry_backoff_max == 600
     assert send_message.retry_jitter is True
@@ -1524,11 +1531,41 @@ def test_send_message_retries_an_sms_rate_limit_error_without_touching_the_messa
     assert message.error == ""
 
 
+def test_send_message_keeps_retrying_an_sms_rate_limit_error_well_past_the_generic_retry_budget(
+    monkeypatch, family
+):
+    """SmsRateLimitedError gets its own, much larger retry budget
+    (SMS_RATE_LIMIT_MAX_RETRIES) decoupled from send_message's own
+    max_retries=3 used for a real provider failure - a burst that would
+    have exhausted the generic budget shouldn't touch the Message row
+    at all once retrying this specific exception is this cheap.
+
+    Celery's own Retry (not the original SmsRateLimitedError) is what
+    actually propagates here - this is the real "not yet exhausted,
+    schedule another attempt" signal (.apply()'s non-direct-call path,
+    unlike a bare send_message(pk) call - see the "without touching the
+    message row" test above for that shortcut's own behavior)."""
+    message = _sms_message(family)
+
+    def _raise_rate_limited(**kwargs):
+        raise SmsRateLimitedError("10 publishes attempted, limit is 8/s")
+
+    monkeypatch.setattr("notifications.tasks.send_sms", _raise_rate_limited)
+
+    with pytest.raises(Retry):
+        send_message.apply(args=[message.pk], retries=send_message.max_retries)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.QUEUED
+    assert message.tries == 0
+
+
 def test_send_message_marks_the_message_failed_once_rate_limit_retries_are_exhausted(monkeypatch, family):
-    """A burst that outlasts the whole retry window shouldn't leave the
-    Message silently stuck at QUEUED forever - the last allowed attempt
-    needs to record a real failure, since autoretry_for's own wrapper
-    gives up outside this function with no further chance to do so."""
+    """A burst that outlasts the whole (generous) retry window shouldn't
+    leave the Message silently stuck at QUEUED forever - the last
+    allowed attempt needs to record a real failure, since self.retry()
+    gives up on its own past SMS_RATE_LIMIT_MAX_RETRIES with no further
+    chance to do so."""
     message = _sms_message(family)
 
     def _raise_rate_limited(**kwargs):
@@ -1537,12 +1574,102 @@ def test_send_message_marks_the_message_failed_once_rate_limit_retries_are_exhau
     monkeypatch.setattr("notifications.tasks.send_sms", _raise_rate_limited)
 
     with pytest.raises(SmsRateLimitedError):
-        send_message.apply(args=[message.pk], retries=send_message.max_retries)
+        send_message.apply(args=[message.pk], retries=SMS_RATE_LIMIT_MAX_RETRIES)
 
     message.refresh_from_db()
     assert message.status == Message.Status.FAILED
     assert message.tries == 1
     assert "publishes attempted" in message.error
+
+
+def test_send_message_still_retries_one_attempt_short_of_the_rate_limit_budget(monkeypatch, family):
+    """Regression guard for the >= boundary itself - one attempt short
+    of SMS_RATE_LIMIT_MAX_RETRIES should still take the retry path, not
+    the fail path, so the cutoff can't silently drift off by one."""
+    message = _sms_message(family)
+
+    def _raise_rate_limited(**kwargs):
+        raise SmsRateLimitedError("10 publishes attempted, limit is 8/s")
+
+    monkeypatch.setattr("notifications.tasks.send_sms", _raise_rate_limited)
+
+    with pytest.raises(Retry):
+        send_message.apply(args=[message.pk], retries=SMS_RATE_LIMIT_MAX_RETRIES - 1)
+
+    message.refresh_from_db()
+    assert message.status == Message.Status.QUEUED
+    assert message.tries == 0
+
+
+def test_send_message_retries_an_sms_rate_limit_error_with_a_window_aligned_countdown(monkeypatch, family):
+    """The retry countdown should wait for the next 1-second rate-limit
+    window to roll over, not the task's usual jittered backoff - that
+    can schedule a retry with ~0s delay right back into the same
+    already-saturated second it was just rejected from (see
+    _seconds_until_next_rate_limit_window's own docstring)."""
+    message = _sms_message(family)
+    retry_calls = []
+
+    def _raise_rate_limited(**kwargs):
+        raise SmsRateLimitedError("10 publishes attempted, limit is 8/s")
+
+    def _fake_retry(**kwargs):
+        retry_calls.append(kwargs)
+        raise kwargs["exc"]
+
+    monkeypatch.setattr("notifications.tasks.send_sms", _raise_rate_limited)
+    monkeypatch.setattr(send_message, "retry", _fake_retry)
+
+    with pytest.raises(SmsRateLimitedError):
+        send_message(message.pk)
+
+    assert len(retry_calls) == 1
+    assert 0 < retry_calls[0]["countdown"] <= 1.4
+    assert retry_calls[0]["max_retries"] == SMS_RATE_LIMIT_MAX_RETRIES
+
+
+@pytest.mark.parametrize(
+    ["frozen_time", "fixed_jitter", "expected_countdown"],
+    [
+        ["2026-01-01 00:00:00.700000", 0.15, 0.45],
+        ["2026-01-01 00:00:00.050000", 0.4, 1.35],
+        ["2026-01-01 00:00:00.950000", 0.15, 0.2],
+    ],
+    ids=[
+        "mid-second waits for the remainder plus the floor jitter",
+        "just after a boundary waits almost a full second plus the ceiling jitter",
+        "just before a boundary still waits past it, not into it",
+    ],
+)
+def test_seconds_until_next_rate_limit_window_waits_for_the_boundary(
+    monkeypatch, frozen_time, fixed_jitter, expected_countdown
+):
+    """random.uniform is patched to a fixed value so the exact countdown
+    can be asserted precisely instead of only checking it falls in
+    range - see the jitter-bounds test below for the actual random
+    range contract itself."""
+    monkeypatch.setattr("notifications.tasks.random.uniform", lambda floor, ceiling: fixed_jitter)
+    with freeze_time(frozen_time):
+        assert _seconds_until_next_rate_limit_window() == pytest.approx(expected_countdown, abs=0.001)
+
+
+def test_seconds_until_next_rate_limit_window_jitters_between_the_floor_and_ceiling(monkeypatch):
+    """Regression guard for the jitter bounds themselves (0.15s floor,
+    0.4s ceiling) - the parametrized test above patches the jittered
+    value away entirely, so a future edit that silently narrowed or
+    widened these bounds wouldn't be caught there."""
+    captured = {}
+
+    def _capture_uniform(floor, ceiling):
+        captured["floor"] = floor
+        captured["ceiling"] = ceiling
+        return floor
+
+    monkeypatch.setattr("notifications.tasks.random.uniform", _capture_uniform)
+    with freeze_time("2026-01-01 00:00:00.000000"):
+        _seconds_until_next_rate_limit_window()
+
+    assert captured == {"floor": 0.15, "ceiling": 0.4}
 
 
 def test_send_message_does_not_resend_when_recording_success_fails(monkeypatch, family):
