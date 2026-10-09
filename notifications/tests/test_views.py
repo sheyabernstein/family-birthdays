@@ -36,7 +36,7 @@ def test_staff_can_see_the_schedule(client):
 
     assert resp.status_code == 200
     assert b"compute-occurrences-nightly" in resp.content
-    assert b"send-due-notifications-morning" in resp.content
+    assert b"send-due-notifications" in resp.content
 
 
 def test_non_staff_cannot_see_the_schedule(client):

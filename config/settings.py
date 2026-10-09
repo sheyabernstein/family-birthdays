@@ -384,9 +384,20 @@ CELERY_BEAT_SCHEDULE = {
         "task": "notifications.tasks.compute_occurrences",
         "schedule": crontab(hour=2, minute=0),
     },
-    "send-due-notifications-morning": {
+    # Hourly rather than once a day (7am-11pm, not round-the-clock) - an
+    # Occurrence computed mid-day (a new baby entered that afternoon, a
+    # corrected date, a just-added wedding/engagement) used to wait for
+    # next calendar day's single run; self-healing (send_date__lte, not
+    # ==) makes extra runs free when nothing's due, so this just shrinks
+    # same-day latency from ~24h to ~1h with no downside. 7am floor
+    # keeps the deliberate "arrives in the morning" feel for the normal
+    # case (every regular yearly birthday/yahrzeit/anniversary is
+    # already computed well in advance by the nightly sweep, so it's
+    # always due the moment the clock crosses midnight - starting the
+    # window any earlier would mean sending those at 1am instead).
+    "send-due-notifications": {
         "task": "notifications.tasks.send_due_notifications",
-        "schedule": crontab(hour=7, minute=0),
+        "schedule": crontab(minute=0, hour="7-23"),
     },
     "send-due-broadcasts": {
         "task": "notifications.tasks.send_due_broadcasts",
