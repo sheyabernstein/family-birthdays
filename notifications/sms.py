@@ -34,11 +34,13 @@ class SmsRateLimitedError(Exception):
     Deliberately not a FamilyBirthdaysError - that base class means
     "already handled, don't retry, don't alert," which is exactly wrong
     here: this is transient by construction (capacity frees up every
-    second) and notifications.tasks.send_message's own autoretry_for
-    picks it up like any other Exception. Celery's own retry() raises a
+    second), so notifications.tasks.send_message retries it explicitly,
+    with its own much larger retry budget (SMS_RATE_LIMIT_MAX_RETRIES)
+    and a countdown aligned to the next rate-limit window rather than
+    the task's usual jittered backoff. Celery's own retry() raises a
     control-flow Retry, not a real failure, so Sentry never hears about
-    this unless it persists through every retry - the one case that
-    actually would be worth knowing about.
+    this unless it persists through that whole (generous) retry budget
+    - the one case that actually would be worth knowing about.
     """
 
 

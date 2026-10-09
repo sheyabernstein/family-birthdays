@@ -567,33 +567,45 @@ for the project-wide orientation these build on.
 
 ## Task scheduling, retries, and rate limiting
 
-- **`notifications.tasks.send_message` retries with exponential backoff
-  via Celery's own `autoretry_for`/`retry_backoff`, not a manual
-  `self.retry(exc=exc)` on a flat delay.** `autoretry_for=(Exception,)`
-  covers a generic provider failure and `SmsRateLimitedError` (below)
-  alike; `dont_autoretry_for=(SmsUnrecoverableError,)` excludes the one
-  failure retrying can never fix - a bad phone number will fail
-  identically on every attempt, so it fails the `Message` immediately
-  instead. **The actual delays are much shorter than `retry_backoff_max=
-  600` makes them look** - Celery's backoff formula is `factor *
-  2**retries` (factor is 1 here, from a bare `retry_backoff=True`),
-  jittered and capped at `retry_backoff_max`; with `max_retries=3` the
-  raw values are only 1s/2s/4s before jitter, so the 600s ceiling never
-  actually engages (it'd take ~9 retries at this factor to approach it).
-  Verified for real against a live, non-eager worker (real Redis broker,
-  real Celery retry scheduling, not `CELERY_TASK_ALWAYS_EAGER`): a
-  message that raised `SmsRateLimitedError` twice then succeeded was
-  retried at +0.03s and +2.0s, and ended up `Message.Status.SENT` with
-  no error recorded - confirming both that autoretry_for genuinely
-  re-queues the task through the broker (not just Celery's in-memory
-  eager-mode shortcut) and that it lands on a real success once the
-  transient condition clears. This window suits `SmsRateLimitedError`
-  well (SNS's own budget resets every second - see below), but is worth
-  knowing if `send_message` is ever expected to ride out a longer,
-  genuine SNS/network outage: with `max_retries=3` capped this low, the
-  whole retry sequence for a *generic* provider failure spans single-
-  digit seconds, not the "up to several minutes" a `retry_backoff_max=
-  600` reads like at a glance.
+- **`notifications.tasks.send_message` retries a generic provider
+  failure with exponential backoff via Celery's own `autoretry_for`/
+  `retry_backoff`, but retries `SmsRateLimitedError` with its own
+  explicit `self.retry(exc=exc, countdown=..., max_retries=
+  SMS_RATE_LIMIT_MAX_RETRIES)` call instead - the two failure modes
+  need very different retry shapes, not one shared policy.**
+  `autoretry_for=(Exception,)` + `max_retries=3` is right for "something
+  is actually wrong, back off and give up after a few tries" (a bad
+  phone number is `SmsUnrecoverableError` instead, `dont_autoretry_for`-
+  excluded, and fails the `Message` immediately since retrying can never
+  fix it). `SmsRateLimitedError` (below) is the opposite case - retrying
+  it is free, since the send never happened at all - so it's also
+  `dont_autoretry_for`-excluded and handled entirely by its own code
+  path: a much larger `max_retries` override (100, well past anything
+  observed so far) and a countdown aligned to the next 1-second
+  rate-limit window (`_seconds_until_next_rate_limit_window`) instead of
+  `retry_backoff`'s jittered exponential delay, which can schedule a
+  retry with ~0s delay right back into the same already-saturated
+  second it was just rejected from.
+  **Found for real:** a single nightly `send_due_notifications` run
+  resolved 3 due occurrences into a 144-message fan-out (a large family,
+  several recipients subscribed to more than one of that day's
+  birthdays) that kept `SNS_PUBLISH_RATE_LIMIT_PER_SECOND` saturated for
+  ~14s (50 rate-limit hits, one window alone seeing 17 publish attempts
+  against a budget of 8); one message exhausted the then-shared
+  `max_retries=3` budget because `retry_backoff`'s jitter can return a
+  ~0s delay on any given retry, landing it back in another saturated
+  second each time - a coin flip repeated across 144 messages that only
+  needed to come up wrong once. The exponential-backoff path (generic
+  provider failures) is unaffected by any of this - its delays are much
+  shorter than `retry_backoff_max=600` makes them look: the formula is
+  `factor * 2**retries` (factor 1 here), jittered and capped at
+  `retry_backoff_max`, so with `max_retries=3` the raw values are only
+  1s/2s/4s before jitter - the 600s ceiling never actually engages (it'd
+  take ~9 retries at this factor to approach it). Worth knowing if
+  `send_message` is ever expected to ride out a longer, genuine SNS/
+  network outage: the whole generic-failure retry sequence spans
+  single-digit seconds, not the "up to several minutes" a
+  `retry_backoff_max=600` reads like at a glance.
 - **`config.enums.TaskPriority` is a 3-tier enum of Celery *queue names*
   (`HIGH="high"`/`NORMAL="normal"`/`LOW="low"`), passed as `queue=` on
   every `@shared_task`, not Celery/kombu's own per-message Redis
@@ -656,10 +668,11 @@ for the project-wide orientation these build on.
   before the real `publish()` call ever happens. **This exception is a
   plain `Exception`, deliberately not a `FamilyBirthdaysError`** -
   unlike `SmsUnrecoverableError`, it's transient by construction (budget
-  frees up every second), so `send_message`'s `autoretry_for=(Exception,)`
-  picks it up like any other retryable failure, and it's logged at a
-  quiet level rather than raised as an alarming error - a Celery
-  intermediate retry never fires `task_failure` in the first place (only
-  the attempt after `max_retries` exhausted does), so this only ever
-  becomes Sentry-visible if it persists through every retry, which is the
-  one case actually worth knowing about.
+  frees up every second), so `send_message` retries it explicitly (see
+  the bullet above) rather than treating it as a real failure, and it's
+  logged at a quiet level rather than raised as an alarming error - a
+  Celery intermediate retry never fires `task_failure` in the first
+  place (only the attempt after `SMS_RATE_LIMIT_MAX_RETRIES` exhausted
+  does), so this only ever becomes Sentry-visible if it persists through
+  that whole (generous) retry budget, which is the one case actually
+  worth knowing about.
