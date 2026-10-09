@@ -20,7 +20,10 @@
                 <div class="form-field">{% field_label form.last_name_en %}{{ form.last_name_en }}{{ form.last_name_en.errors }}</div>
             </div>
             <div class="form-row">
-                <div class="form-field">{% field_label form.first_name_he %}{{ form.first_name_he }}{{ form.first_name_he.errors }}</div>
+                <div class="form-field">
+                    {% field_label form.first_name_he %}{{ form.first_name_he }}{{ form.first_name_he.errors }}
+                    <p class="help-text">{{ form.first_name_he.help_text }}</p>
+                </div>
                 <div class="form-field">{% field_label form.last_name_he %}{{ form.last_name_he }}</div>
             </div>
             <div class="form-row">
