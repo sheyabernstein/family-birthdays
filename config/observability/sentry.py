@@ -15,6 +15,7 @@ service (prom-gateway) built with the identical pattern.
 
 import sentry_sdk
 from django.conf import settings
+from django.http import Http404
 from opentelemetry import trace as otel_trace
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.trace import Span as OTelSpan
@@ -82,6 +83,7 @@ def init_sentry() -> None:
         # stale 1.0 sitting there implying tracing's still live.
         traces_sample_rate=1.0 if settings.SENTRY_TRACES_ENABLED else 0.0,
         disabled_integrations=[DjangoIntegration(), CeleryIntegration()],
+        ignore_errors=[Http404],
         # Keep log breadcrumbs, but don't let error-level log calls create
         # their own Sentry issues independently of
         # _record_exception_and_capture below - most of those log calls sit
