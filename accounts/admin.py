@@ -14,6 +14,7 @@ class AccountAdmin(VersionAdmin):
     list_display = ("email", "phone", "linked_person_link", "is_staff", "is_active")
     search_fields = ("email", "phone")
     exclude = ("password",)
+    readonly_fields = ("last_seen_at",)
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[Account]:
         return super().get_queryset(request).prefetch_related("people")

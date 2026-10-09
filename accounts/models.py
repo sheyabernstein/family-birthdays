@@ -90,6 +90,10 @@ class Account(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
 
+    # Updated by accounts.middleware.TrackLastSeenMiddleware, not
+    # last_login - last_login only moves on a fresh sign-in.
+    last_seen_at = models.DateTimeField(null=True, blank=True, editable=False)
+
     objects = AccountManager()
 
     USERNAME_FIELD = "email"

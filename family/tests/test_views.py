@@ -28,6 +28,10 @@ def _login_as(client, account, family):
     session = client.session
     session["family_id"] = family.id
     session.save()
+    # Already "recently seen" so the first request a test makes doesn't
+    # pick up TrackLastSeenMiddleware's own one-time (throttled) update
+    # query - a per-session side effect query-count tests don't care about.
+    Account.objects.filter(pk=account.pk).update(last_seen_at=timezone.now())
 
 
 def _years_ago(years):

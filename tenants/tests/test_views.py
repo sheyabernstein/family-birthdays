@@ -4,6 +4,7 @@ import pytest
 from django.contrib.auth.models import Permission
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from accounts.models import Account
 from family.models import Person
@@ -146,6 +147,10 @@ def _login_as(client, account, family):
     session = client.session
     session["family_id"] = family.id
     session.save()
+    # Already "recently seen" so the first request a test makes doesn't
+    # pick up TrackLastSeenMiddleware's own one-time (throttled) update
+    # query - a per-session side effect query-count tests don't care about.
+    Account.objects.filter(pk=account.pk).update(last_seen_at=timezone.now())
 
 
 def test_family_settings_shows_the_editable_form_to_a_site_admin(client, family):
@@ -336,6 +341,22 @@ def test_family_settings_includes_a_member_with_no_person_record_in_this_family(
     assert resp.status_code == 200
     accounts = [m.account for m in resp.context["memberships"]]
     assert bare_account in accounts
+
+
+def test_family_settings_shows_last_seen_not_last_login(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    never_seen = Account.objects.create_user(email="never-seen@example.com")
+    FamilyMembership.objects.create(account=never_seen, family=family, role=FamilyMembership.Role.MEMBER)
+    _login_as(client, owner, family)
+
+    resp = client.get("/family/settings/")
+
+    assert resp.status_code == 200
+    assert b"Last seen" in resp.content
+    assert b"Last signed in" not in resp.content
+    # A member who's never been seen (last_seen_at is null) shows "-",
+    # same as the old last_login column did for a never-logged-in account.
+    assert b"-" in resp.content
 
 
 def _member_with_person(family, i):
