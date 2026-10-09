@@ -726,11 +726,17 @@ def _occurrence_template_context(
     # birthday yet. Birthday.html/.txt branch on it to announce a new
     # baby instead of "happy birthday" (see Person.is_newborn_for_hebrew_
     # year's own docstring for why occurrence.hebrew_year, not "today").
-    # Always False for a union-anchored occurrence or any non-Birthday
-    # event type - harmless to compute unconditionally since nothing
-    # else reads it.
-    is_newborn = occurrence.person is not None and occurrence.person.is_newborn_for_hebrew_year(
-        occurrence.hebrew_year
+    # The event_type.code check matters, not just a defensive
+    # formality: hebrew_year == dob_hebrew_year alone can also be true
+    # for a Yahrzeit (an infant who dies in the same Hebrew year they
+    # were born), and without this guard that hijacked the subject line
+    # into "new baby boy" while the body stayed the correct yahrzeit
+    # wording - exactly the subject/body mismatch _occurrence_subject's
+    # own docstring warns against.
+    is_newborn = (
+        occurrence.person is not None
+        and occurrence.event_type.code == EventType.BuiltinCode.BIRTHDAY
+        and occurrence.person.is_newborn_for_hebrew_year(occurrence.hebrew_year)
     )
     return {
         "occurrence": occurrence,

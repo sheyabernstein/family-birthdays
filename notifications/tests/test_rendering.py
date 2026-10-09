@@ -825,6 +825,37 @@ def test_newborn_birthday_is_only_true_in_the_persons_own_birth_year(family):
     assert "new baby" not in html
 
 
+def test_is_newborn_does_not_apply_to_a_non_birthday_event_type(family):
+    # Regression: is_newborn only compared occurrence.hebrew_year to
+    # dob_hebrew_year, with no event_type check - an infant who dies in
+    # the same Hebrew year they were born gets a Yahrzeit occurrence
+    # whose hebrew_year also equals dob_hebrew_year, which hijacked the
+    # subject line into "new baby boy" even though the body is (rightly)
+    # still the yahrzeit template - a subject/body mismatch of exactly
+    # the kind the lateness wording bugs above were fixed to avoid.
+    event_type = EventType.objects.get(family=None, code=EventType.BuiltinCode.YAHRZEIT)
+    person = Person.objects.create(
+        family=family,
+        first_name_he="ילד",
+        gender=Person.Gender.MALE,
+        dob_hebrew_year=5786,
+        dod_hebrew_year=5786,
+    )
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    subject, _body, html = _render_occurrence_message(occurrence, channel=ChannelEnum.EMAIL)
+
+    assert "new baby" not in subject
+    assert "new baby" not in html
+    assert "yahrzeit is today" in html
+
+
 def test_newborn_birthday_sms_omits_the_placeholder_name_and_stays_in_budget(family):
     occurrence = _newborn_occurrence_for(family, first_name_he="ילדה", gender=Person.Gender.FEMALE)
 
