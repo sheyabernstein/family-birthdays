@@ -52,7 +52,7 @@
                         <th>Phone</th>
                         <th>Role</th>
                         <th>Joined</th>
-                        <th>Last signed in</th>
+                        <th>Last seen</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -69,7 +69,17 @@
                             <td>{{ membership.account.phone|default:"-" }}</td>
                             <td>{{ membership.get_role_display }}</td>
                             <td><span title="{{ membership.joined_at|date }}">{{ membership.joined_at|naturalday|capfirst }}</span></td>
-                            <td><span title="{{ membership.account.last_login|date }}">{{ membership.account.last_login|naturalday|default:"-"|capfirst }}</span></td>
+                            <td>
+                                {% if membership.account.last_seen_at %}
+                                    <span class="natural-time"
+                                          title="{{ membership.account.last_seen_at }}"
+                                          data-timestamp="{{ membership.account.last_seen_at|date:'c' }}">
+                                        {{ membership.account.last_seen_at|naturaltime|capfirst }}
+                                    </span>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
                         </tr>
                     {% endfor %}
                 </tbody>

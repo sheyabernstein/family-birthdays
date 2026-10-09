@@ -88,6 +88,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "accounts.middleware.TrackLastSeenMiddleware",
     "tenants.middleware.CurrentFamilyMiddleware",
     # Wraps every request in a transaction and, if any registered model
     # was saved during it, records one Revision (who/when) covering all

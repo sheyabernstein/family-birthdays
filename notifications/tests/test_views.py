@@ -26,6 +26,9 @@ def _login_as(client, account, family):
     session = client.session
     session["family_id"] = family.id
     session.save()
+    # Already "recently seen" - keeps the capture below from picking up
+    # TrackLastSeenMiddleware's own one-time update (see that class's docstring).
+    Account.objects.filter(pk=account.pk).update(last_seen_at=timezone.now())
 
 
 def test_staff_can_see_the_schedule(client):
