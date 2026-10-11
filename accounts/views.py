@@ -1,4 +1,4 @@
-from urllib.parse import parse_qs, urlparse, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from django.contrib import messages
 from django.contrib.auth import REDIRECT_FIELD_NAME, login, logout
@@ -21,30 +21,6 @@ from tenants.mixins import FamilyRequiredMixin
 from tenants.models import Family
 
 
-def _base_url_host(family: Family) -> str | None:
-    """Family's own base_url override's host, lowercased - or None if it has none.
-
-    Deliberately reads base_url directly, not resolved_base_url - that
-    property falls back to settings.SITE_BASE_URL (an unvalidated env
-    var) when base_url is blank, which this must never touch: a real
-    override is a deliberate per-family choice, settings.SITE_BASE_URL
-    is just the shared default every family without one also happens
-    to resolve to. urlparse can raise ValueError on a malformed netloc
-    (confirmed: a bracketed-IPv6-looking string) - base_url's own
-    URLValidator already rejects every input confirmed to trigger that,
-    but this fails safe to "no match" rather than trust that holds
-    forever, since a crash here would break sign-in for every account
-    sharing a membership with whichever family's base_url is at fault,
-    not just that family's own.
-    """
-    if not family.base_url:
-        return None
-    try:
-        return urlparse(family.base_url.rstrip("/")).netloc.lower()
-    except ValueError:
-        return None
-
-
 def _family_for_sign_in(account: Account, request: HttpRequest) -> Family | None:
     """The one family to brand a sign-in message with, preferring the host the link was requested from.
 
@@ -54,22 +30,19 @@ def _family_for_sign_in(account: Account, request: HttpRequest) -> Family | None
     for it is a real, non-arbitrary signal: someone on family.rokach.uk
     asking for a code is asking as a Rokach member, even if the same
     account also belongs to some other family. Only ever picks a family
-    when exactly one membership's own base_url override (see
-    _base_url_host) matches the visited host - same "never an arbitrary
-    pick among several" discipline this used before host-matching
-    existed, just applied to a sharper signal first. Falls back to the
-    plain "exactly one membership, period" check when the visited host
-    doesn't uniquely pick one - most families never set their own
-    base_url at all, so host matching only ever disambiguates a family
-    that actually has (see that field's own docstring on what setting
-    one requires in infra first). Reads request.get_host() directly, not
-    X-Forwarded-Host (settings.USE_X_FORWARDED_HOST is unset) - relies
-    on the same unmodified Host header ALLOWED_HOSTS/per-family custom
-    domains already depend on, not a new assumption.
+    when exactly one membership's own Family.base_url_host matches the
+    visited host - same "never an arbitrary pick among several"
+    discipline this used before host-matching existed, just applied to
+    a sharper signal first. Falls back to the plain "exactly one
+    membership, period" check when that doesn't uniquely pick one.
+    Reads request.get_host() directly, not X-Forwarded-Host
+    (settings.USE_X_FORWARDED_HOST is unset) - relies on the same
+    unmodified Host header ALLOWED_HOSTS/per-family custom domains
+    already depend on, not a new assumption.
     """
     memberships = list(account.family_memberships.select_related("family"))
     visited_host = request.get_host().lower()
-    host_matches = [m.family for m in memberships if _base_url_host(m.family) == visited_host]
+    host_matches = [m.family for m in memberships if m.family.base_url_host == visited_host]
     if len(host_matches) == 1:
         return host_matches[0]
     return memberships[0].family if len(memberships) == 1 else None
