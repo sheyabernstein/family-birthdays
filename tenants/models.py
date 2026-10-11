@@ -1,4 +1,5 @@
 import uuid
+from urllib.parse import urlsplit
 
 import reversion
 from django.conf import settings
@@ -151,6 +152,36 @@ class Family(models.Model):
         of validating it away at save time.
         """
         return self.base_url.rstrip("/") or settings.SITE_BASE_URL
+
+    @property
+    def base_url_host(self) -> str | None:
+        """This family's own base_url override's host, normalized like a real browser's Host header - or None if it has none.
+
+        Reads base_url, not resolved_base_url - the latter falls back
+        to the shared settings.SITE_BASE_URL, which a host-matching
+        caller (accounts.views._family_for_sign_in) must never mistake
+        for a deliberate per-family choice. Lowercased, IDNA/punycode-
+        encoded, and drops an explicit port only when it's the URL's
+        own scheme's default (80/http, 443/https) - the same form a
+        browser's Host header actually takes, so a validly-saved
+        Unicode or explicit-default-port base_url still matches a real
+        visitor. Fails safe to None, not a crash, on anything urlsplit/
+        idna can't parse.
+        """
+        if not self.base_url:
+            return None
+        default_ports = {"http": 80, "https": 443}
+        try:
+            split = urlsplit(self.base_url)
+            if not split.hostname:
+                return None
+            host = split.hostname.encode("idna").decode("ascii")
+            port = split.port
+            if port is not None and port != default_ports.get(split.scheme):
+                return f"{host}:{port}"
+            return host
+        except (ValueError, UnicodeError):
+            return None
 
 
 @reversion.register()

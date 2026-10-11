@@ -21,17 +21,42 @@ from tenants.mixins import FamilyRequiredMixin
 from tenants.models import Family
 
 
-def _sole_family(account: Account) -> Family | None:
-    """The one family to brand a sign-in message with, if there's an unambiguous choice.
+def _family_for_sign_in(account: Account, request: HttpRequest) -> Family | None:
+    """The one family to brand a sign-in message with, preferring the host the link was requested from.
 
-    None for zero or (someone in more than one family - see AGENTS.md's
-    Person/Account bullet) several, since picking one arbitrarily would
-    misrepresent who's actually sending it. Every other email/SMS this
-    app sends already has an obvious single family behind it (an
-    Occurrence's/Broadcast's own) - a sign-in link is the one message
-    type that doesn't, since it's requested before the account's even
-    picked a workspace for this session.
+    A magic link is requested before the account's picked a workspace
+    for this session, and the same account can belong to several
+    families at once - but which domain they actually visited to ask
+    for it is a real, non-arbitrary signal: someone on family.rokach.uk
+    asking for a code is asking as a Rokach member, even if the same
+    account also belongs to some other family. Only ever picks a family
+    when exactly one membership's own Family.base_url_host matches the
+    visited host - same "never an arbitrary pick among several"
+    discipline this used before host-matching existed, just applied to
+    a sharper signal first. Falls back to the plain "exactly one
+    membership, period" check when that doesn't uniquely pick one.
+    Reads request.get_host() directly, not X-Forwarded-Host
+    (settings.USE_X_FORWARDED_HOST is unset) - relies on the same
+    unmodified Host header ALLOWED_HOSTS/per-family custom domains
+    already depend on, not a new assumption.
+
+    Two separately-bounded queries, not one unbounded fetch of every
+    membership - a blank base_url can never match a real visited host
+    (base_url_host is None for one), so the host-matching pass only
+    ever needs memberships whose family actually has an override
+    (typically none at all, most families never set one); the fallback
+    pass restores the old bounded [:2] (only "is there more than one
+    membership" matters there), and only runs when host-matching
+    didn't already resolve it.
     """
+    visited_host = request.get_host().lower()
+    override_memberships = list(
+        account.family_memberships.exclude(family__base_url="").select_related("family")
+    )
+    host_matches = [m.family for m in override_memberships if m.family.base_url_host == visited_host]
+    if len(host_matches) == 1:
+        return host_matches[0]
+
     memberships = list(account.family_memberships.select_related("family")[:2])
     return memberships[0].family if len(memberships) == 1 else None
 
@@ -82,7 +107,7 @@ class RequestMagicLinkView(View):
         else:
             if not magic_links.is_rate_limited(str(account.uuid)):
                 destination = account.email if is_email else account.phone
-                family = _sole_family(account)
+                family = _family_for_sign_in(account, request)
 
                 token, code = magic_links.issue_token(
                     account_uuid=str(account.uuid), channel=channel, destination=destination

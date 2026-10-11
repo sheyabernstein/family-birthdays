@@ -75,3 +75,41 @@ def test_resolved_base_url_strips_a_trailing_slash():
     family = Family.objects.create(name="Test Family", base_url="https://family.example.com/")
 
     assert family.resolved_base_url == "https://family.example.com"
+
+
+@pytest.mark.parametrize(
+    ["base_url", "expected_host"],
+    [
+        ["", None],
+        ["https://family.example.com", "family.example.com"],
+        ["https://FAMILY.example.com", "family.example.com"],
+        ["https://family.example.com:443", "family.example.com"],
+        ["http://family.example.com:80", "family.example.com"],
+        ["https://family.example.com:8443", "family.example.com:8443"],
+        ["https://café.example", "xn--caf-dma.example"],
+    ],
+    ids=[
+        "blank has no host",
+        "plain override's host",
+        "lowercased",
+        "explicit default https port dropped",
+        "explicit default http port dropped",
+        "non-default port kept",
+        "unicode host encoded to punycode, matching what a browser actually sends",
+    ],
+)
+def test_base_url_host_normalizes_like_a_real_browsers_host_header(base_url, expected_host):
+    family = Family.objects.create(name="Test Family", base_url=base_url)
+
+    assert family.base_url_host == expected_host
+
+
+def test_base_url_host_fails_safe_on_an_unparseable_base_url():
+    """URLValidator already rejects every input confirmed to trigger
+    this at the admin layer, so .update() bypasses it here to exercise
+    the fail-safe path directly rather than trust that holds forever."""
+    family = Family.objects.create(name="Test Family")
+    Family.objects.filter(pk=family.pk).update(base_url="https://[malformed")
+    family.refresh_from_db()
+
+    assert family.base_url_host is None

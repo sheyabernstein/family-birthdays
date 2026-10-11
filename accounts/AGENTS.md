@@ -53,17 +53,26 @@ for the project-wide orientation these build on.
   (see the sender-branding bullet above); a sign-in link is requested
   before an account's picked a workspace for this session, and the same
   account can belong to several families at once. `accounts.views.
-  _sole_family` (a module-level helper, called from
-  `RequestMagicLinkView.post`) resolves this the same way `Message.
-  family`'s own exactly-one-of-the-two constraint does elsewhere: brand
-  with a family's own name/`sender_email`/`reply_to_email`/
-  `sms_sender_id` only when the account belongs to *exactly* one, never
-  an arbitrary pick among several - a member of two families seeing one
-  of them named on a sign-in email would misrepresent who's actually
-  sending it. Zero or multiple memberships both fall back to the same
-  blank-everything default `notifications.services.send_email`/
-  `send_sms` already use for a message with no family context at all -
-  no new fallback path was needed for this. `accounts/templates/accounts/
+  _family_for_sign_in` (a module-level helper, called from
+  `RequestMagicLinkView.post`) resolves this in two tiers: first, which
+  family's own `base_url` override matches the host the request was
+  actually made on (someone on family.rokach.uk asking for a code is
+  asking as a Rokach member, even if the same account also belongs to
+  some other family - found for real: an admin test account in two
+  families got branded with the site-wide default instead of the
+  family whose domain they were actually signed into) - and only when
+  that's not uniquely resolvable (most families share the same un-
+  overridden default host, so this rarely disambiguates anything for
+  them) falls back to the same `Message.family` exactly-one-of-the-two
+  discipline as elsewhere: brand with a family's own name/
+  `sender_email`/`reply_to_email`/`sms_sender_id` only when the account
+  belongs to *exactly* one, never an arbitrary pick among several - a
+  member of two families seeing one of them named on a sign-in email
+  would misrepresent who's actually sending it. Zero or multiple
+  unresolved memberships both fall back to the same blank-everything
+  default `notifications.services.send_email`/`send_sms` already use
+  for a message with no family context at all - no new fallback path
+  was needed for this. `accounts/templates/accounts/
   email/sign_in.html` is otherwise a normal `templates/email/_base.html`
   extension (see that bullet above) - a call-to-action button (`.btn-
   email-bg`/`.btn-email-text` in the shared base's own `<style>`, kept
