@@ -3,6 +3,8 @@ import re
 import pytest
 from django.conf import settings
 from django.core import mail
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from accounts import magic_links
@@ -249,6 +251,22 @@ def test_request_magic_link_email_branding_by_membership_and_host(
     else:
         assert sent.from_email == f"Family Tree <{settings.DEFAULT_FROM_EMAIL}>"
         assert all(name not in html for name in families)
+
+
+def test_request_magic_link_bounds_the_fallback_membership_query(client):
+    """Regression guard for _family_for_sign_in's own fallback [:2]
+    bound - a plain query-count comparison wouldn't catch an unbounded
+    fetch regression here (one SELECT is still one query no matter how
+    many rows it returns), so this asserts the actual LIMIT clause."""
+    account = Account.objects.create_user(email="bounded@example.com")
+    for i in range(5):
+        fam = Family.objects.create(name=f"Family {i}")
+        FamilyMembership.objects.create(account=account, family=fam, role=FamilyMembership.Role.OWNER)
+
+    with CaptureQueriesContext(connection) as queries:
+        client.post(reverse("accounts:request_link"), {"identifier": "bounded@example.com"})
+
+    assert any("LIMIT 2" in q["sql"] for q in queries.captured_queries)
 
 
 def test_request_magic_link_email_uses_the_familys_own_base_url_when_set(client, family):

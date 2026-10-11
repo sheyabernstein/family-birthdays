@@ -39,12 +39,25 @@ def _family_for_sign_in(account: Account, request: HttpRequest) -> Family | None
     (settings.USE_X_FORWARDED_HOST is unset) - relies on the same
     unmodified Host header ALLOWED_HOSTS/per-family custom domains
     already depend on, not a new assumption.
+
+    Two separately-bounded queries, not one unbounded fetch of every
+    membership - a blank base_url can never match a real visited host
+    (base_url_host is None for one), so the host-matching pass only
+    ever needs memberships whose family actually has an override
+    (typically none at all, most families never set one); the fallback
+    pass restores the old bounded [:2] (only "is there more than one
+    membership" matters there), and only runs when host-matching
+    didn't already resolve it.
     """
-    memberships = list(account.family_memberships.select_related("family"))
     visited_host = request.get_host().lower()
-    host_matches = [m.family for m in memberships if m.family.base_url_host == visited_host]
+    override_memberships = list(
+        account.family_memberships.exclude(family__base_url="").select_related("family")
+    )
+    host_matches = [m.family for m in override_memberships if m.family.base_url_host == visited_host]
     if len(host_matches) == 1:
         return host_matches[0]
+
+    memberships = list(account.family_memberships.select_related("family")[:2])
     return memberships[0].family if len(memberships) == 1 else None
 
 
