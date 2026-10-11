@@ -1,4 +1,4 @@
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlparse, urlsplit
 
 from django.contrib import messages
 from django.contrib.auth import REDIRECT_FIELD_NAME, login, logout
@@ -21,18 +21,57 @@ from tenants.mixins import FamilyRequiredMixin
 from tenants.models import Family
 
 
-def _sole_family(account: Account) -> Family | None:
-    """The one family to brand a sign-in message with, if there's an unambiguous choice.
+def _base_url_host(family: Family) -> str | None:
+    """Family's own base_url override's host, lowercased - or None if it has none.
 
-    None for zero or (someone in more than one family - see AGENTS.md's
-    Person/Account bullet) several, since picking one arbitrarily would
-    misrepresent who's actually sending it. Every other email/SMS this
-    app sends already has an obvious single family behind it (an
-    Occurrence's/Broadcast's own) - a sign-in link is the one message
-    type that doesn't, since it's requested before the account's even
-    picked a workspace for this session.
+    Deliberately reads base_url directly, not resolved_base_url - that
+    property falls back to settings.SITE_BASE_URL (an unvalidated env
+    var) when base_url is blank, which this must never touch: a real
+    override is a deliberate per-family choice, settings.SITE_BASE_URL
+    is just the shared default every family without one also happens
+    to resolve to. urlparse can raise ValueError on a malformed netloc
+    (confirmed: a bracketed-IPv6-looking string) - base_url's own
+    URLValidator already rejects every input confirmed to trigger that,
+    but this fails safe to "no match" rather than trust that holds
+    forever, since a crash here would break sign-in for every account
+    sharing a membership with whichever family's base_url is at fault,
+    not just that family's own.
     """
-    memberships = list(account.family_memberships.select_related("family")[:2])
+    if not family.base_url:
+        return None
+    try:
+        return urlparse(family.base_url.rstrip("/")).netloc.lower()
+    except ValueError:
+        return None
+
+
+def _family_for_sign_in(account: Account, request: HttpRequest) -> Family | None:
+    """The one family to brand a sign-in message with, preferring the host the link was requested from.
+
+    A magic link is requested before the account's picked a workspace
+    for this session, and the same account can belong to several
+    families at once - but which domain they actually visited to ask
+    for it is a real, non-arbitrary signal: someone on family.rokach.uk
+    asking for a code is asking as a Rokach member, even if the same
+    account also belongs to some other family. Only ever picks a family
+    when exactly one membership's own base_url override (see
+    _base_url_host) matches the visited host - same "never an arbitrary
+    pick among several" discipline this used before host-matching
+    existed, just applied to a sharper signal first. Falls back to the
+    plain "exactly one membership, period" check when the visited host
+    doesn't uniquely pick one - most families never set their own
+    base_url at all, so host matching only ever disambiguates a family
+    that actually has (see that field's own docstring on what setting
+    one requires in infra first). Reads request.get_host() directly, not
+    X-Forwarded-Host (settings.USE_X_FORWARDED_HOST is unset) - relies
+    on the same unmodified Host header ALLOWED_HOSTS/per-family custom
+    domains already depend on, not a new assumption.
+    """
+    memberships = list(account.family_memberships.select_related("family"))
+    visited_host = request.get_host().lower()
+    host_matches = [m.family for m in memberships if _base_url_host(m.family) == visited_host]
+    if len(host_matches) == 1:
+        return host_matches[0]
     return memberships[0].family if len(memberships) == 1 else None
 
 
@@ -82,7 +121,7 @@ class RequestMagicLinkView(View):
         else:
             if not magic_links.is_rate_limited(str(account.uuid)):
                 destination = account.email if is_email else account.phone
-                family = _sole_family(account)
+                family = _family_for_sign_in(account, request)
 
                 token, code = magic_links.issue_token(
                     account_uuid=str(account.uuid), channel=channel, destination=destination

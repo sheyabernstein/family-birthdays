@@ -6,6 +6,7 @@ from django.core import mail
 from django.urls import reverse
 
 from accounts import magic_links
+from accounts import views as accounts_views
 from accounts.helpers import EmailValidationResult
 from accounts.models import Account
 from family.models import Person
@@ -198,16 +199,57 @@ def test_request_magic_link_email_omits_the_manage_notifications_link(client):
     assert "Manage notification settings" not in sent.body
 
 
-def test_request_magic_link_email_is_branded_when_the_account_has_exactly_one_family(client, family):
-    owner = _member(family, FamilyMembership.Role.OWNER)
+@pytest.mark.parametrize(
+    ["family_specs", "visited_host", "expected_branded_name"],
+    [
+        [[["Solo Family", ""]], "testserver", "Solo Family"],
+        [[["Solo Override Family", "https://localhost"]], "localhost", "Solo Override Family"],
+        [[["Rokach Family", ""], ["Bernstein Family", ""]], "testserver", None],
+        [[["Rokach Family", "https://localhost"], ["Bernstein Family", ""]], "localhost", "Rokach Family"],
+        [
+            [["No Override Family", ""], ["Other Override Family", "https://family.other.example"]],
+            "localhost:8000",
+            None,
+        ],
+        [
+            [["Rokach Family", "https://localhost"], ["Bernstein Family", "https://localhost"]],
+            "localhost",
+            None,
+        ],
+    ],
+    ids=[
+        "single membership with no override brands with that family",
+        "single membership with a matching override brands with that family",
+        "two memberships with no overrides fall back to the default brand",
+        "visited host matching exactly one override wins over an unmatched membership",
+        "neither membership's override matches the visited host falls back to default",
+        "visited host matching more than one override falls back to default",
+    ],
+)
+def test_request_magic_link_email_branding_by_membership_and_host(
+    client, family_specs, visited_host, expected_branded_name
+):
+    account = Account.objects.create_user(email="branding@example.com")
+    families = {}
+    for name, base_url in family_specs:
+        fam = Family.objects.create(name=name, base_url=base_url)
+        FamilyMembership.objects.create(account=account, family=fam, role=FamilyMembership.Role.OWNER)
+        families[name] = fam
 
-    client.post(reverse("accounts:request_link"), {"identifier": owner.email})
+    client.post(
+        reverse("accounts:request_link"), {"identifier": "branding@example.com"}, HTTP_HOST=visited_host
+    )
 
     sent = mail.outbox[-1]
-    assert sent.from_email == f"{family.name} <{family.sender_email}>"
     html, _ = sent.alternatives[0]
-    assert family.name in html
-    assert f"Sent by {family.name}." in html
+    if expected_branded_name:
+        fam = families[expected_branded_name]
+        assert sent.from_email == f"{fam.name} <{fam.sender_email}>"
+        assert fam.name in html
+        assert all(name not in html for name in families if name != expected_branded_name)
+    else:
+        assert sent.from_email == f"Family Tree <{settings.DEFAULT_FROM_EMAIL}>"
+        assert all(name not in html for name in families)
 
 
 def test_request_magic_link_email_uses_the_familys_own_base_url_when_set(client, family):
@@ -223,20 +265,16 @@ def test_request_magic_link_email_uses_the_familys_own_base_url_when_set(client,
     assert settings.SITE_BASE_URL not in html
 
 
-def test_request_magic_link_email_falls_back_to_the_default_brand_for_a_multi_family_account(client):
-    account = Account.objects.create_user(email="multi@example.com")
-    for name in ["Rokach Family", "Bernstein Family"]:
-        fam = Family.objects.create(name=name)
-        FamilyMembership.objects.create(account=account, family=fam, role=FamilyMembership.Role.OWNER)
+def test_base_url_host_fails_safe_on_an_unparseable_base_url():
+    """Regression guard for _base_url_host's own ValueError guard -
+    URLValidator already rejects every input confirmed to trigger this
+    at the admin layer, so .update() bypasses it here to exercise the
+    fail-safe path directly rather than trust that holds forever."""
+    family = Family.objects.create(name="Malformed Family")
+    Family.objects.filter(pk=family.pk).update(base_url="https://[malformed")
+    family.refresh_from_db()
 
-    client.post(reverse("accounts:request_link"), {"identifier": "multi@example.com"})
-
-    sent = mail.outbox[-1]
-    assert sent.from_email == f"Family Tree <{settings.DEFAULT_FROM_EMAIL}>"
-    html, _ = sent.alternatives[0]
-    assert "Rokach Family" not in html
-    assert "Bernstein Family" not in html
-    assert "Sent by Family Tree." in html
+    assert accounts_views._base_url_host(family) is None
 
 
 def test_request_magic_link_texts_a_sign_in_link_for_a_known_phone(client, monkeypatch):
