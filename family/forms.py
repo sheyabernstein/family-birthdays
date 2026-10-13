@@ -76,6 +76,14 @@ class PersonForm(forms.ModelForm):
         label="Access to this family",
         help_text="Only takes effect once an email or phone is set above.",
     )
+    # Account-wide kill switches, same as AccountContactForm's
+    # self-service version - see save()'s own docstring.
+    account_email_notifications_enabled = forms.BooleanField(
+        required=False, initial=True, label="Email notifications"
+    )
+    account_sms_notifications_enabled = forms.BooleanField(
+        required=False, initial=True, label="SMS notifications"
+    )
 
     class Meta:
         model = Person
@@ -154,10 +162,14 @@ class PersonForm(forms.ModelForm):
 
         # Once linked, the Account is the source of truth for contact
         # info - show its current values rather than a separate copy.
+        self.account_in_other_families = False
         if self.instance.account_id:
             account = self.instance.account
             self.fields["email"].initial = account.email
             self.fields["phone"].initial = account.phone
+            self.fields["account_email_notifications_enabled"].initial = account.email_notifications_enabled
+            self.fields["account_sms_notifications_enabled"].initial = account.sms_notifications_enabled
+            self.account_in_other_families = account.family_memberships.exclude(family=family).exists()
             membership = FamilyMembership.objects.filter(account=account, family=family).first()
             self.fields["family_role"].initial = membership.role if membership else ""
 
@@ -200,6 +212,9 @@ class PersonForm(forms.ModelForm):
                     )
                 else:
                     self._matched_account = account
+                    self.account_in_other_families = account.family_memberships.exclude(
+                        family=self.family
+                    ).exists()
 
         return cleaned_data
 
@@ -216,21 +231,42 @@ class PersonForm(forms.ModelForm):
         - family_role only takes effect when there's an Account to grant
           it to; picking "No access" revokes any existing membership
           rather than doing nothing.
+        - The two account_*_notifications_enabled fields apply only to
+          a brand-new Account or an already-linked one being actively
+          edited (both cases where whoever's filling this in can see,
+          or is setting from scratch, the value being saved) - never to
+          an existing Account newly matched by email/phone. That match
+          happens invisibly inside clean(), so the checkboxes are still
+          showing their plain field defaults at that point, not that
+          account's real settings - applying them would silently
+          overwrite someone's real opt-out with a default they never
+          actually chose.
         """
         person = super().save(commit=commit)
         email = self.cleaned_data.get("email") or None
         phone = self.cleaned_data.get("phone") or None
         role = self.cleaned_data.get("family_role") or None
+        email_notifications_enabled = self.cleaned_data["account_email_notifications_enabled"]
+        sms_notifications_enabled = self.cleaned_data["account_sms_notifications_enabled"]
 
         account = person.account
         if account is None and (email or phone):
-            account = self._matched_account or Account.objects.create_user(email=email, phone=phone)
+            account = self._matched_account or Account.objects.create_user(
+                email=email,
+                phone=phone,
+                email_notifications_enabled=email_notifications_enabled,
+                sms_notifications_enabled=sms_notifications_enabled,
+            )
             person.account = account
             person.save(update_fields=["account"])
         elif account is not None and (email or phone):
             account.email = email
             account.phone = phone
-            account.save(update_fields=["email", "phone"])
+            account.email_notifications_enabled = email_notifications_enabled
+            account.sms_notifications_enabled = sms_notifications_enabled
+            account.save(
+                update_fields=["email", "phone", "email_notifications_enabled", "sms_notifications_enabled"]
+            )
 
         if account is not None:
             if role:
