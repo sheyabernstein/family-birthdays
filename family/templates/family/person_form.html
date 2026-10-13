@@ -110,6 +110,18 @@
                 </div>
             </div>
             <div class="form-row">
+                <div class="form-field checkbox-field">
+                    {{ form.account_email_notifications_enabled }}{% field_label form.account_email_notifications_enabled %}
+                </div>
+                <div class="form-field checkbox-field">
+                    {{ form.account_sms_notifications_enabled }}{% field_label form.account_sms_notifications_enabled %}
+                </div>
+            </div>
+            <p class="help-text">Only takes effect once an email or phone is set above - applies to this person's account everywhere, not just this family.</p>
+            {% if form.account_in_other_families %}
+                <p class="help-text">{% icon "triangle-alert" %}This person's account is also part of another family - this change affects their notifications there too.</p>
+            {% endif %}
+            <div class="form-row">
                 <div class="form-field">{% field_label form.family_role %}{{ form.family_role }}{{ form.family_role.errors }}</div>
             </div>
             <p class="help-text">{{ form.family_role.help_text }}</p>
