@@ -5,9 +5,14 @@
     <div class="page-header">
         <h1>Family</h1>
         {% if request.family_permissions.can_edit %}
-            <a class="btn"
-               href="{% url 'family:person_create' %}"
-               title="Add a new person to the family">+ Add someone</a>
+            <div style="display: flex; gap: 0.75rem;">
+                <a class="btn"
+                   href="{% url 'family:person_create' %}"
+                   title="Add a new person to the family">+ Add someone</a>
+                <a class="btn btn-outline"
+                   href="{% url 'family:person_export' %}?{{ request.GET.urlencode }}"
+                   title="Download this list as a spreadsheet">Export</a>
+            </div>
         {% endif %}
     </div>
     <form method="get" style="margin-bottom: 1.5rem; max-width: 20rem;">

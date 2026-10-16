@@ -104,6 +104,22 @@ class Family(models.Model):
     # confirmed enabled).
     email_sending_enabled = models.BooleanField(default=False, verbose_name="email sending enabled")
     sms_sending_enabled = models.BooleanField(default=False, verbose_name="SMS sending enabled")
+    # Anchors family.branches' per-export row-coloring - see that
+    # module's own docstring for why this needs a human-designated
+    # anchor rather than being inferred from the data. Deliberately a
+    # single person, not a patriarch+matriarch pair - see compute_branches.
+    tree_root = models.ForeignKey(
+        "family.Person",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="tree root",
+        help_text=(
+            "The person this family's tree is anchored to, "
+            "typically the oldest tracked ancestor most of the family descends from."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

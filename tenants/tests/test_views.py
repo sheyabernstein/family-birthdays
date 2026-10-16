@@ -397,3 +397,53 @@ def test_family_settings_rejects_updates_without_the_change_family_permission(ro
     assert resp.status_code == 403
     family.refresh_from_db()
     assert family.reply_to_email == ""
+
+
+def test_family_settings_lets_an_owner_set_the_tree_root(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    root = Person.objects.create(family=family, first_name_en="Root", last_name_en="Rokach")
+    _login_as(client, owner, family)
+
+    resp = client.post("/family/settings/", {"form_name": "tree_root", "tree_root": root.id})
+
+    assert resp.status_code == 302
+    family.refresh_from_db()
+    assert family.tree_root_id == root.id
+
+
+def test_family_settings_rejects_setting_the_tree_root_from_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    root = Person.objects.create(family=family, first_name_en="Root", last_name_en="Rokach")
+    _login_as(client, editor, family)
+
+    resp = client.post("/family/settings/", {"form_name": "tree_root", "tree_root": root.id})
+
+    assert resp.status_code == 403
+    family.refresh_from_db()
+    assert family.tree_root_id is None
+
+
+def test_family_settings_shows_the_tree_root_picker_to_an_owner_without_change_family(client, family):
+    # Deliberately narrower gate than sender branding's - an owner with
+    # no site-admin grant can still set this (see FamilyTreeRootForm).
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    resp = client.get("/family/settings/")
+
+    assert resp.status_code == 200
+    assert b'name="tree_root"' in resp.content
+
+
+def test_family_settings_shows_the_tree_root_read_only_to_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    root = Person.objects.create(family=family, first_name_en="Root", last_name_en="Rokach")
+    family.tree_root = root
+    family.save(update_fields=["tree_root"])
+    _login_as(client, editor, family)
+
+    resp = client.get("/family/settings/")
+
+    assert resp.status_code == 200
+    assert b'name="tree_root"' not in resp.content
+    assert b"Root Rokach" in resp.content

@@ -11,6 +11,7 @@ urlpatterns = [
     path("", views.HomeView.as_view(), name="home"),
     path("upcoming/", views.DashboardView.as_view(), name="dashboard"),
     path("people/", views.PersonListView.as_view(), name="person_list"),
+    path("people/export/", views.PersonExportView.as_view(), name="person_export"),
     path("people/new/", views.PersonCreateView.as_view(), name="person_create"),
     path("people/<uuid:uuid>/", views.PersonDetailView.as_view(), name="person_detail"),
     path("people/<uuid:uuid>/edit/", views.PersonUpdateView.as_view(), name="person_update"),

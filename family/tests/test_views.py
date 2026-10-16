@@ -1,5 +1,7 @@
 import datetime as dt
+import io
 
+import openpyxl
 import pytest
 from django.contrib.messages import get_messages
 from django.db import connection
@@ -31,6 +33,11 @@ def _login_as(client, account, family):
     # Already "recently seen" - keeps the capture below from picking up
     # TrackLastSeenMiddleware's own one-time update (see that class's docstring).
     Account.objects.filter(pk=account.pk).update(last_seen_at=timezone.now())
+
+
+def _export_workbook(client, url):
+    resp = client.get(url)
+    return openpyxl.load_workbook(io.BytesIO(resp.content))
 
 
 def _years_ago(years):
@@ -1181,6 +1188,116 @@ def test_person_list_shows_an_immediate_family_person_to_their_own_child(client,
     resp = client.get("/people/")
 
     assert "Private Parent" in resp.content.decode()
+
+
+@pytest.mark.parametrize(
+    ["role"], [[FamilyMembership.Role.OWNER], [FamilyMembership.Role.EDITOR]], ids=["owner", "editor"]
+)
+def test_person_export_allows_owner_and_editor(role, client, family):
+    member = _member(family, role)
+    Person.objects.create(family=family, first_name_en="Tracked", last_name_en="Person")
+    _login_as(client, member, family)
+
+    resp = client.get("/people/export/")
+
+    assert resp.status_code == 200
+    assert resp["Content-Type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def test_person_export_filename_includes_a_generation_timestamp(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    _login_as(client, owner, family)
+
+    before = int(timezone.now().timestamp())
+    resp = client.get("/people/export/")
+    after = int(timezone.now().timestamp())
+
+    disposition = resp["Content-Disposition"]
+    assert disposition.startswith('attachment; filename="')
+    timestamp = int(disposition.rsplit("-", 1)[1].removesuffix('.xlsx"'))
+    assert before <= timestamp <= after
+
+
+def test_person_export_orders_rows_oldest_to_youngest(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    Person.objects.create(
+        family=family, first_name_en="Youngest", last_name_en="Person", dob_gregorian=_years_ago(10)
+    )
+    Person.objects.create(
+        family=family, first_name_en="Oldest", last_name_en="Person", dob_gregorian=_years_ago(80)
+    )
+    Person.objects.create(family=family, first_name_en="NoDob", last_name_en="Person")
+    _login_as(client, owner, family)
+
+    workbook = _export_workbook(client, "/people/export/")
+
+    names = [row[0] for row in workbook.active.iter_rows(min_row=2, values_only=True)]
+    assert names == ["Oldest", "Youngest", "NoDob"]
+
+
+def test_person_export_rejects_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    _login_as(client, member, family)
+
+    resp = client.get("/people/export/")
+
+    assert resp.status_code == 403
+
+
+def test_person_export_hides_untracked_people_by_default(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    Person.objects.create(family=family, first_name_en="Tracked", last_name_en="Person")
+    Person.objects.create(
+        family=family, first_name_en="Stub", last_name_en="Ancestor", notifications_enabled=False
+    )
+    _login_as(client, owner, family)
+
+    workbook = _export_workbook(client, "/people/export/")
+
+    names = {(row[0].value, row[1].value) for row in workbook.active.iter_rows(min_row=2)}
+    assert ("Tracked", "Person") in names
+    assert ("Stub", "Ancestor") not in names
+
+
+def test_person_export_show_untracked_reveals_them(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    Person.objects.create(
+        family=family, first_name_en="Stub", last_name_en="Ancestor", notifications_enabled=False
+    )
+    _login_as(client, owner, family)
+
+    workbook = _export_workbook(client, "/people/export/?show_untracked=1")
+
+    names = {(row[0].value, row[1].value) for row in workbook.active.iter_rows(min_row=2)}
+    assert ("Stub", "Ancestor") in names
+
+
+def test_person_export_includes_email_and_phone_from_the_linked_account(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    account = Account.objects.create_user(email="tracked@example.com", phone="+15551234567")
+    Person.objects.create(family=family, first_name_en="Tracked", last_name_en="Person", account=account)
+    _login_as(client, owner, family)
+
+    workbook = _export_workbook(client, "/people/export/")
+
+    row = next(row for row in workbook.active.iter_rows(min_row=2, values_only=True) if row[0] == "Tracked")
+    assert row[6] == "tracked@example.com"
+    assert row[7] == "+15551234567"
+
+
+def test_person_export_colors_a_branch_and_leaves_the_tree_root_uncolored(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    root = Person.objects.create(family=family, first_name_en="Root", last_name_en="Rokach")
+    Person.objects.create(family=family, first_name_en="Child", last_name_en="Rokach", father=root)
+    family.tree_root = root
+    family.save(update_fields=["tree_root"])
+    _login_as(client, owner, family)
+
+    workbook = _export_workbook(client, "/people/export/")
+
+    fills = {row[0].value: row[0].fill.start_color.rgb for row in workbook.active.iter_rows(min_row=2)}
+    assert fills["Root"] == "00000000"
+    assert fills["Child"] != "00000000"
 
 
 def test_owner_can_add_a_brand_new_spouse(client, family):
