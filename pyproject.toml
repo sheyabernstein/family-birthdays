@@ -21,6 +21,7 @@ dependencies = [
     "hdate (>=1.2.1,<2.0.0)",
     "icalendar (>=7.3.0,<8.0.0)",
     "nh3 (>=0.3.7,<0.4.0)",
+    "openpyxl (>=3.1.5,<4.0.0)",
     "opentelemetry-exporter-otlp-proto-http (>=1.44.0,<2.0.0)",
     "opentelemetry-instrumentation-botocore (>=0.49b0)",
     "opentelemetry-instrumentation-celery (>=0.49b0)",
@@ -43,9 +44,6 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [dependency-groups]
-dev = [
-    "openpyxl (>=3.1.5)",
-]
 lint = [
     "black (>=26.5.1)",
     "ruff (>=0.16.5)",

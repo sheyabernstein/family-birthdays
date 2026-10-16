@@ -10,7 +10,7 @@ from django.views.generic import ListView, TemplateView
 
 from config.logging_config import logger
 from family.models import Person
-from tenants.forms import FamilySenderSettingsForm
+from tenants.forms import FamilySenderSettingsForm, FamilyTreeRootForm
 from tenants.mixins import FamilyEditorRequiredMixin
 from tenants.models import Family, FamilyMembership
 
@@ -90,7 +90,15 @@ class FamilySettingsView(FamilyEditorRequiredMixin, UserPassesTestMixin, ListVie
     permission_denied_message = "Only site admins can change workspace settings."
 
     def test_func(self) -> bool:
-        return self.request.method != "POST" or self.request.user.has_perm("tenants.change_family")
+        if self.request.method != "POST":
+            return True
+        if self.request.POST.get("form_name") == "tree_root":
+            # can_delete is FamilyPermissions' own stand-in for "is this
+            # family's owner" (see tenants.permissions) - not literally
+            # "may hard-delete", the same reuse FamilyOwnerRequiredMixin
+            # already makes for every other owner-only action.
+            return self.request.family_permissions.can_delete
+        return self.request.user.has_perm("tenants.change_family")
 
     def get_queryset(self) -> QuerySet[FamilyMembership]:
         # Sorted the same way the People list is (Person._meta.ordering),
@@ -133,6 +141,7 @@ class FamilySettingsView(FamilyEditorRequiredMixin, UserPassesTestMixin, ListVie
     def get_context_data(self, **kwargs) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context.setdefault("sender_form", FamilySenderSettingsForm(instance=self.request.family))
+        context.setdefault("tree_root_form", FamilyTreeRootForm(instance=self.request.family))
         # person_in_family(), not linked_person - never ambiguous within
         # one family even if the account is tracked in others too.
         for membership in context["memberships"]:
@@ -140,6 +149,15 @@ class FamilySettingsView(FamilyEditorRequiredMixin, UserPassesTestMixin, ListVie
         return context
 
     def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        if request.POST.get("form_name") == "tree_root":
+            tree_root_form = FamilyTreeRootForm(request.POST, instance=request.family)
+            if tree_root_form.is_valid():
+                tree_root_form.save()
+                messages.success(request, "Saved the family tree root.")
+                return redirect("tenants:family_settings")
+            self.object_list = self.get_queryset()
+            return self.render_to_response(self.get_context_data(tree_root_form=tree_root_form))
+
         form = FamilySenderSettingsForm(request.POST, instance=request.family)
         if form.is_valid():
             form.save()

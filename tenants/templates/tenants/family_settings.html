@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load form_extras family_extras humanize %}
+{% load static form_extras family_extras humanize %}
 {% block title %}{{ request.family.name }} settings - Family Tree{% endblock %}
 {% block content %}
     <div class="page-header">
@@ -37,6 +37,32 @@
                 <dt>Reply-to email</dt>
                 <dd>
                     {{ request.family.reply_to_email|default:"Not set" }}
+                </dd>
+            </dl>
+        {% endif %}
+    </div>
+    <div class="card">
+        <h2>Family tree root</h2>
+        <p class="muted">Whose children found each branch for the People export's row coloring.</p>
+        {% if request.family_permissions.can_delete %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_name" value="tree_root">
+                <div class="form-field">
+                    {% field_label tree_root_form.tree_root %}{{ tree_root_form.tree_root }}{{ tree_root_form.tree_root.errors }}
+                    <p class="help-text">{{ tree_root_form.tree_root.help_text }}</p>
+                </div>
+                <button type="submit" class="btn btn-sm" title="Save the family tree root">Save</button>
+            </form>
+        {% else %}
+            <dl class="field-list">
+                <dt>Tree root</dt>
+                <dd>
+                    {% if request.family.tree_root %}
+                        <a href="{% url 'family:person_detail' request.family.tree_root.uuid %}">{{ request.family.tree_root.display_name }}</a>
+                    {% else %}
+                        Not set
+                    {% endif %}
                 </dd>
             </dl>
         {% endif %}
@@ -87,4 +113,11 @@
         </div>
     </div>
     <p class="muted">To give someone access, add them as a person and set their email or phone on their profile - see <a href="{% url 'family:person_list' %}">People</a>.</p>
+    {% if request.family_permissions.can_delete %}
+        <link rel="stylesheet"
+              href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.css">
+        <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+        <script src="{% static 'family/js/person_picker.js' %}"></script>
+        <script>initPersonPicker("#id_tree_root");</script>
+    {% endif %}
 {% endblock %}

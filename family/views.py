@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import F, QuerySet
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -17,6 +17,8 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 from hdate import HebrewDate
 from hdate.hebrew_date import Months
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 
 from family.access import (
     PersonVisibility,
@@ -26,6 +28,7 @@ from family.access import (
     visible_people_for_tree,
     visible_people_queryset,
 )
+from family.branches import branch_color, compute_branches
 from family.forms import PersonForm, UnionEditForm, UnionForm
 from family.hebrew import gregorian_to_hebrew, hebrew_to_gregorian
 from family.history import person_history
@@ -304,6 +307,29 @@ class DashboardView(FamilyRequiredMixin, TemplateView):
         return context
 
 
+def _filtered_people_queryset(request: HttpRequest) -> QuerySet[Person]:
+    """The family/show_untracked/name-search filtering shared by PersonListView and PersonExportView.
+
+    Doesn't apply Person.visibility - PersonListView layers that on top
+    for a non-editor viewer; PersonExportView never needs to, since it's
+    owner/editor only (FamilyEditorRequiredMixin), and owners/editors
+    always see everyone regardless of visibility.
+    """
+    people = Person.objects.filter(family=request.family)
+    if not (request.family_permissions.can_edit and request.GET.get("show_untracked")):
+        people = people.filter(notifications_enabled=True)
+    query = request.GET.get("q", "").strip()
+    if query:
+        people = people.filter(
+            models.Q(first_name_en__icontains=query)
+            | models.Q(last_name_en__icontains=query)
+            | models.Q(nickname__icontains=query)
+            | models.Q(first_name_he__icontains=query)
+            | models.Q(last_name_he__icontains=query)
+        )
+    return people
+
+
 class PersonListView(FamilyRequiredMixin, ListView):
     """Lists this family's people, hiding lineage-only stubs by default.
 
@@ -324,19 +350,7 @@ class PersonListView(FamilyRequiredMixin, ListView):
         return self.request.family_permissions.can_edit
 
     def get_queryset(self) -> QuerySet[Person]:
-        people = Person.objects.filter(family=self.request.family)
-        if not (self._can_show_untracked() and self.request.GET.get("show_untracked")):
-            people = people.filter(notifications_enabled=True)
-        query = self.request.GET.get("q", "").strip()
-        if query:
-            people = people.filter(
-                models.Q(first_name_en__icontains=query)
-                | models.Q(last_name_en__icontains=query)
-                | models.Q(nickname__icontains=query)
-                | models.Q(first_name_he__icontains=query)
-                | models.Q(last_name_he__icontains=query)
-            )
-
+        people = _filtered_people_queryset(self.request)
         if self.request.family_permissions.can_edit:
             return people
 
@@ -357,6 +371,78 @@ class PersonListView(FamilyRequiredMixin, ListView):
             self.request.GET.get("show_untracked")
         )
         return context
+
+
+class PersonExportView(FamilyEditorRequiredMixin, View):
+    """Owner/editor-only XLSX download of the People list, honoring its current q/show_untracked filters.
+
+    Row fill color shows which family.branches branch each person
+    descends from (blank when the family has no tree_root set, or for
+    anyone branches.compute_branches couldn't place).
+    """
+
+    def get(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        # Oldest to youngest, not the People list's own name ordering -
+        # dob_gregorian is the only field Person.age is actually computed
+        # from, so this is exactly "by age" despite age itself being a
+        # property, not a column. Nulls (no recorded Gregorian DOB) sort
+        # last - there's no age to rank them by.
+        people = (
+            _filtered_people_queryset(request)
+            .select_related("account")
+            .order_by(F("dob_gregorian").asc(nulls_last=True), *Person._meta.ordering)
+        )
+        branches = compute_branches(request.family)
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "People"
+        sheet.append(
+            [
+                "First name",
+                "Last name",
+                "Hebrew name",
+                "Date of birth (Gregorian)",
+                "Date of birth (Hebrew)",
+                "Age",
+                "Email",
+                "Phone",
+            ]
+        )
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+
+        for person in people:
+            sheet.append(
+                [
+                    person.first_name_en,
+                    person.last_name_en,
+                    person.hebrew_name or "",
+                    person.dob_gregorian,
+                    person.dob_hebrew_display or "",
+                    person.age,
+                    person.account.email if person.account else "",
+                    person.account.phone if person.account else "",
+                ]
+            )
+            branch_index = branches.get(person.id)
+            if branch_index is not None:
+                fill = PatternFill(
+                    start_color=f"FF{branch_color(branch_index)}",
+                    end_color=f"FF{branch_color(branch_index)}",
+                    fill_type="solid",
+                )
+                for cell in sheet[sheet.max_row]:
+                    cell.fill = fill
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        generated_at = int(timezone.now().timestamp())
+        filename = f"{request.family.slug}-people-{generated_at}.xlsx"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        workbook.save(response)
+        return response
 
 
 class PersonDetailView(FamilyRequiredMixin, DetailView):
