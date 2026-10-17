@@ -428,9 +428,7 @@ class PersonExportView(FamilyEditorRequiredMixin, View):
             )
             # A formula, not person.age's own already-computed value - so
             # the age keeps reading correctly after the file sits around
-            # a while, not frozen at whatever it was on export day.
-            # DATEDIF's own blank-date handling is unreliable (#NUM! on
-            # some locales), hence the explicit IF around it.
+            # a while.
             row = sheet.max_row
             sheet.cell(row=row, column=6, value=f'=IF(D{row}="","",DATEDIF(D{row},TODAY(),"Y"))')
             branch_index = branches.get(person.id)
