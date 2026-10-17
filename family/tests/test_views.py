@@ -2121,6 +2121,22 @@ def test_help_shows_the_preview_section_to_an_editor_but_not_a_plain_member(clie
     assert "Previewing a notification" not in member_resp.content.decode()
 
 
+def test_help_shows_kvitel_to_everyone_but_export_and_tree_root_only_to_owners_and_editors(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    editor_resp = client.get("/help/").content.decode()
+    assert "Printing a kvitel" in editor_resp
+    assert "Exporting the People list" in editor_resp
+    assert "Setting a tree root" in editor_resp
+
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    _login_as(client, member, family)
+    member_resp = client.get("/help/").content.decode()
+    assert "Printing a kvitel" in member_resp
+    assert "Exporting the People list" not in member_resp
+    assert "Setting a tree root" not in member_resp
+
+
 def test_help_shows_nothing_owner_related_with_no_current_family(client):
     account = Account.objects.create_user(email="floating@example.com")
     client.force_login(account)
