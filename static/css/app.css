@@ -225,6 +225,17 @@ main {
   padding-inline: 1.5rem;
 }
 
+/* Nothing chrome-like belongs in a printed/saved-as-PDF page (see the
+   Kvitel section below, the one place this app has anything meant to be
+   printed) - a global rule rather than a per-template one, since a nav/
+   messages list printed by accident is never useful on any page. */
+@media print {
+  .topbar,
+  .messages {
+    display: none;
+  }
+}
+
 .messages li {
   background: var(--paper-raised);
   border: 1px solid var(--rule);
@@ -1886,5 +1897,49 @@ trix-editor:focus {
   * {
     transition: none !important;
     animation: none !important;
+  }
+}
+
+/* --- Kvitel --- */
+
+.kvitel-lines {
+  /* A single max-content column, not each row sizing itself - every
+     line (and so every kvitel-line-ends-block border) ends up the same
+     width, the widest name's own, rather than a ragged border per row.
+     direction: rtl here (not just on the lines themselves) is what
+     anchors that narrower-than-the-page column to the right edge
+     instead of the left. */
+  direction: rtl;
+  display: grid;
+  grid-template-columns: max-content;
+  margin: 0.5rem 0;
+}
+
+.kvitel-line {
+  font-family: var(--font-hebrew);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  unicode-bidi: isolate;
+  margin: 0;
+}
+
+/* A child's bare first name reads indented - it's a name listed under
+   the couple directly above it, not a subject in its own right the way
+   a husband/wife line is (see family.kvitel's own docstring). */
+.kvitel-line-child {
+  padding-right: 0.75rem;
+}
+
+/* The one visual cue the original spreadsheet this mirrors actually
+   used (a border line) to separate one couple's own block from the
+   next - see family.kvitel.KvitelLine.ends_block. */
+.kvitel-line-ends-block {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.1rem;
+}
+
+@media print {
+  .kvitel-print-btn {
+    display: none;
   }
 }

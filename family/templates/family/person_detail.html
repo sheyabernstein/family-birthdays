@@ -40,6 +40,11 @@
             <p style="margin-top: 1rem;">
                 <a class="btn btn-outline btn-sm"
                    href="{% url 'family:family_tree' person.uuid %}">View in family tree</a>
+                {% if show_kvitel %}
+                    <a class="btn btn-outline btn-sm"
+                       href="{% url 'family:person_kvitel' person.uuid %}"
+                       title="A kvitel for {{ person.display_name }} and their descendants">Kvitel</a>
+                {% endif %}
                 {% if person.family_id == request.family.id %}
                     {% if request.family_permissions.can_edit %}
                         <a class="btn btn-outline btn-sm"

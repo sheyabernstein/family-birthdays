@@ -14,6 +14,7 @@ urlpatterns = [
     path("people/export/", views.PersonExportView.as_view(), name="person_export"),
     path("people/new/", views.PersonCreateView.as_view(), name="person_create"),
     path("people/<uuid:uuid>/", views.PersonDetailView.as_view(), name="person_detail"),
+    path("people/<uuid:uuid>/kvitel/", views.PersonKvitelView.as_view(), name="person_kvitel"),
     path("people/<uuid:uuid>/edit/", views.PersonUpdateView.as_view(), name="person_update"),
     path("people/<uuid:uuid>/delete/", views.PersonDeleteView.as_view(), name="person_delete"),
     path("people/<uuid:uuid>/tree/", views.FamilyTreeView.as_view(), name="family_tree"),

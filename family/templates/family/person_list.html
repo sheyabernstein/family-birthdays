@@ -4,14 +4,21 @@
 {% block content %}
     <div class="page-header">
         <h1>Family</h1>
-        {% if request.family_permissions.can_edit %}
+        {% if request.family_permissions.can_edit or request.family.tree_root_id %}
             <div style="display: flex; gap: 0.75rem;">
-                <a class="btn"
-                   href="{% url 'family:person_create' %}"
-                   title="Add a new person to the family">+ Add someone</a>
-                <a class="btn btn-outline"
-                   href="{% url 'family:person_export' %}?{{ request.GET.urlencode }}"
-                   title="Download this list as a spreadsheet">Export</a>
+                {% if request.family_permissions.can_edit %}
+                    <a class="btn"
+                       href="{% url 'family:person_create' %}"
+                       title="Add a new person to the family">+ Add someone</a>
+                    <a class="btn btn-outline"
+                       href="{% url 'family:person_export' %}?{{ request.GET.urlencode }}"
+                       title="Download this list as a spreadsheet">Export</a>
+                {% endif %}
+                {% if request.family.tree_root_id %}
+                    <a class="btn btn-outline"
+                       href="{% url 'family:person_kvitel' request.family.tree_root.uuid %}"
+                       title="A kvitel for the whole family, from its tree root down">Kvitel</a>
+                {% endif %}
             </div>
         {% endif %}
     </div>

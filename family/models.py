@@ -441,6 +441,22 @@ class Person(models.Model):
         return f"{self.first_name_he} {connector} {self.father.first_name_he}{self.father.memorial_marker}"
 
     @property
+    def matronymic_label(self) -> str | None:
+        """The traditional kvitel naming form: Hebrew first name, בן/בת, mother's Hebrew first name.
+
+        The mother's name, not the father's - the convention a kvitel
+        uses, the mirror image of patronymic_label's own yahrzeit
+        convention (see family.kvitel). No memorial marker even if the
+        mother has passed, unlike patronymic_label's father - a kvitel is
+        for the living. Falls back to a bare first name when there's no
+        mother recorded (or no name on hers), rather than None - there's
+        always at least the subject's own name to fall back to here.
+        """
+        return _matronymic_label(
+            self.first_name_he, self.gender, self.mother.first_name_he if self.mother else None
+        )
+
+    @property
     def dob_hebrew_anchor(self) -> tuple[Months, int] | None:
         if self.dob_hebrew_month and self.dob_hebrew_day:
             return Months(self.dob_hebrew_month), self.dob_hebrew_day
@@ -551,6 +567,22 @@ class Person(models.Model):
             )
 
         return bfs_relative_ids({self.pk}, _children)
+
+
+def _matronymic_label(first_name_he: str, gender: str, mother_first_name_he: str | None) -> str | None:
+    """Builds Person.matronymic_label's own string from already-resolved values, no ORM access.
+
+    Split out so family.kvitel's bulk traversal (dozens of people off two
+    prefetched queries) can reuse this exact connector/fallback logic
+    without instantiating or walking .mother per person - that would be
+    an N+1 (see that module's own docstring).
+    """
+    if not first_name_he:
+        return None
+    if not mother_first_name_he:
+        return first_name_he
+    connector = "בת" if gender == Person.Gender.FEMALE else "בן"
+    return f"{first_name_he} {connector} {mother_first_name_he}"
 
 
 @reversion.register()
