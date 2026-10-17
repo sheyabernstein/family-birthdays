@@ -271,7 +271,7 @@
             <p>
                 Each person's own page has a "Who can see this person" setting: everyone,
                 <a href="#family-reach">direct or immediate family</a>, or nobody but owners and
-                editors. This controls more than the People list and tree - it's also who's even
+                editors. This controls more than the <a href="{% url 'family:person_list' %}">People</a> list and <a href="#tree">tree</a> - it's also who's even
                 eligible to be notified about that person's birthday or yahrzeit, on top of everyone's
                 own notification settings. Owners and editors always see and can edit everyone,
                 regardless of this setting.
@@ -292,7 +292,7 @@
                 typically whichever founding person most of the family descends from. Only the owner can
                 change it; editors can see the current value but not update it. Leaving it unset just
                 means both features skip the part that depends on it - the export has no row coloring,
-                and the People list has no whole-family kvitel link.
+                and the <a href="{% url 'family:person_list' %}">People</a> list has no whole-family kvitel link.
             </p>
         </div>
         <div class="card">
