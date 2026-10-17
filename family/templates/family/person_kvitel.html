@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Kvitel for {{ person.display_name }} - {{ block.super }}{% endblock %}
+{% block content %}
+    <button type="button"
+            class="btn kvitel-print-btn"
+            onclick="window.print()"
+            title="Print this kvitel, or save it as a PDF">Print</button>
+    {% if lines %}
+        <div class="kvitel-lines">
+            {% for line in lines %}
+                <p class="kvitel-line kvitel-line-{{ line.role }}{% if line.ends_block %} kvitel-line-ends-block{% endif %}">
+                    {{ line.text }}
+                </p>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <p>Nothing to show - {{ person.display_name }} has no living spouse or children on record.</p>
+        </div>
+    {% endif %}
+{% endblock %}

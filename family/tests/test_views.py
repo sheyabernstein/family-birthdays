@@ -1300,6 +1300,132 @@ def test_person_export_colors_a_branch_and_leaves_the_tree_root_uncolored(client
     assert fills["Child"] != "00000000"
 
 
+def test_person_kvitel_viewable_by_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    husband = Person.objects.create(
+        family=family, first_name_he="בעל", gender=Person.Gender.MALE, account=member
+    )
+    wife = Person.objects.create(family=family, first_name_he="אישה", gender=Person.Gender.FEMALE)
+    Union.objects.create(person_a=husband, person_b=wife, status=Union.Status.MARRIED)
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{husband.uuid}/kvitel/")
+
+    assert resp.status_code == 200
+    assert "בעל" in resp.content.decode()
+    assert "אישה" in resp.content.decode()
+
+
+def test_person_kvitel_404s_for_a_nobody_visibility_person(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    person = Person.objects.create(family=family, first_name_he="פרטי", visibility=Person.Visibility.NOBODY)
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{person.uuid}/kvitel/")
+
+    assert resp.status_code == 404
+
+
+def test_person_kvitel_404s_for_an_in_law_in_a_different_family(client, two_families):
+    # Unlike PersonDetailView, which allows viewing a single in-law's own
+    # page - build_kvitel walks an entire descendant tree, so starting
+    # it from an in-law would expose that in-law's own unrelated family
+    # far beyond the one relationship that connects the two.
+    family_a, family_b, account_a, _ = two_families
+    person_a = Person.objects.create(family=family_a, first_name_he="שלי")
+    person_b = Person.objects.create(family=family_b, first_name_he="חתן")
+    Union.objects.create(person_a=person_a, person_b=person_b)
+    _login_as(client, account_a, family_a)
+
+    resp = client.get(f"/people/{person_b.uuid}/kvitel/")
+
+    assert resp.status_code == 404
+
+
+def test_person_kvitel_hides_an_immediate_family_visibility_descendant_from_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    husband = Person.objects.create(family=family, first_name_he="בעל", gender=Person.Gender.MALE)
+    wife = Person.objects.create(family=family, first_name_he="אישה", gender=Person.Gender.FEMALE)
+    Union.objects.create(person_a=husband, person_b=wife, status=Union.Status.MARRIED)
+    Person.objects.create(
+        family=family,
+        first_name_he="פרטי",
+        father=husband,
+        mother=wife,
+        visibility=Person.Visibility.IMMEDIATE_FAMILY,
+    )
+    _login_as(client, member, family)
+
+    resp = client.get(f"/people/{husband.uuid}/kvitel/")
+
+    assert resp.status_code == 200
+    assert "פרטי" not in resp.content.decode()
+
+
+def test_person_kvitel_shows_an_immediate_family_visibility_descendant_to_an_editor(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    husband = Person.objects.create(family=family, first_name_he="בעל", gender=Person.Gender.MALE)
+    wife = Person.objects.create(family=family, first_name_he="אישה", gender=Person.Gender.FEMALE)
+    Union.objects.create(person_a=husband, person_b=wife, status=Union.Status.MARRIED)
+    Person.objects.create(
+        family=family,
+        first_name_he="פרטי",
+        father=husband,
+        mother=wife,
+        visibility=Person.Visibility.IMMEDIATE_FAMILY,
+    )
+    _login_as(client, editor, family)
+
+    resp = client.get(f"/people/{husband.uuid}/kvitel/")
+
+    assert resp.status_code == 200
+    assert "פרטי" in resp.content.decode()
+
+
+def test_person_kvitel_shows_an_empty_state_with_no_living_spouse_or_children(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person = Person.objects.create(family=family, first_name_he="לבדו")
+    _login_as(client, owner, family)
+
+    resp = client.get(f"/people/{person.uuid}/kvitel/")
+
+    assert resp.status_code == 200
+    assert b"Nothing to show" in resp.content
+
+
+def test_person_detail_shows_the_kvitel_button_only_when_there_is_something_to_show(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    alone = Person.objects.create(family=family, first_name_he="לבדו")
+    husband = Person.objects.create(family=family, first_name_he="בעל", gender=Person.Gender.MALE)
+    wife = Person.objects.create(family=family, first_name_he="אישה", gender=Person.Gender.FEMALE)
+    Union.objects.create(person_a=husband, person_b=wife, status=Union.Status.MARRIED)
+    _login_as(client, owner, family)
+
+    resp_alone = client.get(f"/people/{alone.uuid}/")
+    resp_married = client.get(f"/people/{husband.uuid}/")
+
+    assert resp_alone.context["show_kvitel"] is False
+    assert resp_married.context["show_kvitel"] is True
+    assert f"/people/{husband.uuid}/kvitel/".encode() in resp_married.content
+    assert f"/people/{alone.uuid}/kvitel/".encode() not in resp_alone.content
+
+
+def test_person_list_shows_the_kvitel_button_only_when_tree_root_is_set(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    _login_as(client, member, family)
+
+    resp_without_root = client.get("/people/")
+
+    root = Person.objects.create(family=family, first_name_he="שורש")
+    family.tree_root = root
+    family.save(update_fields=["tree_root"])
+
+    resp_with_root = client.get("/people/")
+
+    assert f"/people/{root.uuid}/kvitel/".encode() not in resp_without_root.content
+    assert f"/people/{root.uuid}/kvitel/".encode() in resp_with_root.content
+
+
 def test_owner_can_add_a_brand_new_spouse(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
     person_a = Person.objects.create(family=family, first_name_en="Elchanan", last_name_en="Rokach")

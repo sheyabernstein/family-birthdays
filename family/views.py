@@ -32,6 +32,7 @@ from family.branches import branch_color, compute_branches
 from family.forms import PersonForm, UnionEditForm, UnionForm
 from family.hebrew import gregorian_to_hebrew, hebrew_to_gregorian
 from family.history import person_history
+from family.kvitel import build_kvitel, has_living_spouse_or_children
 from family.models import Person, Union
 from family.suggestions import SuggestionApplyMixin
 from family.tree_chart import build_chart_data
@@ -654,6 +655,51 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
         )
         if request.family_permissions.can_edit:
             context["history_events"] = person_history(person, unions=unions)
+        context["show_kvitel"] = person.is_living and has_living_spouse_or_children(person)
+        return context
+
+
+class PersonKvitelView(FamilyScopedMixin, FamilyRequiredMixin, DetailView):
+    """A kvitel for this person - any family member can view, not owner/editor only.
+
+    FamilyScopedMixin, not PersonDetailView's own cross-tenant allowance -
+    build_kvitel walks root's entire descendant tree, not just one
+    relation, so letting it start from a visible-only-through-marriage
+    in-law would walk and expose that in-law's own, unrelated family far
+    beyond the single person the marriage exception is meant to reveal.
+    There's no contact info or birth year here either way, just living
+    people's first names - lower sensitivity than the People export, so
+    this doesn't need FamilyEditorRequiredMixin.
+    """
+
+    model = Person
+    template_name = "family/person_kvitel.html"
+    context_object_name = "person"
+    slug_field = "uuid"
+    slug_url_kwarg = "uuid"
+    family_lookup = "family"
+
+    def get_object(self, queryset: QuerySet[Person] | None = None) -> Person:
+        person = super().get_object(queryset)
+        if not person_is_visible_to(
+            person, viewer=self.request.self_person, can_edit=self.request.family_permissions.can_edit
+        ):
+            raise Http404
+        return person
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        can_edit = self.request.family_permissions.can_edit
+        # build_kvitel always emits at least the subject's own line, even
+        # with neither a living spouse nor living children - not a
+        # meaningful kvitel on its own, so this page's own empty state is
+        # gated on the same check the detail page's button uses, not on
+        # build_kvitel's own (necessarily different) return value.
+        context["lines"] = (
+            build_kvitel(self.object, viewer=self.request.self_person, can_edit=can_edit)
+            if has_living_spouse_or_children(self.object)
+            else []
+        )
         return context
 
 
