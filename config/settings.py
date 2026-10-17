@@ -321,7 +321,7 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = True
 # How long a TaskResult row (django-celery-results) sticks around before
 # celery beat's automatic "celery.backend_cleanup" task deletes it.
-CELERY_TASK_RESULT_EXPIRES = get_env_int("CELERY_TASK_RESULT_EXPIRES", 60 * 60 * 24 * 30)  # 30 days
+CELERY_RESULT_EXPIRES = get_env_int("CELERY_RESULT_EXPIRES", 60 * 60 * 24 * 60)  # 60 days
 
 # RedBeat keeps the schedule in Redis instead of a DB table, which is what
 # lets beat run embedded inside a worker process (`celery worker -B`, see
