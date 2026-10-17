@@ -23,11 +23,11 @@
             {% endif %}
             <li><a href="#signing-in">Signing in</a></li>
             <li><a href="#tree">The family tree</a></li>
-            <li><a href="#kvitel">Printing a kvitel</a></li>
             <li><a href="#notifications">Your own notifications</a></li>
             <li><a href="#family-reach">Immediate family vs. direct family</a></li>
             <li><a href="#tracked">Why some people don't show up in the list</a></li>
             <li><a href="#roles">Roles</a></li>
+            <li><a href="#kvitel">Printing a kvitel</a></li>
             <li><a href="#suggestions">Suggesting a change</a></li>
         </ul>
         {% if request.family_permissions.can_edit %}
@@ -77,28 +77,12 @@
     <div class="card">
         <h2 id="tree">The family tree</h2>
         <p>
-            Open "View family tree" from anyone's page to see the interactive chart: drag to pan,
+            Open "<a href="{% url 'family:home' %}">View family tree</a>" from anyone's page to see the interactive chart: drag to pan,
             scroll to zoom, click a card to re-center the tree on that person. A small icon on a card
             means there's more of the tree in that direction - click it to expand. A "Horizontal view"
             button switches the layout between generations stacked top-to-bottom (the default) and
             generations arranged left-to-right, useful for tracing one narrow branch. A dashed connector
             between two people means they're engaged but not yet married.
-        </p>
-    </div>
-    <div class="card">
-        <h2 id="kvitel">Printing a kvitel</h2>
-        <p>
-            A "Kvitel" button appears on anyone's own page once they have a living spouse and/or
-            children to show it for - a kvitel speaks only of the living, so nobody appears once
-            they've passed away.
-            {% if request.family_permissions.can_edit %}
-                If your workspace has a <a href="#tree-root">tree root</a> set, the <a href="{% url 'family:person_list' %}">People</a> list
-                also links to one combined kvitel for the whole family, starting from that person.
-            {% else %}
-                If an owner has set a tree root for your family, the <a href="{% url 'family:person_list' %}">People</a> list also links
-                to one combined kvitel for the whole family.
-            {% endif %}
-            Each kvitel page has a Print button, for printing it or saving it as a PDF.
         </p>
     </div>
     <div class="card">
@@ -133,7 +117,7 @@
             notifications. Some records exist purely so the family tree renders correctly - for
             example, an in-law's own parent, who isn't part of this family and doesn't need birthday
             reminders. Those records are hidden from the list by default; you can still reach
-            one by following the tree or a relation link from someone who is tracked. One exception: if
+            one by following the <a href="{% url 'family:home' %}">tree</a> or a relation link from someone who is tracked. One exception: if
             one of them later passes away, a yahrzeit still goes out to whoever wants it - a real ancestor
             entered only for the tree shouldn't lose their yahrzeit just because nobody was tracking their
             birthday.
@@ -142,7 +126,7 @@
     <div class="card">
         <h2 id="roles">Roles</h2>
         <p>
-            <strong>Members</strong> can view the tree, manage their own notification
+            <strong>Members</strong> can view the <a href="{% url 'family:home' %}">tree</a>, manage their own notification
             subscriptions, and <a href="#suggestions">suggest changes</a> to anyone they can see.
             <strong>Editors</strong> can additionally add and edit people and relationships directly, with
             no review step. Only the <strong>owner</strong> can remove someone from the family or delete a
@@ -159,6 +143,22 @@
                 {% endfor %}
             </ul>
         {% endif %}
+    </div>
+    <div class="card">
+        <h2 id="kvitel">Printing a kvitel</h2>
+        <p>
+            A "Kvitel" button appears on anyone's own page once they have a living spouse and/or
+            children to show it for - a kvitel speaks only of the living, so nobody appears once
+            they've passed away.
+            {% if request.family_permissions.can_edit %}
+                If your workspace has a <a href="#tree-root">tree root</a> set, the <a href="{% url 'family:person_list' %}">People</a> list
+                also links to one combined kvitel for the whole family, starting from that person.
+            {% else %}
+                If an owner has set a tree root for your family, the <a href="{% url 'family:person_list' %}">People</a> list also links
+                to one combined kvitel for the whole family.
+            {% endif %}
+            Each kvitel page has a Print button, for printing it or saving it as a PDF.
+        </p>
     </div>
     <div class="card">
         <h2 id="suggestions">Suggesting a change</h2>
@@ -271,7 +271,7 @@
             <p>
                 Each person's own page has a "Who can see this person" setting: everyone,
                 <a href="#family-reach">direct or immediate family</a>, or nobody but owners and
-                editors. This controls more than the <a href="{% url 'family:person_list' %}">People</a> list and <a href="#tree">tree</a> - it's also who's even
+                editors. This controls more than the <a href="{% url 'family:person_list' %}">People</a> list and <a href="{% url 'family:home' %}">tree</a> - it's also who's even
                 eligible to be notified about that person's birthday or yahrzeit, on top of everyone's
                 own notification settings. Owners and editors always see and can edit everyone,
                 regardless of this setting.
@@ -322,8 +322,8 @@
                 of your household but can still help set up your line. There's no self-service way to
                 create a new workspace yet (see above), so a site admin is who sets one up, and who adds
                 the first person to it. They can also see every family's still-pending broadcasts, not
-                just their own, as a safety net, and are who to contact to change a workspace's SMS
-                sender name or reply-to email - owners and editors can see those settings but can't
+                just their own, as a safety net, and are who to contact to change a workspace's
+                <a href="{% url 'tenants:family_settings' %}">SMS sender name or reply-to email</a> - owners and editors can see those settings but can't
                 change them themselves. Most families never need to think about this day to day
                 - it only comes up if you're told to contact one, or someone tells you they're setting
                 one up for you.
