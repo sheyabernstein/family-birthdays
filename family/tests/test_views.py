@@ -1,5 +1,6 @@
 import datetime as dt
 import io
+import re
 
 import openpyxl
 import pytest
@@ -2119,6 +2120,54 @@ def test_help_shows_the_preview_section_to_an_editor_but_not_a_plain_member(clie
     _login_as(client, member, family)
     member_resp = client.get("/help/")
     assert "Previewing a notification" not in member_resp.content.decode()
+
+
+def test_help_shows_kvitel_to_everyone_but_export_and_tree_root_only_to_owners_and_editors(client, family):
+    editor = _member(family, FamilyMembership.Role.EDITOR)
+    _login_as(client, editor, family)
+    editor_resp = client.get("/help/").content.decode()
+    assert "Printing a kvitel" in editor_resp
+    assert "Exporting the People list" in editor_resp
+    assert "Setting a tree root" in editor_resp
+
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    _login_as(client, member, family)
+    member_resp = client.get("/help/").content.decode()
+    assert "Printing a kvitel" in member_resp
+    assert "Exporting the People list" not in member_resp
+    assert "Setting a tree root" not in member_resp
+
+
+def test_help_tree_link_goes_to_the_viewers_own_tree(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    person = Person.objects.create(family=family, first_name_en="Me", account=owner)
+    _login_as(client, owner, family)
+
+    resp = client.get("/help/")
+
+    assert f"/people/{person.uuid}/tree/".encode() in resp.content
+
+
+def test_help_tree_link_falls_back_to_the_tree_root_with_no_linked_person(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    root = Person.objects.create(family=family, first_name_en="Root")
+    family.tree_root = root
+    family.save(update_fields=["tree_root"])
+    _login_as(client, owner, family)
+
+    resp = client.get("/help/")
+
+    assert f"/people/{root.uuid}/tree/".encode() in resp.content
+
+
+def test_help_tree_mentions_are_unlinked_with_no_linked_person_and_no_tree_root(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    _login_as(client, member, family)
+
+    resp = client.get("/help/")
+
+    assert resp.status_code == 200
+    assert re.search(rb"/people/[^/]+/tree/", resp.content) is None
 
 
 def test_help_shows_nothing_owner_related_with_no_current_family(client):

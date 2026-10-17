@@ -27,6 +27,7 @@
             <li><a href="#family-reach">Immediate family vs. direct family</a></li>
             <li><a href="#tracked">Why some people don't show up in the list</a></li>
             <li><a href="#roles">Roles</a></li>
+            <li><a href="#kvitel">Printing a kvitel</a></li>
             <li><a href="#suggestions">Suggesting a change</a></li>
         </ul>
         {% if request.family_permissions.can_edit %}
@@ -39,6 +40,8 @@
                 <li><a href="#coming-of-age">Bar and Bat Mitzvah</a></li>
                 <li><a href="#cross-family">In-laws and cross-family visibility</a></li>
                 <li><a href="#person-visibility">Restricting who can see someone</a></li>
+                <li><a href="#tree-root">Setting a tree root</a></li>
+                <li><a href="#export">Exporting the People list</a></li>
                 <li><a href="#resolution">How notification settings are decided</a></li>
                 <li><a href="#site-admins">Site admins</a></li>
                 <li><a href="#broadcasts">Broadcasts</a></li>
@@ -123,7 +126,7 @@
     <div class="card">
         <h2 id="roles">Roles</h2>
         <p>
-            <strong>Members</strong> can view the tree, manage their own notification
+            <strong>Members</strong> can view the {% if tree_url %}<a href="{{ tree_url }}">tree</a>{% else %}tree{% endif %}, manage their own notification
             subscriptions, and <a href="#suggestions">suggest changes</a> to anyone they can see.
             <strong>Editors</strong> can additionally add and edit people and relationships directly, with
             no review step. Only the <strong>owner</strong> can remove someone from the family or delete a
@@ -140,6 +143,22 @@
                 {% endfor %}
             </ul>
         {% endif %}
+    </div>
+    <div class="card">
+        <h2 id="kvitel">Printing a kvitel</h2>
+        <p>
+            A "Kvitel" button appears on anyone's own page once they have a living spouse and/or
+            children to show it for - a kvitel speaks only of the living, so nobody appears once
+            they've passed away.
+            {% if request.family_permissions.can_edit %}
+                If your workspace has a <a href="#tree-root">tree root</a> set, the <a href="{% url 'family:person_list' %}">People</a> list
+                also links to one combined kvitel for the whole family, starting from that person.
+            {% else %}
+                If an owner has set a tree root for your family, the <a href="{% url 'family:person_list' %}">People</a> list also links
+                to one combined kvitel for the whole family.
+            {% endif %}
+            Each kvitel page has a Print button, for printing it or saving it as a PDF.
+        </p>
     </div>
     <div class="card">
         <h2 id="suggestions">Suggesting a change</h2>
@@ -252,7 +271,7 @@
             <p>
                 Each person's own page has a "Who can see this person" setting: everyone,
                 <a href="#family-reach">direct or immediate family</a>, or nobody but owners and
-                editors. This controls more than the People list and tree - it's also who's even
+                editors. This controls more than the <a href="{% url 'family:person_list' %}">People</a> list and {% if tree_url %}<a href="{{ tree_url }}">tree</a>{% else %}tree{% endif %} - it's also who's even
                 eligible to be notified about that person's birthday or yahrzeit, on top of everyone's
                 own notification settings. Owners and editors always see and can edit everyone,
                 regardless of this setting.
@@ -263,6 +282,27 @@
                 at all, so the whole branch below a restricted person is cut, not just their own card.
                 If that's not what you want, direct family (which still reaches every descendant) may
                 be enough instead of nobody.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="tree-root">Setting a tree root</h2>
+            <p>
+                A workspace's "tree root", set from <a href="{% url 'tenants:family_settings' %}">Workspace Settings</a>, is the one ancestor the
+                <a href="#export">People export</a>'s row coloring and the <a href="#kvitel">whole-family kvitel</a> are both organized around -
+                typically whichever founding person most of the family descends from. Only the owner can
+                change it; editors can see the current value but not update it. Leaving it unset just
+                means both features skip the part that depends on it - the export has no row coloring,
+                and the <a href="{% url 'family:person_list' %}">People</a> list has no whole-family kvitel link.
+            </p>
+        </div>
+        <div class="card">
+            <h2 id="export">Exporting the People list</h2>
+            <p>
+                "Export" on the <a href="{% url 'family:person_list' %}">People</a> list downloads whoever's currently showing - the same search
+                text or "show untracked" toggle you have active - as a spreadsheet: names, Hebrew name,
+                both dates of birth, age, email, and phone. If a
+                <a href="#tree-root">tree root</a> is set, rows are also colored by which of the root's
+                own children's line each person descends from.
             </p>
         </div>
         <div class="card">
@@ -282,8 +322,8 @@
                 of your household but can still help set up your line. There's no self-service way to
                 create a new workspace yet (see above), so a site admin is who sets one up, and who adds
                 the first person to it. They can also see every family's still-pending broadcasts, not
-                just their own, as a safety net, and are who to contact to change a workspace's SMS
-                sender name or reply-to email - owners and editors can see those settings but can't
+                just their own, as a safety net, and are who to contact to change a workspace's
+                <a href="{% url 'tenants:family_settings' %}">SMS sender name or reply-to email</a> - owners and editors can see those settings but can't
                 change them themselves. Most families never need to think about this day to day
                 - it only comes up if you're told to contact one, or someone tells you they're setting
                 one up for you.
