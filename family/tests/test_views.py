@@ -1285,6 +1285,22 @@ def test_person_export_includes_email_and_phone_from_the_linked_account(client, 
     assert row[7] == "+15551234567"
 
 
+def test_person_export_age_is_a_formula_not_a_hardcoded_value(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    Person.objects.create(
+        family=family, first_name_en="Tracked", last_name_en="Person", dob_gregorian=_years_ago(30)
+    )
+    _login_as(client, owner, family)
+
+    workbook = _export_workbook(client, "/people/export/")
+
+    # DATEDIF against TODAY(), not person.age's own pre-computed int - so
+    # the age keeps reading correctly whenever the file is later opened,
+    # not frozen at whatever it was on export day.
+    row = next(row for row in workbook.active.iter_rows(min_row=2) if row[0].value == "Tracked")
+    assert row[5].value == '=IF(D2="","",DATEDIF(D2,TODAY(),"Y"))'
+
+
 def test_person_export_colors_a_branch_and_leaves_the_tree_root_uncolored(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
     root = Person.objects.create(family=family, first_name_en="Root", last_name_en="Rokach")

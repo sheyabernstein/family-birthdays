@@ -421,11 +421,16 @@ class PersonExportView(FamilyEditorRequiredMixin, View):
                     person.hebrew_name or "",
                     person.dob_gregorian,
                     person.dob_hebrew_display or "",
-                    person.age,
+                    None,
                     person.account.email if person.account else "",
                     person.account.phone if person.account else "",
                 ]
             )
+            # A formula, not person.age's own already-computed value - so
+            # the age keeps reading correctly after the file sits around
+            # a while.
+            row = sheet.max_row
+            sheet.cell(row=row, column=6, value=f'=IF(D{row}="","",DATEDIF(D{row},TODAY(),"Y"))')
             branch_index = branches.get(person.id)
             if branch_index is not None:
                 fill = PatternFill(
