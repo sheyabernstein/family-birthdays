@@ -77,7 +77,7 @@
     <div class="card">
         <h2 id="tree">The family tree</h2>
         <p>
-            Open "<a href="{% url 'family:home' %}">View family tree</a>" from anyone's page to see the interactive chart: drag to pan,
+            Open "View family tree" from anyone's page to see the interactive chart: drag to pan,
             scroll to zoom, click a card to re-center the tree on that person. A small icon on a card
             means there's more of the tree in that direction - click it to expand. A "Horizontal view"
             button switches the layout between generations stacked top-to-bottom (the default) and
@@ -117,7 +117,7 @@
             notifications. Some records exist purely so the family tree renders correctly - for
             example, an in-law's own parent, who isn't part of this family and doesn't need birthday
             reminders. Those records are hidden from the list by default; you can still reach
-            one by following the <a href="{% url 'family:home' %}">tree</a> or a relation link from someone who is tracked. One exception: if
+            one by following the tree or a relation link from someone who is tracked. One exception: if
             one of them later passes away, a yahrzeit still goes out to whoever wants it - a real ancestor
             entered only for the tree shouldn't lose their yahrzeit just because nobody was tracking their
             birthday.
@@ -126,7 +126,7 @@
     <div class="card">
         <h2 id="roles">Roles</h2>
         <p>
-            <strong>Members</strong> can view the <a href="{% url 'family:home' %}">tree</a>, manage their own notification
+            <strong>Members</strong> can view the {% if tree_url %}<a href="{{ tree_url }}">tree</a>{% else %}tree{% endif %}, manage their own notification
             subscriptions, and <a href="#suggestions">suggest changes</a> to anyone they can see.
             <strong>Editors</strong> can additionally add and edit people and relationships directly, with
             no review step. Only the <strong>owner</strong> can remove someone from the family or delete a
@@ -271,7 +271,7 @@
             <p>
                 Each person's own page has a "Who can see this person" setting: everyone,
                 <a href="#family-reach">direct or immediate family</a>, or nobody but owners and
-                editors. This controls more than the <a href="{% url 'family:person_list' %}">People</a> list and <a href="{% url 'family:home' %}">tree</a> - it's also who's even
+                editors. This controls more than the <a href="{% url 'family:person_list' %}">People</a> list and {% if tree_url %}<a href="{{ tree_url }}">tree</a>{% else %}tree{% endif %} - it's also who's even
                 eligible to be notified about that person's birthday or yahrzeit, on top of everyone's
                 own notification settings. Owners and editors always see and can edit everyone,
                 regardless of this setting.

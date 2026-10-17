@@ -71,7 +71,23 @@ class HelpView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         if self.request.family is not None:
             context["family_owners"] = _family_owner_contacts(self.request.family)
+            context["tree_url"] = _tree_url(self.request)
         return context
+
+
+def _tree_url(request: HttpRequest) -> str | None:
+    """Where this page's own several "view the tree" mentions should link - computed once, not per mention.
+
+    The viewer's own tree if they have one, else the family's tree root's
+    (still a real tree to look at, just not centered on them), else None -
+    there's no generic, person-less tree view to fall back to (unlike
+    family:home, a redirect target, this always needs a real URL to embed
+    directly in a link).
+    """
+    person = request.self_person or request.family.tree_root
+    if person is None:
+        return None
+    return reverse("family:family_tree", args=[person.uuid])
 
 
 def _family_owner_contacts(family: Family) -> list[dict[str, str | None]]:
