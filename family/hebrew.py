@@ -152,3 +152,15 @@ def resolve_send_date(occurrence_date: dt.date, diaspora: bool = True) -> tuple[
             reasons.add(ShiftReason.YOM_TOV)
         date -= dt.timedelta(days=1)
     return date, sorted(reasons)
+
+
+def validate_adar_month(year: int | None, month: int | None) -> str | None:
+    """Error string if month is the wrong Adar for year's own leap status, else None."""
+    if year is None or month is None:
+        return None
+    leap = is_leap_year(year)
+    if leap and month == Months.ADAR:
+        return f"{year} is a leap year - use Adar I or Adar II, not plain Adar."
+    if not leap and month in (Months.ADAR_I, Months.ADAR_II):
+        return f"{year} isn't a leap year - use plain Adar, not Adar I/II."
+    return None
