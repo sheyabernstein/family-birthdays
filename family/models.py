@@ -9,7 +9,7 @@ from django.utils import timezone
 from hdate import HebrewDate
 from hdate.hebrew_date import Months
 
-from family.hebrew import format_hebrew_date, hebrew_to_gregorian
+from family.hebrew import format_hebrew_date, hebrew_to_gregorian, validate_adar_month
 
 HEBREW_MONTH_CHOICES = [(m.value, m.name.replace("_", " ").title()) for m in Months]
 
@@ -550,6 +550,10 @@ class Person(models.Model):
                 )
         if self.dob_gregorian and self.dod_gregorian and self.dod_gregorian < self.dob_gregorian:
             raise ValidationError("Date of death cannot be before date of birth.")
+        if error := validate_adar_month(self.dob_hebrew_year, self.dob_hebrew_month):
+            raise ValidationError({"dob_hebrew_month": error})
+        if error := validate_adar_month(self.dod_hebrew_year, self.dod_hebrew_month):
+            raise ValidationError({"dod_hebrew_month": error})
 
     def descendant_ids(self) -> set[int]:
         """Returns the ids of every descendant, via BFS over children_as_father/children_as_mother.
@@ -780,6 +784,10 @@ class Union(models.Model):
     def clean(self) -> None:
         if self.person_a_id == self.person_b_id:
             raise ValidationError("A person cannot be in a union with themselves.")
+        if error := validate_adar_month(self.marriage_hebrew_year, self.marriage_hebrew_month):
+            raise ValidationError({"marriage_hebrew_month": error})
+        if error := validate_adar_month(self.engagement_hebrew_year, self.engagement_hebrew_month):
+            raise ValidationError({"engagement_hebrew_month": error})
 
 
 # The suggestable field lists are defined here, not in forms.py, since

@@ -9,6 +9,7 @@ from family.hebrew import (
     hebrew_to_gregorian,
     resolve_hebrew_anniversary,
     resolve_send_date,
+    validate_adar_month,
 )
 from notifications.enums import ShiftReason
 
@@ -129,3 +130,37 @@ def test_gregorian_hebrew_round_trip():
     original = dt.date(1990, 9, 22)
     hd = gregorian_to_hebrew(original)
     assert hebrew_to_gregorian(hd) == original
+
+
+@pytest.mark.parametrize(
+    ["year", "month"],
+    [
+        [None, Months.ADAR],
+        [5763, None],
+        [5763, Months.ADAR_I],
+        [5763, Months.ADAR_II],
+        [5762, Months.ADAR],
+    ],
+    ids=[
+        "no year to check against",
+        "no month to check",
+        "adar i in a leap year is fine",
+        "adar ii in a leap year is fine",
+        "plain adar in a non-leap year is fine",
+    ],
+)
+def test_validate_adar_month_accepts_a_consistent_pair(year, month):
+    assert validate_adar_month(year, month) is None
+
+
+@pytest.mark.parametrize(
+    ["year", "month"],
+    [[5763, Months.ADAR], [5762, Months.ADAR_I], [5762, Months.ADAR_II]],
+    ids=[
+        "plain adar in a leap year",
+        "adar i in a non-leap year",
+        "adar ii in a non-leap year",
+    ],
+)
+def test_validate_adar_month_rejects_the_wrong_adar_for_the_year(year, month):
+    assert validate_adar_month(year, month) is not None

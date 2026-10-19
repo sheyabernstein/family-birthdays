@@ -46,6 +46,22 @@ def test_death_before_birth_is_rejected(family):
         person.clean()
 
 
+def test_person_rejects_plain_adar_in_a_leap_dob_year(family):
+    person = Person(
+        family=family, first_name_en="Test", last_name_en="Person", dob_hebrew_year=5763, dob_hebrew_month=6
+    )
+    with pytest.raises(ValidationError):
+        person.clean()
+
+
+def test_person_rejects_adar_ii_in_a_non_leap_dod_year(family):
+    person = Person(
+        family=family, first_name_en="Test", last_name_en="Person", dod_hebrew_year=5762, dod_hebrew_month=8
+    )
+    with pytest.raises(ValidationError):
+        person.clean()
+
+
 def test_is_living_defaults_true_and_flips_once_a_death_date_is_saved(family):
     person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
     assert person.is_living is True
@@ -491,6 +507,24 @@ def test_union_is_upcoming_ignores_engagement_date_once_a_marriage_date_is_known
     )
 
     assert union.is_upcoming is False
+
+
+def test_union_rejects_plain_adar_in_a_leap_marriage_year(family):
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    union = Union(person_a=person_a, person_b=person_b, marriage_hebrew_year=5763, marriage_hebrew_month=6)
+    with pytest.raises(ValidationError):
+        union.clean()
+
+
+def test_union_rejects_adar_i_in_a_non_leap_engagement_year(family):
+    person_a = Person.objects.create(family=family, first_name_en="A", last_name_en="Test")
+    person_b = Person.objects.create(family=family, first_name_en="B", last_name_en="Test")
+    union = Union(
+        person_a=person_a, person_b=person_b, engagement_hebrew_year=5762, engagement_hebrew_month=7
+    )
+    with pytest.raises(ValidationError):
+        union.clean()
 
 
 def test_ordered_pair_names_the_viewers_own_side_first(two_families):
