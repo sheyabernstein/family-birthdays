@@ -13,12 +13,13 @@ from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.http import urlencode
+from django.utils.text import slugify
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 from hdate import HebrewDate
 from hdate.hebrew_date import Months
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from family.access import (
     PersonVisibility,
@@ -32,7 +33,7 @@ from family.branches import branch_color, compute_branches
 from family.forms import PersonForm, UnionEditForm, UnionForm
 from family.hebrew import gregorian_to_hebrew, hebrew_to_gregorian
 from family.history import person_history
-from family.kvitel import build_kvitel, has_living_spouse_or_children
+from family.kvitel import KvitelLine, build_kvitel, has_living_spouse_or_children
 from family.models import Person, Union
 from family.suggestions import SuggestionApplyMixin
 from family.tree_chart import build_chart_data
@@ -680,8 +681,22 @@ class PersonDetailView(FamilyRequiredMixin, DetailView):
         return context
 
 
-class PersonKvitelView(FamilyScopedMixin, FamilyRequiredMixin, DetailView):
-    """A kvitel for this person - any family member can view, not owner/editor only.
+def _kvitel_lines(request: HttpRequest, person: Person) -> list[KvitelLine]:
+    """build_kvitel always emits at least the subject's own line, even with no living spouse/children.
+
+    Not a meaningful kvitel on its own, so both the page and its export
+    gate on the same has_living_spouse_or_children check the detail
+    page's own button uses, rather than on build_kvitel's own (necessarily
+    different) return value.
+    """
+    if not has_living_spouse_or_children(person):
+        return []
+    can_edit = request.family_permissions.can_edit
+    return build_kvitel(person, viewer=request.self_person, can_edit=can_edit)
+
+
+class KvitelAccessMixin(FamilyScopedMixin, FamilyRequiredMixin):
+    """Shared by the kvitel page and its export - any family member, not owner/editor only.
 
     FamilyScopedMixin, not PersonDetailView's own cross-tenant allowance -
     build_kvitel walks root's entire descendant tree, not just one
@@ -694,8 +709,6 @@ class PersonKvitelView(FamilyScopedMixin, FamilyRequiredMixin, DetailView):
     """
 
     model = Person
-    template_name = "family/person_kvitel.html"
-    context_object_name = "person"
     slug_field = "uuid"
     slug_url_kwarg = "uuid"
     family_lookup = "family"
@@ -708,20 +721,47 @@ class PersonKvitelView(FamilyScopedMixin, FamilyRequiredMixin, DetailView):
             raise Http404
         return person
 
+
+class PersonKvitelView(KvitelAccessMixin, DetailView):
+    template_name = "family/person_kvitel.html"
+    context_object_name = "person"
+
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
-        can_edit = self.request.family_permissions.can_edit
-        # build_kvitel always emits at least the subject's own line, even
-        # with neither a living spouse nor living children - not a
-        # meaningful kvitel on its own, so this page's own empty state is
-        # gated on the same check the detail page's button uses, not on
-        # build_kvitel's own (necessarily different) return value.
-        context["lines"] = (
-            build_kvitel(self.object, viewer=self.request.self_person, can_edit=can_edit)
-            if has_living_spouse_or_children(self.object)
-            else []
-        )
+        context["lines"] = _kvitel_lines(self.request, self.object)
         return context
+
+
+class PersonKvitelExportView(KvitelAccessMixin, DetailView):
+    """XLSX download of this same kvitel - one column, a border after each ends_block line."""
+
+    def get(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        person = self.get_object()
+        lines = _kvitel_lines(request, person)
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Kvitel"
+        sheet.sheet_view.rightToLeft = True
+        sheet.column_dimensions["A"].width = 30
+        bottom_border = Border(bottom=Side(style="thin"))
+
+        for line in lines:
+            sheet.append([line.text])
+            cell = sheet.cell(row=sheet.max_row, column=1)
+            cell.alignment = Alignment(horizontal="right")
+            if line.ends_block:
+                cell.border = bottom_border
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        generated_at = int(timezone.now().timestamp())
+        name_slug = slugify(person.first_name_en) or "person"
+        filename = f"{name_slug}-kvitel-{generated_at}.xlsx"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        workbook.save(response)
+        return response
 
 
 class FamilyTreeView(FamilyRequiredMixin, DetailView):

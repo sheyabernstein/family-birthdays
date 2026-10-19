@@ -1,10 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Kvitel for {{ person.display_name }} - {{ block.super }}{% endblock %}
 {% block content %}
-    <button type="button"
-            class="btn kvitel-print-btn"
-            onclick="window.print()"
-            title="Print this kvitel, or save it as a PDF">Print</button>
+    <div class="kvitel-toolbar">
+        <button type="button"
+                class="btn"
+                onclick="window.print()"
+                title="Print this kvitel, or save it as a PDF">Print</button>
+        {% if lines %}
+            <a class="btn btn-outline"
+               href="{% url 'family:person_kvitel_export' person.uuid %}"
+               title="Download this kvitel as a spreadsheet">Export</a>
+        {% endif %}
+    </div>
     {% if lines %}
         <div class="kvitel-lines">
             {% for line in lines %}
