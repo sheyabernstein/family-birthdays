@@ -1902,6 +1902,12 @@ trix-editor:focus {
 
 /* --- Kvitel --- */
 
+.kvitel-toolbar {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
 .kvitel-lines {
   /* A single max-content column, not each row sizing itself - every
      line (and so every kvitel-line-ends-block border) ends up the same
@@ -1939,7 +1945,7 @@ trix-editor:focus {
 }
 
 @media print {
-  .kvitel-print-btn {
+  .kvitel-toolbar {
     display: none;
   }
 }

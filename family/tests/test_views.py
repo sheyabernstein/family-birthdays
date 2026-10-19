@@ -1410,6 +1410,45 @@ def test_person_kvitel_shows_an_empty_state_with_no_living_spouse_or_children(cl
     assert b"Nothing to show" in resp.content
 
 
+def test_person_kvitel_export_viewable_by_a_plain_member(client, family):
+    member = _member(family, FamilyMembership.Role.MEMBER)
+    husband = Person.objects.create(family=family, first_name_he="בעל", gender=Person.Gender.MALE)
+    wife = Person.objects.create(family=family, first_name_he="אישה", gender=Person.Gender.FEMALE)
+    Union.objects.create(person_a=husband, person_b=wife, status=Union.Status.MARRIED)
+    _login_as(client, member, family)
+
+    workbook = _export_workbook(client, f"/people/{husband.uuid}/kvitel/export/")
+
+    rows = list(workbook.active.iter_rows(values_only=True))
+    assert rows == [("בעל",), ("ז' אישה",)]
+
+
+def test_person_kvitel_export_marks_the_last_line_of_a_block_with_a_bottom_border(client, family):
+    owner = _member(family, FamilyMembership.Role.OWNER)
+    husband = Person.objects.create(family=family, first_name_he="בעל", gender=Person.Gender.MALE)
+    wife = Person.objects.create(family=family, first_name_he="אישה", gender=Person.Gender.FEMALE)
+    Union.objects.create(person_a=husband, person_b=wife, status=Union.Status.MARRIED)
+    Person.objects.create(family=family, first_name_he="ילד", father=husband, mother=wife)
+    _login_as(client, owner, family)
+
+    workbook = _export_workbook(client, f"/people/{husband.uuid}/kvitel/export/")
+
+    borders = [cell[0].border.bottom.style for cell in workbook.active.iter_rows()]
+    assert borders == [None, None, "thin"]
+
+
+def test_person_kvitel_export_404s_for_an_in_law_in_a_different_family(client, two_families):
+    family_a, family_b, account_a, _ = two_families
+    person_a = Person.objects.create(family=family_a, first_name_he="שלי")
+    person_b = Person.objects.create(family=family_b, first_name_he="חתן")
+    Union.objects.create(person_a=person_a, person_b=person_b)
+    _login_as(client, account_a, family_a)
+
+    resp = client.get(f"/people/{person_b.uuid}/kvitel/export/")
+
+    assert resp.status_code == 404
+
+
 def test_person_detail_shows_the_kvitel_button_only_when_there_is_something_to_show(client, family):
     owner = _member(family, FamilyMembership.Role.OWNER)
     alone = Person.objects.create(family=family, first_name_he="לבדו")
