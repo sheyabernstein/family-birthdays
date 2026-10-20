@@ -16,7 +16,7 @@ class PersonAdmin(VersionAdmin):
     )
     search_fields = ("first_name_en", "last_name_en", "first_name_he", "last_name_he", "nickname")
     list_filter = ("is_living", "gender")
-    autocomplete_fields = ("father", "mother")
+    autocomplete_fields = ("account", "father", "mother")
 
 
 @admin.register(Union)

@@ -19,6 +19,7 @@ class EventTypeAdmin(VersionAdmin):
     )
     list_select_related = ("family",)
     list_filter = ("family",)
+    search_fields = ("name", "code")
     autocomplete_fields = ("family",)
 
 
@@ -27,7 +28,7 @@ class NotificationPreferenceAdmin(VersionAdmin):
     list_display = ("account", "event_type", "state", "person", "union", "channel", "created_at")
     list_select_related = ("account", "event_type", "person", "union")
     list_filter = ("event_type", "state", "channel")
-    autocomplete_fields = ("account", "person", "union")
+    autocomplete_fields = ("account", "event_type", "person", "union")
 
 
 @admin.register(Occurrence)
@@ -49,6 +50,7 @@ class OccurrenceAdmin(admin.ModelAdmin):
     # field/a custom SimpleListFilter, which a property/JSONField can't
     # provide out of the box - dropped rather than faked.
     list_filter = ("event_type", "is_sent")
+    autocomplete_fields = ("person", "union", "event_type")
     date_hierarchy = "send_date"
 
 
