@@ -6,6 +6,7 @@ from tenants.models import Family, FamilyMembership
 
 @admin.register(Family)
 class FamilyAdmin(VersionAdmin):
+    autocomplete_fields = ("tree_root",)
     list_display = (
         "name",
         "email_sending_domain",

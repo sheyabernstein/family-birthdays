@@ -56,6 +56,7 @@ class OccurrenceAdmin(admin.ModelAdmin):
 class MessageAdmin(admin.ModelAdmin):
     list_display = ("destination", "channel", "subject", "status", "tries", "created_at")
     list_filter = ("channel", "status")
+    search_fields = ("destination",)
     readonly_fields = [f.name for f in Message._meta.fields]
 
 
@@ -64,5 +65,6 @@ class BroadcastAdmin(VersionAdmin):
     list_display = ("family", "text", "created_by", "send_at", "is_sent", "sent_at")
     list_select_related = ("family", "created_by")
     list_filter = ("family", "is_sent")
-    autocomplete_fields = ("created_by", "people")
+    search_fields = ("text",)
+    autocomplete_fields = ("created_by", "family", "people")
     date_hierarchy = "send_at"
