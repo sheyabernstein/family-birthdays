@@ -82,6 +82,12 @@ class MessageAdmin(admin.ModelAdmin):
         "destination",
         "occurrence__person__first_name_en",
         "occurrence__person__last_name_en",
+        "occurrence__union__person_a__first_name_en",
+        "occurrence__union__person_a__last_name_en",
+        "occurrence__union__person_b__first_name_en",
+        "occurrence__union__person_b__last_name_en",
+        "broadcast__people__first_name_en",
+        "broadcast__people__last_name_en",
     )
     readonly_fields = [f.name for f in Message._meta.fields]
 
