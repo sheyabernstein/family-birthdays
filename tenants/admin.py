@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from reversion.admin import VersionAdmin
 
 from tenants.models import Family, FamilyMembership
@@ -6,6 +8,7 @@ from tenants.models import Family, FamilyMembership
 
 @admin.register(Family)
 class FamilyAdmin(VersionAdmin):
+    autocomplete_fields = ("tree_root",)
     list_display = (
         "name",
         "email_sending_domain",
@@ -22,5 +25,14 @@ class FamilyAdmin(VersionAdmin):
 class FamilyMembershipAdmin(VersionAdmin):
     list_display = ("account", "family", "role", "joined_at")
     list_select_related = ("account", "family")
-    list_filter = ("role", "family")
+    # RelatedOnlyFieldListFilter - only families with a membership at all,
+    # not every family in the system.
+    list_filter = ("role", ("family", admin.RelatedOnlyFieldListFilter))
     autocomplete_fields = ("account", "family")
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[FamilyMembership]:
+        # account itself is already select_related above, but str(account)
+        # (what the "account" column actually renders) falls back to
+        # Account.display_name -> linked_person, a reverse-FK lookup
+        # select_related can't reach - see AccountAdmin's own get_queryset.
+        return super().get_queryset(request).prefetch_related("account__people")

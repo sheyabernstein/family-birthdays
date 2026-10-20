@@ -1,4 +1,7 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
+from django.utils.html import mark_safe
 from reversion.admin import VersionAdmin
 
 from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
@@ -18,7 +21,11 @@ class EventTypeAdmin(VersionAdmin):
         "notify_days_before",
     )
     list_select_related = ("family",)
-    list_filter = ("family",)
+    # RelatedOnlyFieldListFilter - only families with an event type at
+    # all, not every family in the system (most event types are the
+    # global defaults, family=None, anyway).
+    list_filter = (("family", admin.RelatedOnlyFieldListFilter),)
+    search_fields = ("name", "code")
     autocomplete_fields = ("family",)
 
 
@@ -27,7 +34,13 @@ class NotificationPreferenceAdmin(VersionAdmin):
     list_display = ("account", "event_type", "state", "person", "union", "channel", "created_at")
     list_select_related = ("account", "event_type", "person", "union")
     list_filter = ("event_type", "state", "channel")
-    autocomplete_fields = ("account", "person", "union")
+    autocomplete_fields = ("account", "event_type", "person", "union")
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[NotificationPreference]:
+        # str(account) (what the "account" column renders) falls back to
+        # Account.display_name -> linked_person, a reverse-FK lookup
+        # select_related can't reach - see AccountAdmin's own get_queryset.
+        return super().get_queryset(request).prefetch_related("account__people")
 
 
 @admin.register(Occurrence)
@@ -49,6 +62,15 @@ class OccurrenceAdmin(admin.ModelAdmin):
     # field/a custom SimpleListFilter, which a property/JSONField can't
     # provide out of the box - dropped rather than faked.
     list_filter = ("event_type", "is_sent")
+    search_fields = (
+        "person__first_name_en",
+        "person__last_name_en",
+        "union__person_a__first_name_en",
+        "union__person_a__last_name_en",
+        "union__person_b__first_name_en",
+        "union__person_b__last_name_en",
+    )
+    autocomplete_fields = ("person", "union", "event_type")
     date_hierarchy = "send_date"
 
 
@@ -56,13 +78,38 @@ class OccurrenceAdmin(admin.ModelAdmin):
 class MessageAdmin(admin.ModelAdmin):
     list_display = ("destination", "channel", "subject", "status", "tries", "created_at")
     list_filter = ("channel", "status")
+    search_fields = (
+        "destination",
+        "occurrence__person__first_name_en",
+        "occurrence__person__last_name_en",
+        "occurrence__union__person_a__first_name_en",
+        "occurrence__union__person_a__last_name_en",
+        "occurrence__union__person_b__first_name_en",
+        "occurrence__union__person_b__last_name_en",
+        "broadcast__people__first_name_en",
+        "broadcast__people__last_name_en",
+    )
     readonly_fields = [f.name for f in Message._meta.fields]
 
 
 @admin.register(Broadcast)
 class BroadcastAdmin(VersionAdmin):
-    list_display = ("family", "text", "created_by", "send_at", "is_sent", "sent_at")
+    list_display = ("family", "content", "created_by", "send_at", "is_sent", "sent_at")
     list_select_related = ("family", "created_by")
-    list_filter = ("family", "is_sent")
-    autocomplete_fields = ("created_by", "people")
+    # RelatedOnlyFieldListFilter - only families with a broadcast at all,
+    # not every family in the system.
+    list_filter = (("family", admin.RelatedOnlyFieldListFilter), "is_sent")
+    search_fields = ("text",)
+    autocomplete_fields = ("created_by", "family", "people")
     date_hierarchy = "send_at"
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Broadcast]:
+        # str(created_by) (what the "created_by" column renders) falls
+        # back to Account.display_name -> linked_person, a reverse-FK
+        # lookup select_related can't reach - see AccountAdmin's own
+        # get_queryset.
+        return super().get_queryset(request).prefetch_related("created_by__people")
+
+    @staticmethod
+    def content(obj: Broadcast) -> str:
+        return mark_safe(obj.text)

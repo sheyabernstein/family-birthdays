@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from reversion.admin import VersionAdmin
 
 from family.models import Person, Suggestion, Union
@@ -16,7 +18,7 @@ class PersonAdmin(VersionAdmin):
     )
     search_fields = ("first_name_en", "last_name_en", "first_name_he", "last_name_he", "nickname")
     list_filter = ("is_living", "gender")
-    autocomplete_fields = ("father", "mother")
+    autocomplete_fields = ("account", "father", "mother")
 
 
 @admin.register(Union)
@@ -58,3 +60,10 @@ class SuggestionAdmin(admin.ModelAdmin):
         "applied_revision",
         "link_applied_revision",
     )
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Suggestion]:
+        # str(submitted_by) (what the "submitted_by" column renders) falls
+        # back to Account.display_name -> linked_person, a reverse-FK
+        # lookup select_related can't reach - see AccountAdmin's own
+        # get_queryset.
+        return super().get_queryset(request).prefetch_related("submitted_by__people")
