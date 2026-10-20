@@ -20,7 +20,10 @@ class EventTypeAdmin(VersionAdmin):
         "notify_days_before",
     )
     list_select_related = ("family",)
-    list_filter = ("family",)
+    # RelatedOnlyFieldListFilter - only families with an event type at
+    # all, not every family in the system (most event types are the
+    # global defaults, family=None, anyway).
+    list_filter = (("family", admin.RelatedOnlyFieldListFilter),)
     search_fields = ("name", "code")
     autocomplete_fields = ("family",)
 
@@ -86,7 +89,9 @@ class MessageAdmin(admin.ModelAdmin):
 class BroadcastAdmin(VersionAdmin):
     list_display = ("family", "text", "created_by", "send_at", "is_sent", "sent_at")
     list_select_related = ("family", "created_by")
-    list_filter = ("family", "is_sent")
+    # RelatedOnlyFieldListFilter - only families with a broadcast at all,
+    # not every family in the system.
+    list_filter = (("family", admin.RelatedOnlyFieldListFilter), "is_sent")
     search_fields = ("text",)
     autocomplete_fields = ("created_by", "family", "people")
     date_hierarchy = "send_at"

@@ -25,7 +25,9 @@ class FamilyAdmin(VersionAdmin):
 class FamilyMembershipAdmin(VersionAdmin):
     list_display = ("account", "family", "role", "joined_at")
     list_select_related = ("account", "family")
-    list_filter = ("role", "family")
+    # RelatedOnlyFieldListFilter - only families with a membership at all,
+    # not every family in the system.
+    list_filter = ("role", ("family", admin.RelatedOnlyFieldListFilter))
     autocomplete_fields = ("account", "family")
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[FamilyMembership]:
