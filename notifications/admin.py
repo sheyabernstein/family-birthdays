@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.db.models import QuerySet
 from django.http import HttpRequest
+from django.utils.html import mark_safe
 from reversion.admin import VersionAdmin
 
 from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
@@ -87,7 +88,7 @@ class MessageAdmin(admin.ModelAdmin):
 
 @admin.register(Broadcast)
 class BroadcastAdmin(VersionAdmin):
-    list_display = ("family", "text", "created_by", "send_at", "is_sent", "sent_at")
+    list_display = ("family", "content", "created_by", "send_at", "is_sent", "sent_at")
     list_select_related = ("family", "created_by")
     # RelatedOnlyFieldListFilter - only families with a broadcast at all,
     # not every family in the system.
@@ -102,3 +103,7 @@ class BroadcastAdmin(VersionAdmin):
         # lookup select_related can't reach - see AccountAdmin's own
         # get_queryset.
         return super().get_queryset(request).prefetch_related("created_by__people")
+
+    @staticmethod
+    def content(obj: Broadcast) -> str:
+        return mark_safe(obj.text)
