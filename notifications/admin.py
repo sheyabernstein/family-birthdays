@@ -58,6 +58,14 @@ class OccurrenceAdmin(admin.ModelAdmin):
     # field/a custom SimpleListFilter, which a property/JSONField can't
     # provide out of the box - dropped rather than faked.
     list_filter = ("event_type", "is_sent")
+    search_fields = (
+        "person__first_name_en",
+        "person__last_name_en",
+        "union__person_a__first_name_en",
+        "union__person_a__last_name_en",
+        "union__person_b__first_name_en",
+        "union__person_b__last_name_en",
+    )
     autocomplete_fields = ("person", "union", "event_type")
     date_hierarchy = "send_date"
 
@@ -66,7 +74,11 @@ class OccurrenceAdmin(admin.ModelAdmin):
 class MessageAdmin(admin.ModelAdmin):
     list_display = ("destination", "channel", "subject", "status", "tries", "created_at")
     list_filter = ("channel", "status")
-    search_fields = ("destination",)
+    search_fields = (
+        "destination",
+        "occurrence__person__first_name_en",
+        "occurrence__person__last_name_en",
+    )
     readonly_fields = [f.name for f in Message._meta.fields]
 
 
