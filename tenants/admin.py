@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from reversion.admin import VersionAdmin
 
 from tenants.models import Family, FamilyMembership
@@ -25,3 +27,10 @@ class FamilyMembershipAdmin(VersionAdmin):
     list_select_related = ("account", "family")
     list_filter = ("role", "family")
     autocomplete_fields = ("account", "family")
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[FamilyMembership]:
+        # account itself is already select_related above, but str(account)
+        # (what the "account" column actually renders) falls back to
+        # Account.display_name -> linked_person, a reverse-FK lookup
+        # select_related can't reach - see AccountAdmin's own get_queryset.
+        return super().get_queryset(request).prefetch_related("account__people")

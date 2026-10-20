@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from reversion.admin import VersionAdmin
 
 from notifications.models import Broadcast, EventType, Message, NotificationPreference, Occurrence
@@ -29,6 +31,12 @@ class NotificationPreferenceAdmin(VersionAdmin):
     list_select_related = ("account", "event_type", "person", "union")
     list_filter = ("event_type", "state", "channel")
     autocomplete_fields = ("account", "event_type", "person", "union")
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[NotificationPreference]:
+        # str(account) (what the "account" column renders) falls back to
+        # Account.display_name -> linked_person, a reverse-FK lookup
+        # select_related can't reach - see AccountAdmin's own get_queryset.
+        return super().get_queryset(request).prefetch_related("account__people")
 
 
 @admin.register(Occurrence)
@@ -70,3 +78,10 @@ class BroadcastAdmin(VersionAdmin):
     search_fields = ("text",)
     autocomplete_fields = ("created_by", "family", "people")
     date_hierarchy = "send_at"
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Broadcast]:
+        # str(created_by) (what the "created_by" column renders) falls
+        # back to Account.display_name -> linked_person, a reverse-FK
+        # lookup select_related can't reach - see AccountAdmin's own
+        # get_queryset.
+        return super().get_queryset(request).prefetch_related("created_by__people")
