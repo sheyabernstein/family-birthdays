@@ -8,6 +8,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from hdate import HebrewDate
 from hdate.hebrew_date import Months
+from structlog.testing import capture_logs
 
 from accounts.models import Account
 from config.enums import TaskPriority
@@ -679,6 +680,48 @@ def test_send_due_notifications_still_sends_within_the_catchup_window(family, bi
     assert Message.objects.count() == 1
     occurrence.refresh_from_db()
     assert occurrence.is_sent is True
+
+
+def test_send_due_notifications_warns_when_a_due_occurrence_has_an_empty_audience(
+    family, birthday_event_type
+):
+    # The claim is_sent 0->1 happens before the audience is resolved, so
+    # an empty one silently consumes the occurrence - the warning is the
+    # only trace of it.
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    occurrence = Occurrence.objects.create(
+        person=person,
+        event_type=birthday_event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    with capture_logs() as logs:
+        send_due_notifications()
+
+    warnings = [entry for entry in logs if entry["log_level"] == "warning"]
+    assert len(warnings) == 1
+    assert warnings[0]["event"] == "occurrence has no recipients"
+    assert warnings[0]["occurrence"] == occurrence.uuid
+    assert warnings[0]["person"] == person.uuid
+
+
+def test_send_due_notifications_does_not_warn_when_an_occurrence_has_recipients(family, birthday_event_type):
+    person = Person.objects.create(family=family, first_name_en="Test", last_name_en="Person")
+    _member(family, email="test@example.com")
+    Occurrence.objects.create(
+        person=person,
+        event_type=birthday_event_type,
+        hebrew_year=5786,
+        occurrence_date=timezone.localdate(),
+        send_date=timezone.localdate(),
+    )
+
+    with capture_logs() as logs:
+        send_due_notifications()
+
+    assert not [entry for entry in logs if entry["log_level"] == "warning"]
 
 
 def test_send_due_notifications_discards_an_occurrence_beyond_the_catchup_window(family, birthday_event_type):
