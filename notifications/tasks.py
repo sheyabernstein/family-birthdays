@@ -593,6 +593,15 @@ def send_due_notifications() -> None:
             audience = resolve_audience(
                 event_type=occurrence.event_type, person=occurrence.person, union=occurrence.union
             )
+            if not audience:
+                logger.warning(
+                    "occurrence has no recipients",
+                    occurrence=occurrence.uuid,
+                    event_type=occurrence.event_type.code,
+                    occurrence_date=occurrence.occurrence_date,
+                    person=occurrence.person.uuid if occurrence.person else None,
+                    union=occurrence.union.uuid if occurrence.union else None,
+                )
             # Rendered once per (channel, viewer_family_id) actually
             # needed for this occurrence, not once per recipient - most
             # occurrences have several recipients on the same channel
