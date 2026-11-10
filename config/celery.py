@@ -17,6 +17,10 @@ app = Celery("family_birthdays")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
 
+# Connects the heartbeat_sent receiver - Celery's Heart only binds that signal
+# if a receiver already exists when the consumer builds it.
+import config.health  # noqa: E402,F401
+
 # Wires task_prerun/task_postrun/task_failure/task_retry to Prometheus task
 # metrics + a Sentry capture fallback - importing for its side effect of
 # connecting the receivers, same pattern as _use_structlog below.

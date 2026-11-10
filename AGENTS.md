@@ -135,6 +135,8 @@ that app's directory. See "Where to look next" below for the full list.
 - **`notifications.tasks.send_message` retries with exponential backoff**
   via Celery's own `autoretry_for`, and `TaskPriority` gives sign-in
   messages a real priority queue over background sweeps. (`notifications/AGENTS.md`)
+- **The worker's probe reads a heartbeat file, not `celery inspect ping`** -
+  no Celery interpreter per probe. (`config/AGENTS.md`)
 - **AWS SNS's 10 req/s account-wide limit is enforced with a Redis-backed
   global counter**, not Celery's own (per-worker-only) `rate_limit=`. (`notifications/AGENTS.md`)
 

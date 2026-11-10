@@ -57,10 +57,13 @@ services:
       - db
       - redis
     healthcheck:
-      test: [ "CMD-SHELL", "celery -A config inspect ping || exit 1" ]
+      test: [ "CMD-SHELL", "/app/docker/entrypoints/worker_healthcheck.sh live" ]
       interval: 30s
       timeout: 5s
-      retries: 10
+      retries: 3
+      # start_period stands in for Kubernetes' startupProbe - covers the
+      # migrate_with_lock wait before the first heartbeat can exist.
+      start_period: 120s
 
 volumes:
   db_data:
