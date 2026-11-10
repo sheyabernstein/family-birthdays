@@ -71,6 +71,29 @@ these build on.
   deliberately keeps the plain default too — a lost sign-in message is
   low-stakes (nothing persisted for it either way) and self-heals the
   moment the person waiting for it clicks "try again."
+- **The worker's health probe reads a heartbeat file, it doesn't run
+  Celery.** `celery inspect ping` boots a fresh Django/Celery interpreter
+  per probe. `config/health.py` instead has the worker write an epoch to
+  `/tmp/worker-alive` (on `heartbeat_sent`) and `/tmp/worker-ready` (on
+  `worker_ready`); `docker/entrypoints/worker_healthcheck.sh ready|live`
+  only compares one to the clock. `worker.sh` clears them on start and
+  `worker_shutdown` clears them on exit.
+  - **The 600s window is long on purpose.** During a broker outage Celery
+    sleeps in its reconnect backoff on the main thread, so neither
+    `heartbeat_sent` nor a worker-level timer fires - a wedged loop and a
+    Redis outage look identical to a main-thread writer. The window rides
+    out a brief blip; an outage that exhausts Celery's reconnect attempts
+    exits the worker anyway.
+  - **Beat has no file of its own.** With replicas, only the lock holder's
+    beat ever ticks - RedBeat blocks the standby in `beat_init` - so a
+    per-replica beat file would fail every standby. A dead leader heals by
+    lock expiry, and a Redis loss already kills the worker via
+    `ResilientRedBeatScheduler`.
+  - **`heartbeat_sent`'s receiver must exist before the consumer builds
+    Heart**, which only binds the signal if it has receivers then -
+    `config/celery.py` importing `config.health` guarantees it.
+  - **No readiness probe** - the worker serves no traffic. Use `ready` as
+    a startupProbe and `live` as the livenessProbe (commented in `worker.sh`).
 
 ## Site/network config
 

@@ -2,6 +2,11 @@
 
 set -e
 
+# Clear the previous run's health files before anything else - a restarted
+# container can reuse the same /tmp, and a leftover fresh file would let a
+# probe pass while this one is still migrating.
+rm -f "${WORKER_HEALTH_DIR:-/tmp}/worker-alive" "${WORKER_HEALTH_DIR:-/tmp}/worker-ready"
+
 python "/app/docker/scripts/wait_for_postgres.py"
 
 # Same migrate_with_lock call as web.sh, for the same reason - the worker
@@ -30,6 +35,15 @@ python manage.py migrate_with_lock
 # per-tier consumer process needed. See config.enums.TaskPriority's own
 # docstring for why this replaced Celery/kombu's native per-message Redis
 # priority (a live kombu bug, found the hard way against this exact stack).
+# Health probes (no Celery import - see config/health.py for why):
+#   startupProbe   /app/docker/entrypoints/worker_healthcheck.sh ready
+#   livenessProbe  /app/docker/entrypoints/worker_healthcheck.sh live
+# `live` fails once the worker's main loop has gone 600s
+# (WORKER_HEALTHCHECK_MAX_AGE) without beating - long enough to ride out a
+# brief Redis blip, since a broker outage stalls the same thread. Give the
+# startupProbe room for migrate_with_lock above (e.g. period 5s, failure
+# threshold 60), and use a period of ~30s for liveness. No readiness
+# probe: the worker serves no traffic, so it would only gate rollouts.
 exec /app/docker/entrypoints/_run_with_metrics.sh \
   celery -q -A config worker --beat \
   -l info \
