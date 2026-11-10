@@ -97,6 +97,15 @@ these build on.
 
 ## Site/network config
 
+- **The web container runs gunicorn with `--threads 4` per worker, a fixed
+  default with no env override.** It switches gunicorn to its threaded
+  worker so a slow request (the xlsx export, a big tree) doesn't occupy a
+  whole worker and starve `/readyz`. Django opens a connection per request
+  (`CONN_MAX_AGE` is unset), so open Postgres connections peak at
+  `WEB_CONCURRENCY x 4` per pod. **`--timeout` no longer kills a single
+  hung request** - it only checks the worker's own heartbeat - so a
+  per-request cap has to come from the ingress or Postgres's
+  `statement_timeout`. Threads don't help CPU-bound requests (the GIL).
 - **`SITE_BASE_URL` is one `proto://fqdn` setting, not a domain + a
   use-https flag, and not `django.contrib.sites`.** Used wherever an
   absolute URL needs building with no request in play -
