@@ -17,10 +17,10 @@ python manage.py migrate_with_lock
 # different path of its own for the same reason.
 export GUNICORN_CMD_ARGS="--control-socket /tmp/gunicorn.ctl"
 
-# --threads switches gunicorn to its threaded worker, so a slow request
-# (the xlsx export, a big tree) doesn't occupy a whole worker and starve
-# /readyz behind it. Side effect: --timeout then only checks the worker's
-# own heartbeat and no longer kills a single hung request.
+# --threads (WEB_THREADS) switches gunicorn to its threaded worker, so a
+# slow request (the xlsx export, a big tree) doesn't occupy a whole worker
+# and starve /readyz behind it. Side effect: --timeout then only checks the
+# worker's own heartbeat and no longer kills a single hung request.
 exec /app/docker/entrypoints/_run_with_metrics.sh \
   gunicorn config.wsgi:application \
   --config /app/config/gunicorn_conf.py \
