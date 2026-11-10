@@ -60,4 +60,7 @@ def _on_worker_ready(**_kwargs) -> None:
 @worker_shutdown.connect
 def _on_worker_shutdown(**_kwargs) -> None:
     for name in (WORKER_ALIVE, WORKER_READY):
-        (HEALTH_DIR / name).unlink(missing_ok=True)
+        try:
+            (HEALTH_DIR / name).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("could not remove health file", name=name, exc_info=exc)

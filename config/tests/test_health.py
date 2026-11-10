@@ -64,6 +64,16 @@ def test_worker_shutdown_removes_every_health_file(health_dir):
     assert _names(health_dir) == set()
 
 
+def test_worker_shutdown_swallows_a_removal_failure(health_dir, monkeypatch):
+    def deny(self, missing_ok=False):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "unlink", deny)
+
+    # Called directly - signal.send() would log and swallow the error itself.
+    health._on_worker_shutdown()
+
+
 def test_heartbeat_receiver_is_connected_by_importing_the_celery_app():
     # Celery's Heart only binds heartbeat_sent if it already has a receiver
     # when the consumer builds it - connecting later silently never fires.

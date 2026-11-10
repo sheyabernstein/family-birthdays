@@ -74,8 +74,8 @@ these build on.
 - **The worker's health probe reads a heartbeat file, it doesn't run
   Celery.** `celery inspect ping` boots a fresh Django/Celery interpreter
   per probe. `config/health.py` instead has the worker write an epoch to
-  `/tmp/worker-alive` (on `heartbeat_sent`) and `/tmp/worker-ready` (on
-  `worker_ready`); `docker/entrypoints/worker_healthcheck.sh ready|live`
+  `worker-alive` (on `heartbeat_sent`) and `worker-ready` (on
+  `worker_ready`) under `WORKER_HEALTH_DIR` (`/tmp` by default); `docker/entrypoints/worker_healthcheck.sh ready|live`
   only compares one to the clock. `worker.sh` clears them on start and
   `worker_shutdown` clears them on exit.
   - **The 600s window is long on purpose.** During a broker outage Celery
