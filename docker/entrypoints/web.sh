@@ -26,6 +26,6 @@ exec /app/docker/entrypoints/_run_with_metrics.sh \
   --config /app/config/gunicorn_conf.py \
   --bind "0.0.0.0:8000" \
   --name "$BUILD_NAME" \
-  --workers="${WEB_CONCURRENCY:-2}" \
-  --threads 4 \
+  --workers "${WEB_CONCURRENCY:-2}" \
+  --threads "${WEB_THREADS:-4}" \
   --timeout "${WEB_TIMEOUT:-30}"
